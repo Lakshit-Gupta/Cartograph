@@ -1,0 +1,29 @@
+# Lever company slugs. Loader hits:
+#   https://api.lever.co/v0/postings/{slug}?mode=json
+slugs:
+  - palantir
+  - netflix
+  - shopify
+  - twitch
+  - canva
+  - mixpanel
+  - getclever
+  - patreon
+  - betterstack
+  - launchdarkly
+  - figma
+  - kraken
+  - hellofresh
+  - chime
+  - lightspeed
+  - thoughtspot
+  - dropbox
+  - postman
+  - razorpay
+  - perplexity
+  - anysphere
+  - aha
+  - lever
+  - circleci
+  - automattic
+  - mapbox

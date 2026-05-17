@@ -1,0 +1,15 @@
+# Workable account slugs. Loader hits:
+#   https://apply.workable.com/api/v1/widget/accounts/{slug}
+slugs:
+  - bevy
+  - aircall
+  - lokalise
+  - 8x8
+  - clio
+  - typeform
+  - hopin
+  - andela
+  - sourcegraph
+  - blockchain
+  - circleci
+  - mux

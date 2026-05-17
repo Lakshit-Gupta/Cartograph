@@ -1,0 +1,295 @@
+x-env-common: &env-common
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: ${postgres_user}
+  POSTGRES_PASSWORD: ${postgres_password}
+  POSTGRES_DB: ${postgres_db}
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${redis_password}
+  OPENROUTER_API_KEY: ${openrouter_api_key}
+  OPENROUTER_MODEL_EXTRACTOR: ${openrouter_model_extractor}
+  OPENROUTER_MODEL_RERANKER: ${openrouter_model_reranker}
+  OPENROUTER_MODEL_CLASSIFIER: ${openrouter_model_classifier}
+  OPENROUTER_MODEL_WRITER: ${openrouter_model_writer}
+  RESEND_API_KEY: ${resend_api_key}
+  RESEND_FROM_EMAIL: ${resend_from_email}
+  DISCORD_BOT_TOKEN: ${discord_bot_token}
+  DISCORD_GUILD_ID: ${discord_guild_id}
+  TELEGRAM_API_ID: ${telegram_api_id}
+  TELEGRAM_API_HASH: ${telegram_api_hash}
+  REDDIT_CLIENT_ID: ${reddit_client_id}
+  REDDIT_CLIENT_SECRET: ${reddit_client_secret}
+  REDDIT_USER_AGENT: ${reddit_user_agent}
+  GMAIL_OAUTH_CLIENT_ID: ${gmail_oauth_client_id}
+  GMAIL_OAUTH_CLIENT_SECRET: ${gmail_oauth_client_secret}
+  GMAIL_OAUTH_REFRESH_TOKEN: ${gmail_oauth_refresh_token}
+  GMAIL_USER: ${gmail_user}
+  GMAIL_WORKER_USER: ${gmail_worker_user}
+  GMAIL_WORKER_APP_PASSWORD: ${gmail_worker_app_password}
+  R2_ACCESS_KEY: ${r2_access_key}
+  R2_SECRET_KEY: ${r2_secret_key}
+  R2_BUCKET: ${r2_bucket}
+  R2_ACCOUNT_ID: ${r2_account_id}
+  LIBSODIUM_MASTER_KEY_HEX: ${libsodium_master_key_hex}
+  COST_CAP_DAILY_USD: ${cost_cap_daily_usd}
+  COST_CAP_DAILY_KILL_USD: ${cost_cap_daily_kill_usd}
+  FLARESOLVERR_URL: ${flaresolverr_url}
+  PYTHONUNBUFFERED: "1"
+  TZ: ${TZ:-Asia/Kolkata}
+
+x-restart-policy: &restart-policy
+  restart: unless-stopped
+
+x-jobs-bot-image: &jobs-bot-image
+  build:
+    context: .
+    dockerfile: docker/jobs-bot.Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    <<: *restart-policy
+    environment:
+      POSTGRES_USER: ${postgres_user}
+      POSTGRES_PASSWORD: ${postgres_password}
+      POSTGRES_DB: ${postgres_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - /mnt/storage/wal_archive:/wal_archive
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${postgres_user} -d ${postgres_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # NO host port published — Docker network only
+
+  redis:
+    image: redis:7-alpine
+    <<: *restart-policy
+    command:
+      - redis-server
+      - --requirepass
+      - ${redis_password}
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory
+      - 200mb
+      - --maxmemory-policy
+      - noeviction
+      - --rename-command
+      - FLUSHALL
+      - ""
+      - --rename-command
+      - CONFIG
+      - ""
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # NO host port published
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    <<: *restart-policy
+    environment:
+      LOG_LEVEL: info
+      LOG_HTML: "false"
+      CAPTCHA_SOLVER: none
+      TZ: ${TZ:-Asia/Kolkata}
+    networks:
+      - internal
+
+  camoufox-worker:
+    build:
+      context: .
+      dockerfile: docker/camoufox.Dockerfile
+    <<: *restart-policy
+    environment:
+      <<: *env-common
+      WORKER_KIND: browser
+    mem_limit: 1g
+    memswap_limit: 1g
+    tmpfs:
+      - /tmp:size=512m
+      - /home/camoufox/.cache:size=256m
+    deploy:
+      replicas: 3
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  jobs-scheduler:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.scheduler"]
+    environment: *env-common
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  crawler-worker:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.crawler"]
+    environment: *env-common
+    deploy:
+      replicas: 3
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  extractor-worker:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.extractor_worker"]
+    environment: *env-common
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  applier-worker:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.applier"]
+    environment: *env-common
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  identity-warmup:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.identity_warmup"]
+    environment: *env-common
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ranker-worker:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.ranker_worker"]
+    environment: *env-common
+    volumes:
+      - models_cache:/app/.cache/models
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notifier-discord:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.notifier_worker"]
+    environment:
+      <<: *env-common
+      DISCORD_CHANNEL_DAILY_DIGEST:  ${discord_channel_daily_digest}
+      DISCORD_CHANNEL_PRIORITY_PUSH: ${discord_channel_priority_push}
+      DISCORD_CHANNEL_FULLTIME:      ${discord_channel_fulltime}
+      DISCORD_CHANNEL_INTERNSHIPS:   ${discord_channel_internships}
+      DISCORD_CHANNEL_FELLOWSHIPS:   ${discord_channel_fellowships}
+      DISCORD_CHANNEL_FREELANCE:     ${discord_channel_freelance}
+      DISCORD_CHANNEL_APPLIED:       ${discord_channel_applied}
+      DISCORD_CHANNEL_RESPONSES:     ${discord_channel_responses}
+      DISCORD_CHANNEL_INTERVIEWS:    ${discord_channel_interviews}
+      DISCORD_CHANNEL_OFFERS:        ${discord_channel_offers}
+      DISCORD_CHANNEL_ALERTS:        ${discord_channel_alerts}
+      DISCORD_CHANNEL_COSTS:         ${discord_channel_costs}
+      DISCORD_CHANNEL_SOURCE_HEALTH: ${discord_channel_source_health}
+      DISCORD_CHANNEL_BOT_LOGS:      ${discord_channel_bot_logs}
+    volumes:
+      - ${obsidian_vault_path:-/mnt/storage/obsidian_vault}:/vault
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  gmail-watcher:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.gmail_worker"]
+    environment: *env-common
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-service:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "9090"]
+    environment: *env-common
+    networks:
+      - internal
+      - public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Exposed only via cloudflared / tailscale; internal port 9090 stays on Docker network
+
+  tools:
+    build:
+      context: .
+      dockerfile: docker/tools.Dockerfile
+    environment: *env-common
+    profiles: ["tools"]
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pg_data:
+  redis_data:
+  models_cache:
+
+networks:
+  internal:
+    driver: bridge
+    internal: false  # needs egress for OpenRouter/Discord/Resend; restricted via cloudflared ACLs
+  public:
+    driver: bridge

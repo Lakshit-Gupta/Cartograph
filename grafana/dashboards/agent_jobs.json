@@ -1,0 +1,159 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Opportunities ingested (last 1h)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(extract_tier_distribution[1h])) * 3600", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "type": "stat",
+      "title": "Applications sent today",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(applications_sent_total[24h]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "LLM cost today (USD)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(increase(llm_cost_usd_total[24h]))", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "type": "stat",
+      "title": "CF clearance solve rate",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        { "expr": "avg(cf_clearance_solve_rate)", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "green", "value": 0.7 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fetch latency (p50/p95 by tier)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum by (le,tier) (rate(fetch_latency_seconds_bucket[5m])))", "refId": "P50" },
+        { "expr": "histogram_quantile(0.95, sum by (le,tier) (rate(fetch_latency_seconds_bucket[5m])))", "refId": "P95" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Extractor tier distribution",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "sum by (tier) (rate(extract_tier_distribution[5m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Fetch errors by class",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "sum by (class) (rate(fetch_errors_total[5m]))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CF challenge appeared rate",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        { "expr": "cf_challenge_appeared_rate", "refId": "A" },
+        { "expr": "cf_checking_browser_persistent_per_hour", "refId": "B" },
+        { "expr": "cf_attention_required_body_per_hour", "refId": "C" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis stream backlog",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "targets": [
+        { "expr": "redis_stream_length", "refId": "A", "legendFormat": "{{stream}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Identity ban status counts",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "targets": [
+        { "expr": "identity_ban_status_count", "refId": "A", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Postgres connections",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 30 },
+      "targets": [ { "expr": "postgres_connections", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Outcomes (24h)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 30 },
+      "targets": [
+        { "expr": "sum by (type) (increase(outcome_events_total[24h]))", "refId": "A", "legendFormat": "{{type}}" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Digest size (latest)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 30 },
+      "targets": [ { "expr": "digest_size", "refId": "A" } ]
+    },
+    {
+      "type": "stat",
+      "title": "LLM refusals (cost cap)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 30 },
+      "targets": [ { "expr": "sum(increase(llm_refusals_total[24h]))", "refId": "A" } ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["marked_path", "agent_jobs"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Marked_Path — Agent Jobs",
+  "uid": "marked-path-agent-jobs",
+  "version": 1,
+  "weekStart": ""
+}

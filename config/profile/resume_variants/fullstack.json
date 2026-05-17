@@ -1,0 +1,7 @@
+{
+  "_template_note": "Fullstack variant. Emphasize React/Next + API + DB end-to-end shipping.",
+  "label": "fullstack",
+  "headline": "Fullstack engineer — Next.js, TypeScript, Python, Postgres",
+  "summary": "Fullstack engineer who ships features end-to-end: frontend with Next.js + Tailwind, API in FastAPI / Node, Postgres data layer, deployed via Docker.",
+  "lean_keywords": ["nextjs","react","typescript","tailwind","fastapi","node","postgres","vercel","prisma","trpc"]
+}

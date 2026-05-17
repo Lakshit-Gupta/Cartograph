@@ -1,0 +1,59 @@
+# Fellowship targets. Most are HTML scrapes; tier-1 selectors live in
+# src/extractors/tier1_selectors/<slug>.py — fall back to tier-2 LLM.
+
+fellowships:
+  - slug: fellow_anthropic
+    name: Anthropic Fellows
+    url: https://www.anthropic.com/jobs
+    keywords: ["fellow", "fellowship", "residency"]
+    apply_method: external
+    deadline_known: false
+
+  - slug: fellow_mats
+    name: MATS — ML Alignment & Theory Scholars
+    url: https://www.matsprogram.org/
+    keywords: ["mats", "scholar"]
+    apply_method: external
+    deadline_known: true
+
+  - slug: fellow_openai_res
+    name: OpenAI Residency
+    url: https://openai.com/careers/?team=residency
+    keywords: ["residency", "resident"]
+    apply_method: external
+
+  - slug: fellow_ml_collect
+    name: ML Collective
+    url: https://mlcollective.org/
+    keywords: ["fellow", "research"]
+    apply_method: email
+
+  - slug: fellow_cohere
+    name: Cohere For AI — Scholars / Fellows
+    url: https://cohere.com/research/scholars-program
+    keywords: ["scholar", "for ai"]
+    apply_method: external
+
+  - slug: fellow_hf
+    name: HuggingFace Fellows
+    url: https://huggingface.co/blog?tag=fellows
+    keywords: ["hugging face", "fellow"]
+    apply_method: external
+
+  - slug: fellow_yc
+    name: YC Founder Fellowship
+    url: https://www.ycombinator.com/companies
+    keywords: ["yc", "y combinator", "fellow"]
+    apply_method: external
+
+  - slug: fellow_recurse
+    name: Recurse Center
+    url: https://www.recurse.com/
+    keywords: ["recurse"]
+    apply_method: external
+
+  - slug: fellow_southpark
+    name: South Park Commons
+    url: https://www.southparkcommons.com/fellowship
+    keywords: ["spc", "fellowship"]
+    apply_method: external

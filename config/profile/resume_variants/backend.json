@@ -1,0 +1,7 @@
+{
+  "_template_note": "Backend-leaning variant. Bullet rewrites emphasize systems, infra, perf, reliability.",
+  "label": "backend",
+  "headline": "Backend engineer — Python, Postgres, Docker, distributed systems",
+  "summary": "Backend / infra engineer comfortable building durable async systems on Linux. Comfortable owning the full stack from container orchestration to query plans.",
+  "lean_keywords": ["postgres","redis","docker","linux","python","async","systemd","prometheus","grafana","fastapi","asyncpg","sqlalchemy","kafka","queues"]
+}

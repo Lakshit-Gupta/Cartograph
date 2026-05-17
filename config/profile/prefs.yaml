@@ -1,0 +1,55 @@
+# Geographic + lane preferences.
+geo:
+  prefer_remote: true
+  prefer_countries: ["India","Remote","United States","Singapore","United Kingdom","Germany","Canada"]
+  block_countries: []
+  willing_to_relocate: ["Bangalore","Hyderabad","Pune","Mumbai","Delhi NCR","Remote"]
+  timezone_overlap_hours_min: 4
+
+lanes:
+  enabled:
+    - fulltime
+    - internship
+    - fellowship
+    - freelance
+  weights:                       # adjust per-lane ranker weight
+    fulltime: 1.0
+    internship: 1.0
+    fellowship: 0.9
+    freelance: 1.1               # speed lane = slight bias
+
+quiet_hours:
+  start: "23:00"
+  end: "07:30"
+  timezone: "Asia/Kolkata"
+
+digest:
+  daily_time: "08:00"
+  daily_size: 10
+  freelance_priority_threshold: 0.75   # opps above this score get #⚡-priority-push
+  pin_companies: []                    # company names you always want surfaced
+
+apply:
+  daily_target: 5
+  weekly_cap: 35
+  default_method: "auto"               # auto = use opp.apply_method
+  require_user_confirm_above_score: 0.90   # below this, ask before applying
+  resume_variant_default: "backend"
+
+ranker:
+  weights:
+    kw_match: 0.25
+    embedding_sim: 0.30
+    comp_score: 0.15
+    freshness: 0.10
+    source_quality: 0.10
+    response_rate: 0.10
+  recency_half_life_hours: 36
+  enable_llm_rerank: true
+  llm_rerank_top_k: 30
+
+routing:
+  fulltime_channel_key: fulltime
+  internship_channel_key: internships
+  fellowship_channel_key: fellowships
+  freelance_channel_key: freelance

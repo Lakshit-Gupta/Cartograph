@@ -1,0 +1,55 @@
+{
+  "_template_note": "Replace with your real resume. The ranker reads `skills`, `experience[].title`, `experience[].keywords`, and `summary`. The resume_tailor LLM reads the whole doc.",
+  "basics": {
+    "name": "Lakshit Gupta",
+    "email": "mrinal.bhardwaj41@gmail.com",
+    "phone": "+91-XXXXXXXXXX",
+    "location": "India",
+    "links": {
+      "github": "https://github.com/",
+      "linkedin": "https://linkedin.com/in/",
+      "portfolio": ""
+    },
+    "summary": "Backend / infra-leaning engineer comfortable across Python, TypeScript, Go. Builds self-hosted systems, CI/CD, data pipelines, agentic tooling."
+  },
+  "education": [
+    {
+      "school": "REPLACE",
+      "degree": "REPLACE",
+      "field": "REPLACE",
+      "start": "YYYY-MM",
+      "end": "YYYY-MM",
+      "gpa": null
+    }
+  ],
+  "experience": [
+    {
+      "company": "REPLACE",
+      "title": "REPLACE",
+      "start": "YYYY-MM",
+      "end": "YYYY-MM",
+      "remote": true,
+      "bullets": [
+        "Quantified achievement #1.",
+        "Quantified achievement #2."
+      ],
+      "keywords": ["python", "postgres", "docker"]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Marked_Path",
+      "url": "https://github.com/yourhandle/Marked_Path",
+      "summary": "Autonomous 24/7 job pipeline on Raspberry Pi 5.",
+      "keywords": ["python","docker","postgres","redis","llm","scraping"]
+    }
+  ],
+  "skills": {
+    "languages":   ["python","typescript","go","sql","bash"],
+    "frameworks":  ["fastapi","react","next.js","discord.py"],
+    "infra":       ["docker","postgres","redis","linux","systemd","prometheus","grafana"],
+    "ml":          ["sentence-transformers","embeddings","openrouter","langchain"],
+    "other":       ["sops","age","tailscale","cloudflare"]
+  },
+  "interests": ["agentic systems","infra","applied ML","ds/algo"]
+}

@@ -1,0 +1,7 @@
+{
+  "_template_note": "AI/ML applied variant. Emphasize LLM integration, embeddings, RAG, evaluation, agentic systems.",
+  "label": "ml",
+  "headline": "Applied AI engineer — LLMs, RAG, embeddings, agentic systems",
+  "summary": "Applied AI engineer focused on production LLM systems: RAG pipelines, evaluation harnesses, agentic tool-use, observability.",
+  "lean_keywords": ["llm","embedding","rag","openai","anthropic","openrouter","langchain","pinecone","weaviate","sentence-transformers","evaluation","agentic","mcp","langgraph"]
+}

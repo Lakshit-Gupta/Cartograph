@@ -1,0 +1,57 @@
+# Greenhouse company slugs. Loader hits:
+#   https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true
+# Add or remove freely — daily sync just re-reads this file.
+# Curated for backend / fullstack / ML / India-friendly targets.
+
+slugs:
+  - anthropic
+  - openai
+  - cohere
+  - huggingface
+  - replicate
+  - perplexityai
+  - inflection
+  - elevenlabs
+  - mistral
+  - charactertechnologies
+  - airbnb
+  - stripe
+  - figma
+  - notion
+  - linear
+  - vercel
+  - retool
+  - pulumi
+  - snyk
+  - lyft
+  - asana
+  - elastic
+  - segment
+  - reddit
+  - mongodb
+  - confluent
+  - cockroachlabs
+  - planetscale
+  - supabase
+  - neon
+  - grafanalabs
+  - hashicorp
+  - timescale
+  - clickhouse
+  - apolloio
+  - airtable
+  - amplitude
+  - posthog
+  - sentry
+  - launchdarkly
+  - mercury
+  - ramp
+  - brex
+  - razorpay
+  - paytm
+  - zerodha
+  - cred
+  - postman
+  - browserstack
+  - turing
+  - fareye

@@ -1,0 +1,52 @@
+# Forum tags applied to threads in #💼-fulltime, #🎓-internships,
+# #🏆-fellowships, #💸-freelance.
+# Tag IDs filled by bot on first startup via /init-tags command.
+forum_tags:
+  fulltime:
+    - { name: "remote",        emoji: "🌐" }
+    - { name: "onsite",        emoji: "🏢" }
+    - { name: "hybrid",        emoji: "🔀" }
+    - { name: "india-ok",      emoji: "🇮🇳" }
+    - { name: "h1b-ok",        emoji: "🇺🇸" }
+    - { name: "senior",        emoji: "🧓" }
+    - { name: "mid",           emoji: "🧑‍💻" }
+    - { name: "junior",        emoji: "🌱" }
+    - { name: "backend",       emoji: "🛠" }
+    - { name: "fullstack",     emoji: "🪡" }
+    - { name: "ml",            emoji: "🧠" }
+    - { name: "infra",         emoji: "⚙️" }
+    - { name: "needs-review",  emoji: "🔎" }
+
+  internships:
+    - { name: "summer-2026",   emoji: "☀️" }
+    - { name: "winter-2026",   emoji: "❄️" }
+    - { name: "year-round",    emoji: "🔁" }
+    - { name: "stipend-good",  emoji: "💰" }
+    - { name: "ppo-likely",    emoji: "🎯" }
+    - { name: "remote",        emoji: "🌐" }
+    - { name: "india",         emoji: "🇮🇳" }
+
+  fellowships:
+    - { name: "research",      emoji: "🔬" }
+    - { name: "applied",       emoji: "🧪" }
+    - { name: "alignment",     emoji: "🛟" }
+    - { name: "stipend",       emoji: "💰" }
+    - { name: "deadline-soon", emoji: "⏰" }
+
+  freelance:
+    - { name: "hot",           emoji: "🔥" }
+    - { name: "long-term",     emoji: "🗓" }
+    - { name: "fixed-price",   emoji: "💵" }
+    - { name: "hourly",        emoji: "⏱" }
+    - { name: "upwork",        emoji: "📨" }
+    - { name: "contra",        emoji: "🪪" }
+    - { name: "reddit",        emoji: "🟠" }
+    - { name: "telegram",      emoji: "✈️" }
+
+  applied:
+    - { name: "ghosted",       emoji: "👻" }
+    - { name: "rejected",      emoji: "❌" }
+    - { name: "interview",     emoji: "🎤" }
+    - { name: "offer",         emoji: "🎯" }
+    - { name: "withdrawn",     emoji: "↩️" }
+    - { name: "needs-followup",emoji: "📌" }

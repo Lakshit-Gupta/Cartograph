@@ -1,0 +1,28 @@
+# Ashby org slugs. Loader hits:
+#   https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true
+slugs:
+  - openai
+  - anthropic
+  - linear
+  - vercel
+  - posthog
+  - supabase
+  - neon
+  - inngest
+  - resend
+  - clerk
+  - turso
+  - upstash
+  - planetscale
+  - polar
+  - val.town
+  - railway
+  - render
+  - hex
+  - modal
+  - hugging-face
+  - meilisearch
+  - typesense
+  - dub
+  - cal
+  - papermark

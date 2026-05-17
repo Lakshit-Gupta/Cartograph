@@ -1,0 +1,58 @@
+# CF evasion tier chain. Higher tiers are slower / costlier.
+# Per-source override comes from sources.tier_chain column.
+tiers:
+  0:
+    name: curl_cffi_chrome131
+    description: curl_cffi 0.7+ with chrome131 impersonate + cached cf_clearance
+    rps_cap: 2
+    cost_cents_per_req: 0
+    timeout_s: 30
+  1:
+    name: flaresolverr_cookie
+    description: FlareSolverr Docker — cookie broker only, NOT scraping
+    rps_cap: 0.2
+    cost_cents_per_req: 0
+    timeout_s: 60
+  2:
+    name: camoufox_xvfb
+    description: camoufox 0.4+ (Firefox) + Xvfb + ghost-cursor
+    rps_cap: 0.5
+    cost_cents_per_req: 0
+    timeout_s: 90
+  3:
+    name: cdp_sidecar
+    description: DEFERRED — used ThinkCentre M720q running standalone Chrome via CDP
+    rps_cap: 0.5
+    cost_cents_per_req: 0
+    timeout_s: 90
+    enabled: false
+  4:
+    name: zenrows
+    description: ZenRows premium ($7.49 / 1000) — cost-gated, not default
+    rps_cap: 1
+    cost_cents_per_req: 0.749
+    timeout_s: 60
+    enabled: true
+    daily_request_cap: 100
+  5:
+    name: brightdata
+    description: Bright Data Scraping Browser — manual whitelist only
+    rps_cap: 0.5
+    cost_cents_per_req: 1.5
+    timeout_s: 120
+    enabled: false
+
+# Per-source overrides (mirrors V003 seed)
+overrides:
+  fellow_anthropic:  [0, 1, 2]
+  in_internshala:    [0, 1]
+  in_inc42:          [0, 1, 2]
+  in_yourstory:      [0, 1, 2]
+  fl_contra:         [0, 1, 2]
+
+# Auto-promotion rules: if tier-N solve rate drops below X over 1h, escalate
+auto_promote:
+  failures_window_minutes: 60
+  failure_threshold_rate: 0.4
+  promote_to_next_tier: true
+  cost_gate_daily_usd: 1.00       # do not promote past tier 3 if today's CF spend > $1

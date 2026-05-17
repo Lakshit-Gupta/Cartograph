@@ -1,0 +1,56 @@
+# Routing rules: opp.category + opp.source.category → discord channel key.
+# Channel IDs themselves live in secrets.yaml.
+
+defaults:
+  daily_digest_channel: daily_digest
+  priority_push_channel: priority_push
+  alerts_channel: alerts
+  costs_channel: costs
+  source_health_channel: source_health
+  bot_logs_channel: bot_logs
+
+per_lane:
+  fulltime:
+    channel: fulltime
+    forum: true
+    embed_color: 0x4f46e5         # indigo
+
+  internship:
+    channel: internships
+    forum: true
+    embed_color: 0x10b981         # emerald
+
+  fellowship:
+    channel: fellowships
+    forum: true
+    embed_color: 0xf59e0b         # amber
+
+  freelance:
+    channel: freelance
+    forum: true
+    embed_color: 0xec4899         # pink
+    push_threshold: 0.75          # score >= 0.75 → also push to priority_push
+
+  contract:
+    channel: freelance
+    forum: true
+    embed_color: 0x8b5cf6         # violet
+
+  unknown:
+    channel: daily_digest
+    forum: false
+    embed_color: 0x6b7280         # gray
+
+tracker:
+  applied:    { channel: applied,    forum: true }
+  responses:  { channel: responses,  forum: false }
+  interviews: { channel: interviews, forum: true }
+  offers:     { channel: offers,     forum: false }
+
+alerts:
+  source_quarantined:  { channel: source_health, mention_owner: true }
+  identity_banned:     { channel: alerts,        mention_owner: true }
+  cost_cap_reached:    { channel: costs,         mention_owner: true }
+  pipeline_silent_5m:  { channel: alerts,        mention_owner: true }
+  digest_failed:       { channel: alerts,        mention_owner: true }
+  apply_rate_under_target_9pm: { channel: alerts, mention_owner: true }

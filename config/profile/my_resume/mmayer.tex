@@ -1,0 +1,296 @@
+\documentclass[10pt,a4paper,ragged2e]{altacv}
+\geometry{left=2cm,right=10cm,marginparwidth=6.8cm,marginparsep=1.2cm,top=1.25cm,bottom=1.25cm}
+\ifxetexorluatex
+  \setmainfont{Carlito}
+\else
+  \usepackage[utf8]{inputenc}
+  \usepackage[T1]{fontenc}
+  \usepackage[default]{lato}
+  \usepackage{hyperref}
+  \hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=blue,
+    pdftitle={Overleaf Example},
+    pdfpagemode=FullScreen,
+    }
+\fi
+\definecolor{VividPurple}{HTML}{000000}
+\definecolor{SlateGrey}{HTML}{2E2E2E}
+\definecolor{LightGrey}{HTML}{2E2E2E}
+\colorlet{heading}{VividPurple}
+\colorlet{accent}{VividPurple}
+\colorlet{emphasis}{SlateGrey}
+\colorlet{body}{LightGrey}
+\renewcommand{\itemmarker}{{\small\textbullet}}
+\renewcommand{\ratingmarker}{\faCircle}
+\addbibresource{sample.bib}
+
+\begin{document}
+\name{LAKSHIT GUPTA}
+\tagline{Software Engineer}
+% Cropped to square from https://en.wikipedia.org/wiki/Marissa_Mayer#/media/File:Marissa_Mayer_May_2014_(cropped).jpg, CC-BY 2.0
+%\photo{3.3cm}{profile.jpg}
+\personalinfo{%
+  % Not all of these are required!
+  % You can add your own with \printinfo{symbol}{detail}
+  \phone{+91-8588851907}
+  \email{contact@lakshit.dev}
+%   \phone{000-00-0000}
+%  \mailaddress{Address, Street, 00000 County}
+  \location{Delhi NCR - India}
+%  \homepage{marissamayr.tumblr.com/}
+%  \twitter{@marissamayer}
+  \linkedin{\href{https://www.linkedin.com/in/lakshit-gupta-dev/}{Linkedin}}
+  \github{\href{https://github.com/Lakshit-Gupta}{Github}}
+  \leetcode{\href{https://leetcode.com/u/lakshit_gupta_/}{Leetcode}}
+%   \orcid{orcid.org/0000-0000-0000-0000} % Obviously making this up too. If you want to use this field (and also other academicons symbols), add "academicons" option to \documentclass{altacv}
+}
+
+%% Make the header extend all the way to the right, if you want.
+\begin{fullwidth}
+\makecvheader
+\end{fullwidth}
+
+%% Depending on your tastes, you may want to make fonts of itemize environments slightly smaller
+\AtBeginEnvironment{itemize}{\small}
+
+%% Provide the file name containing the sidebar contents as an optional parameter to \cvsection.
+%% You can always just use \marginpar{...} if you do
+%% not need to align the top of the contents to any
+%% \cvsection title in the "main" bar.
+\cvsection[page1sidebar]{Experience}
+
+\cvevent {\textbf{SDE Intern}}{\href{https://itjobxs.com/}{ITJobxs.com}}{\textbf{June 2025 -- Aug 2025}}{ \textbf{Gurugram, India}}
+% \begin{itemize}
+% \item Worked on the DashBoard, Navbar, and Different Sections of the Website Like Lecture Uploading
+% Section of an \textbf{E-Learning Portal}, Product Uploading Section of \textbf{E-Commerce Section} of Website.
+% \smallskip
+% \item Working with the \textbf{team on the design}, development, and \textbf{Integration of API}.
+% \smallskip
+% \item \textbf{Optimised the Existing Code} using React Hooks like useMemo Hook & useCallback Hook.
+% \smallskip
+% \item Worked on \textbf{Data Verification, API Integration, Designing and Creating New Components}  Using
+% ReactJS, React Styled Components.
+% \end{itemize}
+% \begin{itemize}
+% \item \textbf{Designed and developed} a fully responsive webpage for the Interview Experiences section of DesiQnA platform.
+% \smallskip
+% \item Implemented user verification system to \textbf{detect and remove fake bot accounts}, including email domain validation using a \textbf{hashmap of 100+ verified domains} to filter spam registrations. 
+
+% % \smallskip
+% \item Integrated \textbf{Google reCAPTCHA} as a security layer to prevent automated bot registrations and spam posts.
+% \smallskip
+% \item \textbf{Tech Stack:} HTML, CSS, JavaScript, Bootstrap, PHP, MySQL.
+% \end{itemize}
+\begin{itemize}
+\item \textbf{Designed and developed} a fully responsive webpage for the Interview Experiences section, improving user accessibility and platform engagement.
+\smallskip
+\item Implemented user verification system to \textbf{detect and remove fake bot accounts}, reducing spam registrations by \textbf{70-80\%} through email domain validation using a \textbf{hashmap of 100+ verified domains}.
+\smallskip
+\item Integrated \textbf{Google reCAPTCHA}, eliminating \textbf{90\%+ automated bot registrations} and preventing spam posts, resolving critical database overflow issue.
+\smallskip
+\item \textbf{Tech Stack:} HTML, CSS, JavaScript, Bootstrap, PHP, MySQL.
+\end{itemize}
+\\
+\divider
+%\divider
+
+\cvsection{Achievements}
+\smallskip
+\begin{itemize} 
+\item Solved over \textbf{500+ coding questions} across LeetCode and CodeChef.
+\smallskip
+\item Achieved \textbf{3-Star Rating (1600+)} on CodeChef.
+\smallskip
+\item Secured \textbf{Rank 5 in Smart India Hackathon on Campus} and \textbf{Rank 3 in Zerodha Varsity Campus Quiz}.
+\smallskip
+\item Secured \textbf{1st Place in Bug Finding Competition} organized by GeeksforGeeks involving DSA problem debugging.\\
+\end{itemize}
+% \begin{itemize} 
+
+% \item Scored \textbf{Grade A} in all Modules of AMCAT 2022 Exam.
+% \smallskip
+% \item Scored \textbf{21st Rank in overall EEE Branch} in the college till 4th Semester with \textbf{9.414 GPA}.
+% \smallskip
+% \item Made \textbf{48 Personal Projects} in Web Development (Frontend + Backend) using Different Web Technologies.
+% \smallskip
+% \item Solved Over \textbf{250 Coding Questions} on Different Coding Websites.\\
+% \end{itemize}
+% \\
+% \cvsection{TECHNICAL SKILLS}
+% \begin{itemize}
+% \item \large{\textbf{Programming Languages}}
+%   \begin{itemize}
+%   \smallskip
+%     \item \textbf{C++} 
+% \item \textbf{C}
+% \item \textbf{Javascript}
+%   \end{itemize}
+%   \smallskip
+%   \item \large{\textbf{Frameworks \& Libraries}} 
+%   \begin{itemize}
+%   \smallskip
+%   \smallskip
+%    \item \textbf{HTML}, \textbf{CSS}
+% \item \textbf{ReactJS}, \textbf{NodeJS}, \textbf{ExpressJS}  
+% \item \textbf{MongoDB}, \textbf{Firebase}, \textbf{SanityIO} 
+% \item \textbf{Bootstrap}, \textbf{Tailwind CSS}, \textbf{Material UI} 
+%   \end{itemize}
+%   \smallskip
+%   \smallskip
+%   \item \large{\textbf{Version Control}}
+%   \begin{itemize}
+%   \smallskip
+%     \item \textbf{Git}
+%     \item \textbf{Github}
+%   \end{itemize}
+%    \smallskip
+%   \smallskip
+%   \item \large{\textbf{Other Tools}}
+%   \begin{itemize}
+%   \smallskip
+%     \item \textbf{Postman} 
+%     \item \textbf{Netlify} 
+%   \end{itemize}
+% \end{itemize}
+% % \paragraph{Programming Languages} 
+% % \smallskip
+% % \begin{itemize}
+% % \item C++ 
+% % \item C
+% % \item Javascript
+% % \end{itemize}
+% % \paragraph{Frameworks \& Libraries} \; 
+% % \smallskip
+% % \smallskip
+% % \begin{itemize}
+% % \item \textbf{HTML}, \textbf{CSS}, \textbf{Javascript}
+% % \item \textbf{ReactJS}, \textbf{NodeJS}, \textbf{ExpressJS}  
+% % \item \textbf{MongoDB}, \textbf{Firebase}, \textbf{SanityIO} 
+% % \item \textbf{Bootstrap}, \textbf{Tailwind CSS}, \textbf{Material UI} 
+% % \end{itemize}
+% \smallskip
+
+% \cvsection{Coursework Subjects} 
+% \smallskip
+% \begin{itemize}
+% \item \textbf{Operating System}
+% \item \textbf{Computer Networks}
+% \item \textbf{Object Oriented Programming}
+% \item \textbf{Database Management System}
+% \smallskip
+% \end{itemize}
+\\
+\cvsection{TECHNICAL SKILLS}
+\begin{itemize}
+\item \large{\textbf{Programming Languages}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{C++}, \textbf{C}, \textbf{Java}, \textbf{Python}, \textbf{JavaScript}, \textbf{TypeScript}, \textbf{Rust}, \textbf{Go}
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{Back-end Development}} 
+  \begin{itemize}
+  \smallskip
+   \item \textbf{Node.js}, \textbf{Express.js}, \textbf{FastAPI}, \textbf{PHP}
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{Front-end Development}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{React.js},\textbf{Next.js}, \textbf{React Native}, \textbf{HTML}, \textbf{CSS} ,\textbf{Bootstrap}, \textbf{Tailwind CSS}
+    % \item  ,\textbf{Bootstrap}, \textbf{Tailwind CSS}
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{Databases}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{MongoDB}, \textbf{MySQL}, \textbf{Firebase}, \textbf{Supabase}, \textbf{NeonDB}, \textbf{Prisma}, \textbf{DynamoDB}
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{Cloud}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{AWS and GCP:} EC2, S3, Lambda, DynamoDB, SNS, SQS, CloudTrail, EventBridge, CloudFormation, EKS, ECR , Cloud Functions, Firebase
+    % \item \textbf{GCP:} Cloud Functions, Firebase
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{AI/ML}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{LangChain}, \textbf{LangGraph}, \textbf{Agentic RAG}, \textbf{MCP}, \textbf{Tool Calling}
+    \item \textbf{Model Training}, \textbf{Fine-tuning}, \textbf{APIs}, \textbf{Google Colab}
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{Tools}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{Git}, \textbf{GitHub}, \textbf{Docker}, \textbf{Postman}, \textbf{Kubernetes}, \textbf{Jupyter Notebook }
+  \end{itemize}
+  \smallskip
+  
+\item \large{\textbf{Other Skills}}
+  \begin{itemize}
+  \smallskip
+    \item \textbf{Data Structures}, \textbf{Algorithms}, \textbf{Problem Solving}
+  \end{itemize}
+\end{itemize}
+\smallskip
+
+% \cvevent{Product Engineer}{Google}{23 June 1999 -- 2001}{Palo Alto, CA}
+
+% \begin{itemize}
+% \item Joined the company as employe \#20 and female employee \#1
+% \item Developed targeted advertisement in order to use user's search queries and show them related ads
+% \end{itemize}
+
+%\cvsection{A Day of My Life}
+
+% Adapted from @Jake's answer from http://tex.stackexchange.com/a/82729/226
+% \wheelchart{outer radius}{inner radius}{
+% comma-separated list of value/text width/color/detail}
+% Some ad-hoc tweaking to adjust the labels so that they don't overlap
+% \wheelchart{1.5cm}{0.5cm}{%
+%   10/10em/accent!30/Sleeping \& dreaming about work,
+%   25/9em/accent!60/Public resolving issues with Yahoo!\ investors,
+%   5/13em/accent!10/\footnotesize\\[1ex]New York \& San Francisco Ballet Jawbone board member,
+%   20/15em/accent!40/Spending time with family,
+%   5/8em/accent!20/\footnotesize Business development for Yahoo!\ after the Verizon acquisition,
+%   30/9em/accent/Showing Yahoo!\ employees that their work has meaning,
+%   5/8em/accent!20/Baking cupcakes
+% }
+
+\clearpage
+
+% \cvsection[page2sidebar]{Publications}
+
+\nocite{*}
+
+% \printbibliography[heading=pubtype,title={\printinfo{\faBook}{Books}},type=book]
+
+% \divider
+
+% \printbibliography[heading=pubtype,title={\printinfo{\faFileTextO}{Journal Articles}}, type=article]
+
+% \divider
+
+% \printbibliography[heading=pubtype,title={\printinfo{\faGroup}{Conference Proceedings}},type=inproceedings]
+
+% %% If the NEXT page doesn't start with a \cvsection but you'd
+% %% still like to add a sidebar, then use this command on THIS
+% %% page to add it. The optional argument lets you pull up the
+% %% sidebar a bit so that it looks aligned with the top of the
+% %% main column.
+% % \addnextpagesidebar[-1ex]{page3sidebar}
+
+
+\end{document}
+

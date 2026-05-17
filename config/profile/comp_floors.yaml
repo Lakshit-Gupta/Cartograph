@@ -1,0 +1,31 @@
+# Comp floors. Opps below floor get filtered or heavily penalized.
+# Currencies: INR for India, USD for everywhere else, EUR for EU.
+floors:
+  internship:
+    inr_per_month: 25000
+    usd_per_month: 800
+  fulltime:
+    inr_per_year: 1200000        # 12 LPA
+    usd_per_year: 70000
+  freelance:
+    usd_per_hour: 25
+    inr_per_hour: 1500
+  fellowship:
+    # Many fellowships are stipend-only; allow lower floor
+    usd_per_month: 1000
+    inr_per_month: 50000
+
+# Hard filters — opp gets state='expired' if comp is below these
+hard_floors:
+  internship_inr_per_month: 10000
+  fulltime_inr_per_year: 600000
+  freelance_usd_per_hour: 10
+
+# Currency conversion fallback (refreshed weekly via cron, this is seed)
+fx_rates_usd:
+  INR: 0.012
+  EUR: 1.08
+  GBP: 1.26
+  CAD: 0.74
+  SGD: 0.74
+  AUD: 0.66

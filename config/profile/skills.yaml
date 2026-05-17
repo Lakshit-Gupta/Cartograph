@@ -1,0 +1,78 @@
+# Skill matrix. Levels: 1=beginner, 2=working, 3=proficient, 4=expert.
+# Ranker weights matches against opp description tokens.
+core:
+  python: 4
+  typescript: 3
+  go: 2
+  sql: 3
+  bash: 3
+  rust: 1
+
+backend:
+  fastapi: 3
+  django: 2
+  flask: 2
+  nodejs: 3
+  express: 2
+  postgres: 3
+  redis: 3
+  mysql: 2
+  kafka: 1
+  rabbitmq: 1
+
+frontend:
+  react: 3
+  nextjs: 3
+  tailwind: 3
+  svelte: 1
+
+infra:
+  docker: 4
+  compose: 4
+  kubernetes: 2
+  linux: 4
+  systemd: 3
+  cloudflare: 3
+  tailscale: 3
+  prometheus: 3
+  grafana: 3
+  github_actions: 3
+  sops: 3
+  age: 3
+
+ml:
+  embeddings: 3
+  sentence_transformers: 3
+  openai_api: 3
+  anthropic_api: 3
+  openrouter: 3
+  rag: 2
+  fine_tuning: 1
+  pytorch: 2
+
+scraping_automation:
+  playwright: 3
+  selenium: 2
+  curl_cffi: 3
+  beautifulsoup: 3
+  feedparser: 3
+  cloudflare_bypass: 3
+
+cloud:
+  aws: 2
+  gcp: 2
+  cloudflare_r2: 3
+  vercel: 2
+
+other:
+  git: 4
+  agile: 3
+  technical_writing: 3
+
+# Negative keywords — opps mentioning these get a score penalty
+disqualifiers:
+  - blockchain_mandatory
+  - php_legacy
+  - sap_abap
+  - mainframe
+  - cobol
