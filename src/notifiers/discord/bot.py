@@ -48,7 +48,7 @@ def _default_intents() -> discord.Intents:
 
 
 class Bot(discord.Client):
-    """Marked_Path notifier bot. Owns gateway + notify-stream consumer."""
+    """Cartograph notifier bot (display name: Hop). Owns gateway + notify-stream consumer."""
 
     def __init__(self, *, intents: discord.Intents | None = None) -> None:
         super().__init__(intents=intents or _default_intents())

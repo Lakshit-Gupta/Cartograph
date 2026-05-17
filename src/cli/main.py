@@ -14,7 +14,7 @@ from src.common.db import acquire, close_pool, init_pool
 
 @click.group()
 def cli() -> None:
-    """Marked_Path admin CLI."""
+    """cartograph admin CLI."""
 
 
 @cli.command()

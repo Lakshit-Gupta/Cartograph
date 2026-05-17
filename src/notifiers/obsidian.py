@@ -73,7 +73,7 @@ async def write_opp_note(
     def _write() -> None:
         with path.open("a", encoding="utf-8") as fh:
             if is_new:
-                fh.write(f"# {today.isoformat()} — Marked_Path opps\n")
+                fh.write(f"# {today.isoformat()} — cartograph opps\n")
             fh.write(section)
             os.fsync(fh.fileno())
 

@@ -134,8 +134,8 @@ async def chat(
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": os.environ.get("OPENROUTER_REFERER", "https://github.com/marked-path"),
-        "X-Title": "marked-path",
+        "HTTP-Referer": os.environ.get("OPENROUTER_REFERER", "https://github.com/cartograph"),
+        "X-Title": "cartograph",
     }
     if extra_headers:
         headers.update(extra_headers)

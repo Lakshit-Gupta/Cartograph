@@ -3,7 +3,7 @@
 # Reports cf_clearance_solve_rate post-run. Pass criterion: rate >= 0.7.
 
 set -euo pipefail
-cd /home/lakshit_gupta/coding/Marked_Path
+cd /home/lakshit_gupta/coding/cartograph
 
 SOURCE_SLUG=${1:-fl_contra}
 N=${2:-10}

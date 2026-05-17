@@ -24,7 +24,7 @@ async def init_pool(min_size: int = 2, max_size: int = 10) -> asyncpg.Pool:
             min_size=min_size,
             max_size=max_size,
             command_timeout=30,
-            server_settings={"application_name": "marked_path"},
+            server_settings={"application_name": "cartograph"},
         )
         _log.info("postgres_pool_ready", min_size=min_size, max_size=max_size)
     return _pool

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Marked_Path first-time bootstrap. RUN ON THE PI ONLY — never on the dev laptop.
+# cartograph first-time bootstrap. RUN ON THE PI ONLY — never on the dev laptop.
 # Handles: swap, fonts, log dir, WAL archive dir, fsck flag, host port reservations.
 
 set -euo pipefail
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-    echo "Marked_Path bootstrap targets Linux only." >&2
+    echo "cartograph bootstrap targets Linux only." >&2
     exit 1
 fi
 
@@ -14,9 +14,9 @@ if [[ "$EUID" -ne 0 ]]; then
     exit 1
 fi
 
-if [[ "$(hostname)" == *"dev"* || -z "${MARKED_PATH_PI_CONFIRM:-}" ]]; then
-    echo "Refusing to run unless MARKED_PATH_PI_CONFIRM=1 is set in env." >&2
-    echo "Set MARKED_PATH_PI_CONFIRM=1 only on the Raspberry Pi." >&2
+if [[ "$(hostname)" == *"dev"* || -z "${CARTOGRAPH_PI_CONFIRM:-}" ]]; then
+    echo "Refusing to run unless CARTOGRAPH_PI_CONFIRM=1 is set in env." >&2
+    echo "Set CARTOGRAPH_PI_CONFIRM=1 only on the Raspberry Pi." >&2
     exit 1
 fi
 
@@ -60,7 +60,7 @@ echo "[6/6] Pre-flight verify"
 docker --version
 docker compose version
 
-echo "[7/7] Install Marked_Path cron entries (backup, restore drill, pg_amcheck)"
+echo "[7/7] Install cartograph cron entries (backup, restore drill, pg_amcheck)"
 bash scripts/install_cron.sh
 
 echo
@@ -68,4 +68,4 @@ echo "Bootstrap complete. Next steps:"
 echo "  1) sops --encrypt --age <pubkey> --in-place secrets.yaml"
 echo "  2) make up"
 echo "  3) make migrate && make seed"
-echo "  4) Verify cron: crontab -l | grep marked_path_cron  (expect 3 entries)"
+echo "  4) Verify cron: crontab -l | grep cartograph_cron  (expect 3 entries)"

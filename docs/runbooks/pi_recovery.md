@@ -12,7 +12,7 @@
 
 2. **Docker Compose restart** is automatic (`restart: unless-stopped`). Verify on first SSH after recovery:
    ```bash
-   cd /home/lakshit_gupta/coding/Marked_Path
+   cd /home/lakshit_gupta/coding/cartograph
    docker compose ps
    ```
    All services should be `Up`. If `postgres` is `Restarting`, jump to step 4.
@@ -55,7 +55,7 @@
    bash scripts/restore_drill.sh
    # then promote drill DB into pg_data volume by editing pg_data mount target
    ```
-4. Re-run bootstrap: `MARKED_PATH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh`.
+4. Re-run bootstrap: `CARTOGRAPH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh`.
 5. Pull SOPS-encrypted secrets.yaml from git, decrypt with age key (copy from secure offline backup).
 6. `make up && make migrate && make seed`.
 
@@ -72,7 +72,7 @@
    ```
 4. Wipe + restore:
    ```bash
-   docker volume rm marked_path_pg_data
+   docker volume rm cartograph_pg_data
    docker compose up -d postgres
    sleep 10
    docker compose exec -T postgres pg_restore -U marked -d marked --clean --if-exists < /path/to/decrypted.dump
@@ -82,7 +82,7 @@
 
 ## Cron entries
 
-Cron entries managed by `scripts/install_cron.sh`. After SD reflash, re-run `MARKED_PATH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh` and confirm `crontab -l | grep marked_path_cron` shows 3 entries (nightly backup at 03:30, weekly restore drill Sunday 04:00, nightly `pg_amcheck` at 05:00).
+Cron entries managed by `scripts/install_cron.sh`. After SD reflash, re-run `CARTOGRAPH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh` and confirm `crontab -l | grep cartograph_cron` shows 3 entries (nightly backup at 03:30, weekly restore drill Sunday 04:00, nightly `pg_amcheck` at 05:00).
 
 ## Acceptance
 

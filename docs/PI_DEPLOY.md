@@ -1,8 +1,8 @@
-# Marked_Path — Pi 5 deploy
+# cartograph — Pi 5 deploy
 
 End-to-end deploy of Phase 1 on a fresh DietPi (or any Debian-based Linux) Raspberry Pi 5. Estimated time: **45-90 min** assuming you've completed Phase-0 user actions in advance.
 
-> Do **NOT** run any of this on your dev laptop. The bootstrap script gates on `MARKED_PATH_PI_CONFIRM=1` so accidental runs no-op.
+> Do **NOT** run any of this on your dev laptop. The bootstrap script gates on `CARTOGRAPH_PI_CONFIRM=1` so accidental runs no-op.
 
 ---
 
@@ -13,7 +13,7 @@ These are signups + content. None require the Pi.
 | # | Item | Where | Time |
 |---|---|---|---|
 | 1 | OpenRouter API key | https://openrouter.ai | 10m |
-| 2 | New Discord application + bot token | https://discord.com/developers/applications | 10m |
+| 2 | New Discord application named **Hop** + bot token | https://discord.com/developers/applications | 10m |
 | 3 | Discord server + categories + channels (see `CLAUDE.md § Discord server layout`) | your existing server | 20m |
 | 4 | Cloudflare Email Routing — catch-all + aliases (`jobs+wellfound@`, `jobs+cuvette@`, `jobs+contra@`, `jobs+unstop@`, `applications@`, `upwork-worker@`, `bot@`) | https://dash.cloudflare.com | 20m |
 | 5 | Resend account + verify sender domain | https://resend.com | 15m |
@@ -34,8 +34,8 @@ These are signups + content. None require the Pi.
 ssh you@pi.local
 
 # Clone
-git clone <YOUR_REPO_URL> ~/coding/Marked_Path
-cd ~/coding/Marked_Path
+git clone <YOUR_REPO_URL> ~/coding/cartograph
+cd ~/coding/cartograph
 
 # Install Docker + Docker Compose if not already (DietPi ships them; otherwise):
 curl -fsSL https://get.docker.com | sudo sh
@@ -52,8 +52,8 @@ rm sops-v3.9.1.linux.arm64
 
 # rclone (for R2 backups)
 sudo apt-get install -y rclone
-mkdir -p /etc/marked_path
-sudo nano /etc/marked_path/rclone.conf
+mkdir -p /etc/cartograph
+sudo nano /etc/cartograph/rclone.conf
 # Paste:
 #   [r2]
 #   type = s3
@@ -64,11 +64,11 @@ sudo nano /etc/marked_path/rclone.conf
 #   region = auto
 
 # age recipients file (one line, public age key)
-sudo nano /etc/marked_path/age_recipients.txt   # one age1... key per line
+sudo nano /etc/cartograph/age_recipients.txt   # one age1... key per line
 
 # Run the Pi-specific bootstrap (creates swap, fonts, log dirs, WAL archive dir,
 # fsck flag, installs the cron entries)
-MARKED_PATH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh
+CARTOGRAPH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh
 ```
 
 `bootstrap.sh` step 7 calls `install_cron.sh` which writes 3 entries to your crontab:
@@ -76,7 +76,7 @@ MARKED_PATH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh
 - weekly restore drill at Sunday 04:00 UTC
 - nightly `pg_amcheck` at 05:00 UTC
 
-Verify with `crontab -l | grep marked_path_cron`.
+Verify with `crontab -l | grep cartograph_cron`.
 
 ---
 
@@ -226,7 +226,7 @@ Run these in order. The plan's exit criteria for Phase 1.
 
 ## 8. Monitoring after go-live
 
-- Grafana dashboard: load `grafana/dashboards/agent_jobs.json` into your existing Grafana via dashboard import (UID `marked-path-agent-jobs`).
+- Grafana dashboard: load `grafana/dashboards/agent_jobs.json` into your existing Grafana via dashboard import (UID `cartograph-agent-jobs`).
 - Prometheus target: add `<pi>:9090` to your Prometheus `scrape_configs`.
 - Alerts route to `#🔔-alerts` automatically via the notifier worker.
 

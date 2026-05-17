@@ -38,8 +38,8 @@
   ],
   "projects": [
     {
-      "name": "Marked_Path",
-      "url": "https://github.com/yourhandle/Marked_Path",
+      "name": "cartograph",
+      "url": "https://github.com/yourhandle/cartograph",
       "summary": "Autonomous 24/7 job pipeline on Raspberry Pi 5.",
       "keywords": ["python","docker","postgres","redis","llm","scraping"]
     }

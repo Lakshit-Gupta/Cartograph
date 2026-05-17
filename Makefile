@@ -1,10 +1,10 @@
 .PHONY: help install fmt lint type test up down logs migrate seed reset psql redis-cli backup restore-drill bootstrap-pi audit-deps
 
-ROOT := /home/lakshit_gupta/coding/Marked_Path
+ROOT := /home/lakshit_gupta/coding/cartograph
 SOPS_ENV := sops exec-env secrets.yaml
 
 help:
-	@echo "Marked_Path targets:"
+	@echo "cartograph targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
 install: ## uv sync (creates .venv)

@@ -49,7 +49,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
             )
 
             embed = discord.Embed(
-                title="Marked_Path — pipeline status",
+                title="cartograph — pipeline status",
                 color=discord.Color(0x10B981),
                 timestamp=datetime.now(UTC),
             )

@@ -3,10 +3,10 @@
 # verifies schema + row counts match production, then tears down.
 
 set -euo pipefail
-cd /home/lakshit_gupta/coding/Marked_Path
+cd /home/lakshit_gupta/coding/cartograph
 
-TMPDB_CONTAINER="marked_path_restore_drill"
-TMPFS_VOLUME="marked_path_restore_tmpfs"
+TMPDB_CONTAINER="cartograph_restore_drill"
+TMPFS_VOLUME="cartograph_restore_tmpfs"
 
 cleanup() {
     docker rm -f "$TMPDB_CONTAINER" >/dev/null 2>&1 || true
@@ -17,7 +17,7 @@ trap cleanup EXIT
 # 1. Pull latest backup from R2
 TMP_DIR=$(mktemp -d)
 sops exec-env secrets.yaml '
-  rclone --config /etc/marked_path/rclone.conf copy --include "*.age" --max-age 24h r2:'$r2_bucket'/postgres/ "'"$TMP_DIR"'"/
+  rclone --config /etc/cartograph/rclone.conf copy --include "*.age" --max-age 24h r2:'$r2_bucket'/postgres/ "'"$TMP_DIR"'"/
 '
 LATEST_AGE=$(ls -1t "$TMP_DIR"/*.age | head -1)
 if [[ -z "$LATEST_AGE" ]]; then

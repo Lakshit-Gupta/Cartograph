@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await close_pool()
 
 
-app = FastAPI(title="Marked_Path API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Cartograph API", version="0.1.0", lifespan=lifespan)
 app.include_router(health_router)
 app.include_router(metrics_router)
 app.include_router(admin_router)

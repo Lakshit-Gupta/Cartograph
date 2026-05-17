@@ -246,6 +246,94 @@ geoip = [
 ]
 
 [[package]]
+name = "cartograph"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aioimaplib" },
+    { name = "apscheduler" },
+    { name = "asyncpg" },
+    { name = "camoufox", extra = ["geoip"] },
+    { name = "click" },
+    { name = "curl-cffi" },
+    { name = "discord-py" },
+    { name = "fastapi" },
+    { name = "feedparser" },
+    { name = "httpx" },
+    { name = "numpy" },
+    { name = "pgvector" },
+    { name = "playwright" },
+    { name = "prometheus-client" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pynacl" },
+    { name = "pyyaml" },
+    { name = "redis", extra = ["hiredis"] },
+    { name = "resend" },
+    { name = "scikit-learn" },
+    { name = "selectolax" },
+    { name = "sentence-transformers" },
+    { name = "structlog" },
+    { name = "telethon" },
+    { name = "tenacity" },
+    { name = "tzdata" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "fakeredis" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aioimaplib", specifier = ">=1.1.0" },
+    { name = "apscheduler", specifier = ">=3.10.0" },
+    { name = "asyncpg", specifier = ">=0.29.0" },
+    { name = "camoufox", extras = ["geoip"], specifier = ">=0.4.10" },
+    { name = "click", specifier = ">=8.1.0" },
+    { name = "curl-cffi", specifier = ">=0.7.0" },
+    { name = "discord-py", specifier = ">=2.4.0" },
+    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.24.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "feedparser", specifier = ">=6.0.11" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11.0" },
+    { name = "numpy", specifier = ">=1.26.0" },
+    { name = "pgvector", specifier = ">=0.3.0" },
+    { name = "playwright", specifier = ">=1.46.0" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.8.0" },
+    { name = "prometheus-client", specifier = ">=0.20.0" },
+    { name = "pydantic", specifier = ">=2.8.0" },
+    { name = "pydantic-settings", specifier = ">=2.4.0" },
+    { name = "pynacl", specifier = ">=1.5.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "redis", extras = ["hiredis"], specifier = ">=5.0.7" },
+    { name = "resend", specifier = ">=2.4.0" },
+    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
+    { name = "scikit-learn", specifier = ">=1.5.0" },
+    { name = "selectolax", specifier = ">=0.3.21" },
+    { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "structlog", specifier = ">=24.4.0" },
+    { name = "telethon", specifier = ">=1.36.0" },
+    { name = "tenacity", specifier = ">=9.0.0" },
+    { name = "tzdata", specifier = ">=2024.1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "certifi"
 version = "2026.4.22"
 source = { registry = "https://pypi.org/simple" }
@@ -946,94 +1034,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/06/ff/7841249c247aa650a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl", hash = "sha256:9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a", size = 91687, upload-time = "2026-05-07T12:08:27.182Z" },
 ]
-
-[[package]]
-name = "marked-path"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aioimaplib" },
-    { name = "apscheduler" },
-    { name = "asyncpg" },
-    { name = "camoufox", extra = ["geoip"] },
-    { name = "click" },
-    { name = "curl-cffi" },
-    { name = "discord-py" },
-    { name = "fastapi" },
-    { name = "feedparser" },
-    { name = "httpx" },
-    { name = "numpy" },
-    { name = "pgvector" },
-    { name = "playwright" },
-    { name = "prometheus-client" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pynacl" },
-    { name = "pyyaml" },
-    { name = "redis", extra = ["hiredis"] },
-    { name = "resend" },
-    { name = "scikit-learn" },
-    { name = "selectolax" },
-    { name = "sentence-transformers" },
-    { name = "structlog" },
-    { name = "telethon" },
-    { name = "tenacity" },
-    { name = "tzdata" },
-    { name = "uvicorn", extra = ["standard"] },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "fakeredis" },
-    { name = "mypy" },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "respx" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aioimaplib", specifier = ">=1.1.0" },
-    { name = "apscheduler", specifier = ">=3.10.0" },
-    { name = "asyncpg", specifier = ">=0.29.0" },
-    { name = "camoufox", extras = ["geoip"], specifier = ">=0.4.10" },
-    { name = "click", specifier = ">=8.1.0" },
-    { name = "curl-cffi", specifier = ">=0.7.0" },
-    { name = "discord-py", specifier = ">=2.4.0" },
-    { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.24.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "feedparser", specifier = ">=6.0.11" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11.0" },
-    { name = "numpy", specifier = ">=1.26.0" },
-    { name = "pgvector", specifier = ">=0.3.0" },
-    { name = "playwright", specifier = ">=1.46.0" },
-    { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.8.0" },
-    { name = "prometheus-client", specifier = ">=0.20.0" },
-    { name = "pydantic", specifier = ">=2.8.0" },
-    { name = "pydantic-settings", specifier = ">=2.4.0" },
-    { name = "pynacl", specifier = ">=1.5.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "redis", extras = ["hiredis"], specifier = ">=5.0.7" },
-    { name = "resend", specifier = ">=2.4.0" },
-    { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.0" },
-    { name = "scikit-learn", specifier = ">=1.5.0" },
-    { name = "selectolax", specifier = ">=0.3.21" },
-    { name = "sentence-transformers", specifier = ">=3.0.0" },
-    { name = "structlog", specifier = ">=24.4.0" },
-    { name = "telethon", specifier = ">=1.36.0" },
-    { name = "tenacity", specifier = ">=9.0.0" },
-    { name = "tzdata", specifier = ">=2024.1" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "markupsafe"

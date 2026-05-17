@@ -1,4 +1,6 @@
-# Marked_Path — Project Context for Claude
+# Cartograph — Project Context for Claude
+
+> Repo/system: **Cartograph** · Discord bot identity: **Hop**
 
 > Source of truth: `/home/lakshit_gupta/.claude/plans/virtual-splashing-pine.md`. Read that plan when full detail is needed. This file is the working summary every session loads.
 
@@ -17,13 +19,13 @@ Autonomous 24/7 job / internship / fellowship / freelance pipeline running on a 
 ## Project root (locked)
 
 ```
-/home/lakshit_gupta/coding/Marked_Path/
+/home/lakshit_gupta/coding/cartograph/
 ```
 
 Every build session begins with:
 
 ```bash
-cd /home/lakshit_gupta/coding/Marked_Path/
+cd /home/lakshit_gupta/coding/cartograph/
 ```
 
 All paths in plan/docs/code are relative to this root unless an absolute path is given. No `agent-jobs/` subfolder — root is flattened.
@@ -89,7 +91,7 @@ rename-command CONFIG ""
 ## Folder structure (locked)
 
 ```
-Marked_Path/
+cartograph/
 ├── pyproject.toml              # uv-managed deps
 ├── compose.yaml                # Docker Compose (all containers)
 ├── secrets.yaml                # SOPS-encrypted (committed)
@@ -520,7 +522,7 @@ Bot perms scoped to JOBS category only: `Manage Threads`, `Send Messages`, `Crea
 |---|---|
 | Single bot or separate? | Separate jobs bot (NEW Discord application) — **NOT** a PiClaw cog |
 | Bot display name | **Hop** (Grace Hopper — built the first compiler, 1952; coined "debugging" after the moth). Double meaning: the bot literally hops between 28+ sources daily. Sibling to user's existing `Ada` personal assistant — both named for women who founded computing. |
-| Repo / codename | `marked-path` (internal); system metaphor = `Cartograph` (used in docs/microcopy) |
+| Repo / codename | `cartograph` (internal); system metaphor = `Cartograph` (used in docs/microcopy) |
 | Server | Same existing personal server (Hop = 2nd bot member alongside Ada) |
 | Perm scope | JOBS category only |
 | Slash command prefix | None — own bot owns own commands |
@@ -873,7 +875,7 @@ If 12/12 pass: pipeline is production-ready for solo use. First 5 manual applies
 
 ## Working conventions for Claude
 
-- **Always** `cd /home/lakshit_gupta/coding/Marked_Path/` at the start of a build session.
+- **Always** `cd /home/lakshit_gupta/coding/cartograph/` at the start of a build session.
 - **Never** add an `agent-jobs/` (or any other) wrapper folder. Root is flat.
 - **Never** set `synchronous_commit=off` or disable `full_page_writes` on Postgres. Power-fail risk is real (no UPS).
 - **Never** publish Postgres or Redis ports to the host. Docker network only.

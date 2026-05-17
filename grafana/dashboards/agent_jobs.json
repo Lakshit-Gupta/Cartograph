@@ -147,13 +147,13 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["marked_path", "agent_jobs"],
+  "tags": ["cartograph", "agent_jobs"],
   "templating": { "list": [] },
   "time": { "from": "now-24h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Marked_Path — Agent Jobs",
-  "uid": "marked-path-agent-jobs",
+  "title": "cartograph — Agent Jobs",
+  "uid": "cartograph-agent-jobs",
   "version": 1,
   "weekStart": ""
 }

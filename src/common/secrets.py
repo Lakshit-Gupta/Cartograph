@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     # Reddit
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
-    reddit_user_agent: str = "marked-path/0.1"
+    reddit_user_agent: str = "cartograph/0.1"
     # Optional — when both set, OAuth uses grant_type=password (full scope).
     # When unset, falls back to grant_type=client_credentials (public reads only).
     reddit_username: str = ""

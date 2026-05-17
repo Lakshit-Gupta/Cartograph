@@ -1,5 +1,5 @@
 [project]
-name = "marked-path"
+name = "cartograph"
 version = "0.1.0"
 description = "Autonomous 24/7 job / internship / fellowship / freelance pipeline (Pi 5, ARM64)"
 readme = "README.md"
@@ -65,7 +65,7 @@ dev = [
 ]
 
 [project.scripts]
-mp = "src.cli.main:cli"
+carto = "src.cli.main:cli"
 
 [build-system]
 requires = ["hatchling"]

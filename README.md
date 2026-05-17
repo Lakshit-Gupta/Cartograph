@@ -1,4 +1,6 @@
-# Marked_Path
+# Cartograph
+
+> Autonomous 24/7 opportunity mapper. Discord bot identity: **Hop**.
 
 Autonomous 24/7 job / internship / fellowship / freelance pipeline. Runs on a Raspberry Pi 5 (DietPi, ARM64, 8GB). Crawls 28+ sources, ranks against the user profile, delivers a daily Discord digest, supports apply / skip / snooze via buttons + slash commands, tracks outcomes via Gmail IMAP, learns from feedback.
 
@@ -13,7 +15,7 @@ Authoritative documents:
 ## Repo layout
 
 ```
-Marked_Path/
+cartograph/
 ├── pyproject.toml         uv-managed deps
 ├── compose.yaml           Docker Compose stack
 ├── secrets.yaml.example   SOPS template (encrypt to secrets.yaml on the Pi)
@@ -51,11 +53,11 @@ Two non-negotiables:
 
 ```bash
 # 1. Clone
-git clone <repo> /home/$USER/coding/Marked_Path
-cd /home/$USER/coding/Marked_Path
+git clone <repo> /home/$USER/coding/cartograph
+cd /home/$USER/coding/cartograph
 
 # 2. Host prep — swap, fonts, WAL dirs, fsck flag
-MARKED_PATH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh
+CARTOGRAPH_PI_CONFIRM=1 sudo bash scripts/bootstrap.sh
 
 # 3. SOPS + secrets
 age-keygen -o ~/.config/sops/age/keys.txt
