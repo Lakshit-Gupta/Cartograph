@@ -74,8 +74,42 @@ class RedisQ:
             if "BUSYGROUP" not in str(e):
                 raise
 
+    # Per-stream MAXLEN caps. Redis is configured with maxmemory=200mb and
+    # maxmemory-policy=noeviction (CLAUDE.md durability spec — under
+    # back-pressure producers MUST block rather than silently lose data).
+    # Without an XADD MAXLEN, streams grow until the 200MB cap is hit and
+    # every publisher then sees OutOfMemoryError. The `~` modifier is an
+    # approximate trim that lets Redis use whole-node deletion (cheap) at
+    # the cost of leaving a few extra entries above the cap.
+    #
+    # Caps are sized for the bottleneck stage:
+    #   FETCH   — produced by scheduler, consumed by crawlers (cheap)
+    #   EXTRACT — consumed by extractor-worker (LLM-bound, slow). Smallest
+    #             cap so back-pressure hits the crawler quickly instead of
+    #             eating all of Redis.
+    #   RANK    — consumed by ranker-worker (embedding-bound, medium).
+    #   NOTIFY  — consumed by notifier-discord (network-bound).
+    #   APPLY   — small, user-initiated.
+    _MAXLEN: dict[str, int] = {
+        "stream:fetch":     50_000,
+        "stream:extract":   20_000,
+        "stream:rank":      30_000,
+        "stream:notify":    10_000,
+        "stream:apply":      5_000,
+        "stream:email_in":  10_000,
+        "stream:alerts":     5_000,
+        "stream:dlq":       50_000,
+    }
+    _DEFAULT_MAXLEN = 20_000
+
     async def publish(self, stream: str, payload: dict[str, Any]) -> str:
-        return await self._r.xadd(stream, {"data": json.dumps(payload, default=str)})
+        maxlen = self._MAXLEN.get(stream, self._DEFAULT_MAXLEN)
+        return await self._r.xadd(
+            stream,
+            {"data": json.dumps(payload, default=str)},
+            maxlen=maxlen,
+            approximate=True,
+        )
 
     async def consume(
         self,
@@ -122,6 +156,8 @@ class RedisQ:
         await self._r.xadd(
             Streams.DLQ,
             {"data": json.dumps({"src": src_stream, "msg_id": msg_id, "payload": payload, "err": err}, default=str)},
+            maxlen=self._MAXLEN.get(Streams.DLQ, self._DEFAULT_MAXLEN),
+            approximate=True,
         )
 
 
