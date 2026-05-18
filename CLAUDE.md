@@ -873,7 +873,7 @@ If 12/12 pass: pipeline is production-ready for solo use. First 5 manual applies
 | 9 | Resend signup + verify sender domain | Phase 0 |
 | 10 | Google Cloud project + Gmail OAuth | Phase 0 (or before Day 12) |
 | 11 | Telegram `api_id` / `api_hash` | Before Day 13 |
-| 12 | Worker Gmail (`upwork-worker@yourdomain.tld`) | Before Day 13 |
+| 12 | Worker Gmail (`upwork-worker@yourdomain.tld`) — Without `gmail_worker_app_password`, the worker mailbox is skipped silently with one `imap_worker_password_empty` info log. Personal mailbox (`gmail_user`) still monitored via OAuth. | Before Day 13 |
 
 ---
 
