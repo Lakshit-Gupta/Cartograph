@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Prometheus scrape job for the Cartograph / Marked_Path stack.
+#
+# Source file:        deploy/prometheus_cartograph.yml
+# Target Prometheus:  >= 2.40 (uses standard static_configs + labels)
+# Repo:               /home/lakshit_gupta/coding/Marked_Path/
+# Runbook:            docs/runbooks/prometheus_scrape_setup.md
+#
+# WHY THE `project: cartograph` LABEL
+#   This snippet is meant to be pasted under `scrape_configs:` inside the
+#   user's existing Pi-side prometheus.yml — which already scrapes Jellyfin
+#   and node_exporter. The static `project: cartograph` label means every
+#   Cartograph metric is filterable across the merged dataset (e.g.
+#   `sum(rate(fetch_errors_total{project="cartograph"}[5m]))`), and the
+#   user can grow Prometheus to scrape more projects later without
+#   ambiguity. The Grafana dashboard at grafana/dashboards/agent_jobs.json
+#   does NOT yet require this label, but adding it now is forward-compatible.
+#
+# HOW api-service IS REACHABLE FROM HOST PROMETHEUS
+#   The Cartograph Docker stack normally keeps every port inside the
+#   `internal` bridge network. The compose.override.example.yaml shipped
+#   alongside this snippet publishes container port 9090 to 127.0.0.1:9090
+#   on the Pi host so Prometheus (running on the host) can scrape via
+#   loopback. See the runbook for activation steps and security rationale.
+# ---------------------------------------------------------------------------
+
+- job_name: cartograph
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  static_configs:
+    - targets: ['127.0.0.1:9090']
+      labels:
+        project: cartograph
+        env: pi-prod
