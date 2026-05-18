@@ -41,10 +41,18 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
             except ValueError:
                 posted = None
         desc = (j.get("descriptionPlain") or j.get("descriptionHtml") or "")[:1200]
-        comp = j.get("compensation") or {}
-        comp_min = comp.get("compensationTierSummary", {}).get("minValue")
-        comp_max = comp.get("compensationTierSummary", {}).get("maxValue")
-        comp_cur = comp.get("compensationTierSummary", {}).get("currencyCode")
+        # Ashby has shipped at least three shapes for `compensation` in the
+        # wild: missing key, explicit null, a string blurb, and the structured
+        # `compensationTierSummary` dict. Normalise to a dict before drilling
+        # in so we don't AttributeError on any of the unstructured variants.
+        comp_raw = j.get("compensation")
+        comp = comp_raw if isinstance(comp_raw, dict) else {}
+        tier_summary = comp.get("compensationTierSummary")
+        if not isinstance(tier_summary, dict):
+            tier_summary = {}
+        comp_min = tier_summary.get("minValue")
+        comp_max = tier_summary.get("maxValue")
+        comp_cur = tier_summary.get("currencyCode")
 
         category = (
             OppCategory.INTERNSHIP if "intern" in title.lower() else

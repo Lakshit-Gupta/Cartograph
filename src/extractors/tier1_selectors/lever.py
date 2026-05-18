@@ -29,9 +29,14 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
         title = j.get("text") or ""
         if not title:
             continue
-        team = j.get("categories", {}).get("team")
-        location = j.get("categories", {}).get("location")
-        commitment = (j.get("categories", {}).get("commitment") or "").lower()
+        # Lever payloads have shipped `categories: null` for some postings —
+        # `j.get("categories", {})` returns None in that case and breaks the
+        # chained .get. Coerce to dict before drilling in.
+        cats_raw = j.get("categories")
+        cats = cats_raw if isinstance(cats_raw, dict) else {}
+        team = cats.get("team")
+        location = cats.get("location")
+        commitment = (cats.get("commitment") or "").lower()
         workplace = (j.get("workplaceType") or "").lower()
         absolute_url = j.get("hostedUrl") or j.get("applyUrl") or inp.url
         ts_ms = j.get("createdAt")

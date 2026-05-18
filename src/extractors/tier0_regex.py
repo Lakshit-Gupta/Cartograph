@@ -53,7 +53,10 @@ class Tier0Regex(Extractor):
     async def extract(self, inp: ExtractInput) -> ExtractOutput:
         body = inp.content or ""
         title_m = _TITLE_RE.search(body)
-        title = (title_m.group(1).strip() if title_m else "").splitlines()[0][:200]
+        # An empty string `.splitlines()` returns `[]`, so guard with `next()`
+        # before indexing — title can legitimately be missing on listing pages.
+        raw_title = title_m.group(1).strip() if title_m else ""
+        title = next(iter(raw_title.splitlines()), "")[:200]
         if not title:
             return ExtractOutput(opps=[], tier_used=self.tier, confidence=0.0)
 

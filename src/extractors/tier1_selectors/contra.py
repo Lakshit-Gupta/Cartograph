@@ -27,8 +27,12 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
         title = o.get("title")
         if not title:
             continue
-        budget_min = o.get("budgetMin") or o.get("budget", {}).get("min")
-        budget_max = o.get("budgetMax") or o.get("budget", {}).get("max")
+        # `o.get("budget", {})` returns None if the key is present with a
+        # null value — coerce to dict first.
+        budget_raw = o.get("budget")
+        budget = budget_raw if isinstance(budget_raw, dict) else {}
+        budget_min = o.get("budgetMin") or budget.get("min")
+        budget_max = o.get("budgetMax") or budget.get("max")
         budget_cur = o.get("budgetCurrency") or "USD"
         period = o.get("rateType") or "hour"
         if str(period).lower() in ("fixed", "project"):
