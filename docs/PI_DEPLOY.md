@@ -46,9 +46,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install SOPS + age
 sudo apt-get install -y age
-curl -LO https://github.com/getsops/sops/releases/latest/download/sops-v3.9.1.linux.arm64
-sudo install sops-v3.9.1.linux.arm64 /usr/local/bin/sops
-rm sops-v3.9.1.linux.arm64
+curl -LO https://github.com/getsops/sops/releases/download/v3.13.1/sops_3.13.1_arm64.deb
+sudo dpkg -i sops_3.13.1_arm64.deb
+rm sops_3.13.1_arm64.deb
+sops --version    # verify
 
 # rclone (for R2 backups)
 sudo apt-get install -y rclone
