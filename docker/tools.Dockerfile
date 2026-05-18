@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
-RUN uv venv /opt/venv && uv sync --no-dev --frozen || uv sync --no-dev
+COPY pyproject.toml README.md uv.lock ./
+RUN uv venv /opt/venv && uv sync --no-dev --frozen
 
 COPY src /app/src
 COPY migrations /app/migrations

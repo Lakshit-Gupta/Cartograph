@@ -19,7 +19,7 @@ dependencies = [
     "redis[hiredis]>=5.0.7",
     # API / metrics
     "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.30.0",  # runtime CLI server, no import in source
+    "uvicorn>=0.30.0",            # runtime CLI server; drop [standard] (uvloop/watchfiles/websockets unused)
     "prometheus-client>=0.20.0",
     # ML — pinned to torch from CPU-only index below (no NVIDIA wheels on Pi).
     "torch>=2.4.0",
@@ -32,11 +32,10 @@ dependencies = [
     "pyyaml>=6.0",
     # Scheduling
     "apscheduler>=3.10.0",
-    # Mail (Resend HTTP via httpx for now + Gmail IMAP IDLE)
+    # Mail (Resend HTTP via httpx; gmail IMAP IDLE)
     "aioimaplib>=1.1.0",
-    "resend>=2.4.0",             # Phase-2 may switch from raw httpx to SDK
-    # Telegram (freelance lane, Day 13)
-    "telethon>=1.36.0",
+    # resend SDK removed — notifiers/email.py uses raw httpx; re-add if SDK ever wanted
+    # telethon defers to Day-13 freelance lane; install via `uv pip install telethon` then
     # Crypto
     "pynacl>=1.5.0",
     # CLI

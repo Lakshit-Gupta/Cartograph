@@ -31,17 +31,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       wget \
       fonts-liberation \
-      fonts-noto \
-      fonts-noto-cjk \
-      fonts-dejavu \
+      fonts-noto-core \
+      fonts-dejavu-core \
       fonts-roboto \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
-RUN uv venv /opt/venv && uv sync --no-dev --extra dev --frozen || uv sync --no-dev
+COPY pyproject.toml README.md uv.lock ./
+RUN uv venv /opt/venv && uv sync --no-dev --frozen
 
 # Fetch camoufox firefox binary into image
 RUN python -m camoufox fetch || true
