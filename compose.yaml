@@ -42,6 +42,11 @@ x-restart-policy: &restart-policy
   restart: unless-stopped
 
 x-jobs-bot-image: &jobs-bot-image
+  # Tag the shared image explicitly so docker/applier.Dockerfile can
+  # `FROM marked_path-jobs-bot:latest`. Without the `image:` field
+  # compose names the image after the service (marked_path-jobs-scheduler,
+  # marked_path-crawler-worker, …) and there is no stable base to extend.
+  image: marked_path-jobs-bot:latest
   build:
     context: .
     dockerfile: docker/jobs-bot.Dockerfile
@@ -182,11 +187,29 @@ services:
         condition: service_healthy
 
   applier-worker:
-    <<: [*jobs-bot-image, *restart-policy]
+    # Dedicated image (docker/applier.Dockerfile) — extends jobs-bot with
+    # tectonic / qpdf / exiftool. Sandboxed per CLAUDE.md hard rules:
+    # cap_drop ALL, read_only rootfs, mem 512m, pids 64, user 1000.
+    # /tmp is a 128M tmpfs so tectonic/qpdf scratch files don't need rw root.
+    build:
+      context: .
+      dockerfile: docker/applier.Dockerfile
+    <<: *restart-policy
     command: ["python", "-m", "src.workers.applier"]
-    environment: *env-common
+    environment:
+      <<: *env-common
+      MP_RESUME_LATEX_ENABLED: ${mp_resume_latex_enabled:-false}
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - /var/lib/agent/resume_artifacts:/var/lib/agent/resume_artifacts
+      - tectonic_cache:/var/lib/tectonic
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m
+    cap_drop: ["ALL"]
+    mem_limit: 512m
+    pids_limit: 64
+    user: "1000"
     networks:
       - internal
     depends_on:
@@ -286,6 +309,9 @@ volumes:
   pg_data:
   redis_data:
   models_cache:
+  # tectonic font + package bundle. Pre-warmed inside applier.Dockerfile so
+  # cold compiles stay under ~2s. Volume survives image rebuilds.
+  tectonic_cache:
 
 networks:
   internal:
