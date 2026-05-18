@@ -11,7 +11,6 @@ import pytest
 
 from src.application.resume_latex.sanitizer import SanitizerReject, escape_and_check
 
-
 # --- denylist rejection ------------------------------------------------------
 
 @pytest.mark.smoke

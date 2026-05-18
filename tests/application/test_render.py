@@ -1,8 +1,6 @@
 """Tests for the LaTeX render pipeline."""
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from src.application.resume_latex.parser.blocks import Block, Document
@@ -153,3 +151,28 @@ def test_source_drift_error_is_raised_when_imported():
     # The error type is part of the module contract; ensure it's importable
     # and is a RuntimeError subclass.
     assert issubclass(SourceDriftError, RuntimeError)
+
+
+def test_render_raises_on_source_drift(tmp_path):
+    """If the on-disk file changes between parse and render, SourceDriftError."""
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    # Parse-time source.
+    parsed_source = "\\cvevent{T}{C}{D}{L}\n\\begin{itemize}\n\\item original\n\\end{itemize}\n"
+    (src_dir / "mmayer.tex").write_text(parsed_source)
+
+    doc = _doc(parsed_source, Block(
+        id="b1", kind="event", title="T", bullets=["original"],
+        file="mmayer.tex", char_range=(0, len(parsed_source) - 1),
+    ))
+
+    # Simulate the user editing mmayer.tex between parse and render.
+    (src_dir / "mmayer.tex").write_text("\\cvevent{Different}{}{}{}\n")
+
+    with pytest.raises(SourceDriftError):
+        write_partial(
+            doc,
+            edits={"b1": ["new bullet"]},
+            artifact_dir=tmp_path / "out",
+            source_root=src_dir,
+        )

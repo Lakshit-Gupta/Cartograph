@@ -89,9 +89,7 @@ def _arg_to_text(arg: object) -> str:
     """
     if arg is None:
         return ""
-    if isinstance(arg, LatexGroupNode):
-        nodes = list(arg.nodelist)
-    elif hasattr(arg, "nodelist"):
+    if isinstance(arg, LatexGroupNode) or hasattr(arg, "nodelist"):
         nodes = list(arg.nodelist)
     else:
         nodes = [arg]

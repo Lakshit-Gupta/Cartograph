@@ -32,7 +32,7 @@ class CompileError(RuntimeError):
     """Tectonic / qpdf / exiftool failure surface for the apply fallback path."""
 
 
-async def run(main_tex: Path, *, timeout: float = 30.0) -> CompileResult:
+async def run(main_tex: Path, *, timeout: float = 30.0) -> CompileResult:  # noqa: ASYNC109 — public API takes a numeric timeout; we manage the deadline via asyncio.wait_for
     """Compile ``main_tex`` to PDF using the sandboxed tectonic pipeline.
 
     Returns ``CompileResult`` on success. Raises ``CompileError`` on
@@ -70,8 +70,8 @@ async def run(main_tex: Path, *, timeout: float = 30.0) -> CompileResult:
         start_new_session=True,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError as exc:
+        _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError as exc:
         with contextlib.suppress(ProcessLookupError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         await proc.wait()

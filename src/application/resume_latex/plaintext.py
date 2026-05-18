@@ -8,7 +8,6 @@ from pylatexenc.latex2text import LatexNodes2Text  # type: ignore[import-untyped
 from src.application.resume_latex.parser.blocks import parse
 from src.application.resume_latex.parser.manifest import load as load_manifest
 
-
 _DEFAULT_TEXTIFIER = LatexNodes2Text(
     keep_comments=False,
     math_mode="text",

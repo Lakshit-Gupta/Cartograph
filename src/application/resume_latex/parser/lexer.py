@@ -23,7 +23,6 @@ from pylatexenc.latexwalker import (  # type: ignore[import-untyped]
 )
 from pylatexenc.macrospec import MacroSpec  # type: ignore[import-untyped]
 
-
 # Argument signatures for the AltaCV macros we care about.
 #  - '[' = optional bracketed arg (e.g. \\cvsection[page1sidebar]{Title})
 #  - '{' = mandatory braced arg

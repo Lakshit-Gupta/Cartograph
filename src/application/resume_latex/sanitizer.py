@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import re
 
-
 # Macros that NEVER appear in a clean bullet. Their presence in LLM output
 # means either (a) the LLM is being prompt-injected from the opp text, or
 # (b) the model is hallucinating LaTeX. Either way: reject the whole bullet.

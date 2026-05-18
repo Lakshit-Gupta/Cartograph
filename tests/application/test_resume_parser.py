@@ -8,7 +8,6 @@ import pytest
 from src.application.resume_latex.parser.blocks import parse
 from src.application.resume_latex.parser.manifest import load as load_manifest
 
-
 RESUME_ROOT = Path("config/profile/my_resume")
 MANIFEST_PATH = RESUME_ROOT / "manifest.yaml"
 

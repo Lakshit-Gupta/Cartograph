@@ -109,6 +109,10 @@ ignore = ["S101", "S104", "S105", "S106", "S311", "S608", "RUF001"]
 "src/notifiers/obsidian.py" = ["ASYNC240"]
 # Identity warmup spawns pgrep on a system path; acceptable for Pi host.
 "src/fetchers/browser/scaler.py" = ["S607"]
+# Integration tests legitimately use pathlib + blocking subprocess.run
+# for one-off verification (tests are async only for the asyncio_mode
+# pytest config, not because they need an event loop).
+"tests/application/test_compile.py" = ["ASYNC240", "ASYNC221", "SIM105"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -118,7 +122,10 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# `-m "not integration"` is the default lane: it deselects the LaTeX
+# compile integration tests (they need tectonic/qpdf/exiftool from the
+# applier image). Run those explicitly with `pytest -m integration`.
+addopts = "-ra --strict-markers -m 'not integration'"
 markers = [
     "smoke: fast hermetic tests run by the pre-commit pytest-smoke hook",
     "integration: requires live Docker / Postgres / network access; skipped in CI by default",
