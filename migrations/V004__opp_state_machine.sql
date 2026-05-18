@@ -11,11 +11,19 @@ CREATE TABLE IF NOT EXISTS opp_state_transitions_allowed (
     from_state opp_state_enum,
     to_state   opp_state_enum NOT NULL
 );
--- Logical uniqueness on (from_state, to_state) where from_state can be NULL
--- (legal "first transition" from no prior state). Postgres NULLs in plain
--- UNIQUE are never equal, so COALESCE folds NULL into '' for uniqueness.
-CREATE UNIQUE INDEX IF NOT EXISTS uniq_opp_state_transitions_allowed
-    ON opp_state_transitions_allowed (COALESCE(from_state::text, ''), to_state);
+-- Logical uniqueness on (from_state, to_state) where from_state can be NULL.
+-- Cannot use `COALESCE(from_state::text, '')` — enum->text cast is STABLE
+-- (Postgres treats it as STABLE because ALTER TYPE can rename labels), and
+-- UNIQUE INDEX expressions must be IMMUTABLE. Two partial indexes give the
+-- same logical uniqueness without any function calls:
+--   (a) one row per (from_state, to_state) for transitions with a from_state
+--   (b) at most one row per to_state for the "initial" NULL -> X transitions
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_opp_state_transitions_allowed_nonnull
+    ON opp_state_transitions_allowed (from_state, to_state)
+    WHERE from_state IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_opp_state_transitions_allowed_initial
+    ON opp_state_transitions_allowed (to_state)
+    WHERE from_state IS NULL;
 
 INSERT INTO opp_state_transitions_allowed (from_state, to_state) VALUES
     (NULL,        'new'),

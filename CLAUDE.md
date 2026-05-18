@@ -755,6 +755,9 @@ Full review records: ephemeral specialist agents; key amendments folded above.
 | Tectonic compile fail (sanitizer reject, timeout, package fetch) | `resume_compile_failures_total` rate >0.2/min | Auto-fallback to untailored PDF + alert | 0 (next apply retries tailoring) |
 | Resume source drift mid-render | `SourceDriftError` raised | Re-parse + retry once; on second fail → fallback PDF | 0 |
 | Tectonic cache corruption | First-compile latency >60s | `rm -rf tectonic_cache && restart applier-worker` | 0 (cache rebuildable from network) |
+| Migration SQL fails on apply (semantic, e.g. non-IMMUTABLE in index, missing extension) | Pre-commit `migrate-replay` against ephemeral pgvector blocks the commit | <15s to detect locally; <1min to fix and re-stage | 0 (never reaches prod) |
+| Migration runner aborts mid-chain (e.g. file N fails) | `_format_pg_error` prints `file:line:col` + caret + class name | Fix SQL, re-run `make migrate` — no volume wipe, picks up at file N | 0 (file N's BEGIN/COMMIT rolled back, V1..V(N-1) intact) |
+| Concurrent `migrate` runners race | `pg_advisory_lock(727274)` held for full loop | Second runner blocks until first releases (or first conn drops → auto-release) | 0 |
 
 ---
 
@@ -889,6 +892,8 @@ If 12/12 pass: pipeline is production-ready for solo use. First 5 manual applies
 - Identity vault: never log decrypted credentials. Per-row libsodium boxes, master key in SOPS.
 - Discord bot perms: JOBS category only — never grant server-wide.
 - **Feature gate after Day 14**: ONE feature per week max. Only features that improve apply rate or response rate are allowed until first earnings.
+- **Never commit a new or modified `migrations/V*.sql` without running `make migrate-test` first**. The pre-commit `migrate-replay` hook enforces this automatically by replaying every V*.sql against an ephemeral `pgvector/pgvector:pg16` container with tmpfs data dir. Catches non-IMMUTABLE function in index predicate, function call in inline PK, missing extension, enum-cast-in-index, and ordering bugs — the failure class that bit us four times on V001/V004/V005. Static linters miss this class. See `docs/superpowers/specs/2026-05-18-migration-validation-design.md`.
+- **Never `down --volumes` to recover from a failed `migrate`**. Each V*.sql wraps in BEGIN/COMMIT and inserts its own `schema_migrations` marker inside that transaction. A failed file rolls back both its statements AND its marker row, leaving the DB in the exact pre-file state. Fix the SQL and re-run `make migrate` — it picks up at the failed file.
 
 ---
 

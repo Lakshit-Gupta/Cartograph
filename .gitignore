@@ -50,6 +50,10 @@ logs/
 .data/
 data/
 
+# Docker Compose local override — laptop-only service tweaks
+docker-compose.override.yml
+docker-compose.override.yaml
+
 # Models (downloaded at runtime)
 .cache/
 models/

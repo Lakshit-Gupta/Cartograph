@@ -1,4 +1,4 @@
-.PHONY: help install fmt lint type test up down logs migrate seed reset psql redis-cli backup restore-drill bootstrap-pi audit-deps
+.PHONY: help install fmt lint type test up down logs migrate migrate-test seed reset psql redis-cli backup restore-drill bootstrap-pi audit-deps
 
 ROOT := /home/lakshit_gupta/coding/cartograph
 SOPS_ENV := sops exec-env secrets.yaml
@@ -36,6 +36,9 @@ ps: ## compose ps
 
 migrate: ## run pending migrations against postgres
 	$(SOPS_ENV) 'docker compose run --rm tools python -m src.cli.main migrate'
+
+migrate-test: ## replay migrations on ephemeral pgvector container (no prod touch)
+	bash scripts/validate_migrations.sh
 
 seed: ## seed sources from config/sources/*.yaml
 	$(SOPS_ENV) 'docker compose run --rm tools python -m src.cli.main seed-sources'

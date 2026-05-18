@@ -7,9 +7,15 @@ BEGIN;
 -- =========================================================================
 -- Extensions (must be loaded before any vector(N) column declaration).
 -- pgvector image (pgvector/pgvector:pg16) provides the shared library;
--- this statement enables the SQL type for this database.
+-- these statements enable the SQL types/operators for this database.
+--   vector   — embedding column type + similarity operators
+--   pg_trgm  — gin_trgm_ops operator class used by idx_opps_company_trgm below
+--   pgcrypto — defensive: gen_random_uuid() is built into PG13+, but explicit
+--              load avoids surprises restoring into a minimal PG image
 -- =========================================================================
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- =========================================================================
 -- Migration bookkeeping
@@ -205,10 +211,14 @@ CREATE INDEX IF NOT EXISTS idx_opps_state_posted ON opportunities(state, posted_
 CREATE INDEX IF NOT EXISTS idx_opps_first_seen ON opportunities(first_seen DESC);
 CREATE INDEX IF NOT EXISTS idx_opps_fingerprint ON opportunities(fingerprint_hash);
 CREATE INDEX IF NOT EXISTS idx_opps_company_trgm ON opportunities USING gin (company gin_trgm_ops);
--- Embedding cosine index (IVFFlat — rebuild after large ingest)
+-- Embedding cosine index — HNSW (not IVFFlat). HNSW has no training step,
+-- so it works correctly on an empty table; IVFFlat with lists=100 on zero
+-- rows produces degenerate centroids and gives garbage recall until a
+-- manual REINDEX after large ingest. HNSW costs slightly more on insert
+-- but recall is stable from row #1.
 CREATE INDEX IF NOT EXISTS idx_opps_embedding
-    ON opportunities USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+    ON opportunities USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
 
 CREATE TABLE IF NOT EXISTS opportunity_scores (
     user_id           BIGINT NOT NULL DEFAULT 1 REFERENCES users(id) ON DELETE CASCADE,

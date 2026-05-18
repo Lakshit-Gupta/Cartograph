@@ -30,3 +30,13 @@ repos:
         entry: bash -c 'grep -q "sops:" secrets.yaml || (echo "secrets.yaml NOT encrypted!" && exit 1)'
         language: system
         files: ^secrets\.yaml$
+
+  - repo: local
+    hooks:
+      - id: migrate-replay
+        name: replay migrations on ephemeral pgvector
+        entry: scripts/validate_migrations.sh
+        language: script
+        files: ^migrations/V[0-9]+__.*\.sql$
+        pass_filenames: false
+        stages: [pre-commit]
