@@ -169,13 +169,68 @@ class Bot(discord.Client):
         if chan is None:
             _log.warning("digest_channel_missing")
             return
-        count = int(payload.get("count", 0))
-        top = payload.get("top_score")
+
+        # Pull top-K ranked opps from the last 36h that haven't been digested yet.
+        # The 36h window absorbs missed digest cron runs (power-fail, restart);
+        # the state flip below prevents duplicate posts on subsequent triggers.
+        rows = await db.fetch_all(
+            """
+            SELECT o.id, o.title, o.company, o.description, o.canonical_url,
+                   o.apply_url, o.comp_min, o.comp_max, o.comp_currency,
+                   o.comp_period, o.location, o.remote_type, o.category,
+                   o.posted_at, s.score, s.score_components
+            FROM opportunities o
+            JOIN opportunity_scores s ON s.opportunity_id = o.id
+            WHERE s.user_id = 1
+              AND o.state = 'ranked'
+              AND o.first_seen > NOW() - INTERVAL '36 hours'
+            ORDER BY s.score DESC
+            LIMIT 10
+            """
+        )
+        opp_rows = [dict(r) for r in rows]
+        count = int(payload.get("count") or len(opp_rows))
+        top = payload.get("top_score") or (opp_rows[0]["score"] if opp_rows else None)
+
         header = build_digest_header(
             datetime.now(UTC), count=count, top_score=top,
         )
         await chan.send(embed=header)
         deliver_success_total.labels(channel="digest").inc()
+        _log.info("digest_posted", count=count, top_score=top, channel_id=chan_id)
+
+        if not opp_rows:
+            _log.info("digest_empty", note="no ranked opps in last 36h")
+            return
+
+        # Send opp_card embeds inline + flip state to digested.
+        posted_ids: list[Any] = []
+        for opp in opp_rows:
+            comps_raw = opp.get("score_components")
+            if isinstance(comps_raw, str):
+                try:
+                    opp["score_components"] = json.loads(comps_raw)
+                except Exception:
+                    opp["score_components"] = {}
+            embed = build_opp_card(
+                opp,
+                score=opp.get("score"),
+                score_components=opp.get("score_components") or {},
+            )
+            view = OppActionView(opp_id=str(opp["id"]))
+            try:
+                await chan.send(embed=embed, view=view)
+                deliver_success_total.labels(channel="opp").inc()
+                posted_ids.append(opp["id"])
+            except Exception as e:
+                _log.exception("digest_opp_send_failed", err=str(e), opp_id=str(opp["id"]))
+
+        if posted_ids:
+            await db.execute(
+                "UPDATE opportunities SET state = 'digested' WHERE id = ANY($1::uuid[])",
+                posted_ids,
+            )
+            _log.info("digest_opps_posted", count=len(posted_ids))
 
     async def _post_priority(self, payload: dict[str, Any]) -> None:
         opp = payload.get("opp") or payload
