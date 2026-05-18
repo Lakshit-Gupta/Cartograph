@@ -88,3 +88,35 @@ Cron entries managed by `scripts/install_cron.sh`. After SD reflash, re-run `CAR
 
 - 12 verification checks in CLAUDE.md pass.
 - Daily digest delivers in next cron window.
+
+## Quarterly durability drill
+
+Run `make durability-drill` once per quarter and after **any** change to:
+
+- `docker/postgres/postgresql.conf` (especially `synchronous_commit`, `full_page_writes`, `wal_compression`, `archive_*`)
+- the `redis` service command-line in `compose.yaml` (especially `--appendonly`, `--appendfsync`, `--maxmemory-policy`)
+- the Postgres or Redis image tag in `compose.yaml`
+
+The script SIGKILLs both containers (a real power-cut analogue — `docker compose stop` is graceful and proves nothing), then verifies:
+
+1. `pg_amcheck` reports zero heap/index corruption (proves `full_page_writes=on` is doing its job).
+2. The pre-drill `opportunities` row count is reproduced exactly (proves `synchronous_commit=on` is honouring commits).
+3. Redis stream:alerts loses at most 5 of 100 burst entries (`appendfsync=everysec` is bounded at ~1s of in-flight loss).
+4. WAL archive directory has files under `/mnt/storage/wal_archive` (proves `archive_command` is firing).
+5. Workers reclaim Redis pending entries via `XAUTOCLAIM` with zero error-log entries in the recovery window.
+
+**The script self-recovers** — even if it aborts midway, an `EXIT` trap runs `docker compose up -d postgres redis`. You will never be left with a dead Postgres.
+
+**If `make durability-drill` exits non-zero, STOP HERE.** Read the `FAIL` line(s) at the top of the failed step. DO NOT continue running production workloads until you have remediated the failing assertion. The likely root causes by assertion:
+
+| FAIL line | Likely cause |
+|---|---|
+| `7a. pg_amcheck reported errors` | `full_page_writes=off` slipped into `postgresql.conf`, or torn-page write hit an index. Restore from R2. |
+| `7b. opportunities count drift` | `synchronous_commit=off` slipped into config, or a tracked write happened between checksum + kill (rare). Re-run; if it persists, audit `postgresql.conf`. |
+| `7c. AOF replay lost N entries (>tolerance)` | `appendfsync` is `no` or `always` with a misconfigured `appendonly`, or the Redis volume is on tmpfs. Audit `compose.yaml`. |
+| `7d. WAL archive dir is empty` | `archive_mode=off` or `archive_command` failing silently. Check `docker compose logs postgres \| grep archiver`. |
+| `health check timeout` | Postgres or Redis didn't come back within 60s. Inspect `docker compose logs --tail=200 postgres redis`. |
+
+The script is idempotent — running twice in a row succeeds twice. Synthetic burst entries are XDEL'd at the end.
+
+Tunable env vars (rarely needed): `SYNTHETIC_BURST=100`, `KILL_WAIT_SECONDS=5`, `HEALTH_TIMEOUT=60`, `WORKER_RECOVERY_WAIT=30`, `AOF_LOSS_TOLERANCE=5`, `WAL_ARCHIVE_DIR=/mnt/storage/wal_archive`.
