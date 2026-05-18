@@ -12,6 +12,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote as _urlquote
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -117,14 +118,19 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
+        # URL-encode user/password — strong passwords from `openssl rand -base64 32`
+        # contain `+`, `/`, `=`, and sometimes `:` which break asyncpg's DSN parser.
+        user = _urlquote(self.postgres_user, safe="")
+        pw = _urlquote(self.postgres_password, safe="")
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{user}:{pw}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
     @property
     def redis_url(self) -> str:
-        return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
+        pw = _urlquote(self.redis_password, safe="")
+        return f"redis://:{pw}@{self.redis_host}:{self.redis_port}/0"
 
     @property
     def libsodium_master_key(self) -> bytes:
