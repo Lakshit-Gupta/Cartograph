@@ -32,6 +32,51 @@ IMAP_HOST = "imap.gmail.com"
 IMAP_PORT = 993
 INBOX_NAME = "INBOX"
 
+# Google App Passwords are exactly 16 alphanumeric chars (sometimes shown
+# as 4 groups of 4 separated by spaces in the Google UI — Gmail accepts
+# either form). Anything shorter than 16 stripped chars cannot be a real
+# value, so we treat it as "unset placeholder" rather than firing a doomed
+# IMAP LOGIN that returns `status: NO, user: <nil>` and floods the logs.
+# See https://support.google.com/accounts/answer/185833 for App Password
+# format. The 16-char rule sidesteps having to enumerate placeholder
+# tokens (empty, unset, todo, xxxxx, etc.) which we can't exhaustively guess.
+_APP_PASSWORD_MIN_LEN = 16
+
+
+def _is_unset_user(value: str | None) -> bool:
+    """True if `value` is not a plausible Gmail address.
+
+    Structure check only: must contain `@` with non-empty local-part and
+    a dotted domain. Content of the value is never logged.
+    """
+    if not value:
+        return True
+    v = value.strip()
+    if "@" not in v:
+        return True
+    local, _, domain = v.partition("@")
+    return not local or "." not in domain
+
+
+def _is_unset_app_password(value: str | None) -> bool:
+    """True if `value` cannot be a real Google App Password.
+
+    App Passwords are 16 chars (whitespace-stripped). Shorter values are
+    placeholders; longer values are forwarded to Gmail so a one-character
+    typo surfaces as a NO and not silent disablement.
+    """
+    if not value:
+        return True
+    # App Passwords may be displayed grouped — `xxxx xxxx xxxx xxxx` — so
+    # strip *all* whitespace before length check, not just edges.
+    compact = "".join(value.split())
+    return len(compact) < _APP_PASSWORD_MIN_LEN
+
+
+class _WorkerMailboxDisabled(RuntimeError):
+    """Sentinel: worker mailbox creds intentionally unset; skip silently."""
+
+
 # Module-level access-token cache keyed by gmail user.
 # value: {"token": str, "expires_at": epoch_seconds_float}
 _TOKEN_CACHE: dict[str, dict[str, Any]] = {}
@@ -153,12 +198,20 @@ async def connect_personal() -> Any:
 
 
 async def connect_worker() -> Any:
-    """Connect to worker Gmail via app password (Upwork digest inbox)."""
+    """Connect to worker Gmail via app password (Upwork digest inbox).
+
+    Raises `_WorkerMailboxDisabled` when either `gmail_worker_user` or
+    `gmail_worker_app_password` is unset / placeholder. `watch_mailbox`
+    catches that sentinel and exits silently after one info log, so the
+    watcher container stays healthy until the user populates the value.
+    """
     settings = get_settings()
     user = settings.gmail_worker_user
     pw = settings.gmail_worker_app_password
-    if not (user and pw):
-        raise RuntimeError("gmail_worker_user / gmail_worker_app_password missing")
+    if _is_unset_user(user) or _is_unset_app_password(pw):
+        raise _WorkerMailboxDisabled(
+            "gmail_worker_app_password unset; worker mailbox monitoring disabled",
+        )
     imap = await _new_imap_client()
     resp = await imap.login(user, pw)
     _log.info("imap_connected_worker", user=user, status=getattr(resp, "result", "?"))
@@ -226,6 +279,22 @@ async def watch_mailbox(
     """
     label = mailbox_label or connect_fn.__name__
 
+    # Pre-flight: if the connect function is the worker variant and its
+    # credentials are placeholder, log once and return — never enter the
+    # retry loop (which would re-raise NO from Gmail forever and spam logs).
+    try:
+        if connect_fn is connect_worker:
+            settings = get_settings()
+            if _is_unset_user(settings.gmail_worker_user) or _is_unset_app_password(settings.gmail_worker_app_password):
+                _log.info(
+                    "imap_worker_password_empty",
+                    mailbox=label,
+                    note="gmail_worker_app_password unset; worker mailbox monitoring disabled",
+                )
+                return
+    except Exception as e:
+        _log.warning("imap_worker_preflight_failed", err=str(e))
+
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(2**31 - 1),  # effectively forever
         wait=wait_exponential(multiplier=2, min=2, max=300),
@@ -233,7 +302,17 @@ async def watch_mailbox(
         reraise=False,
     ):
         with attempt:
-            imap = await connect_fn()
+            try:
+                imap = await connect_fn()
+            except _WorkerMailboxDisabled as e:
+                # Sentinel raised after watcher started but before connect —
+                # e.g. settings reloaded mid-run. Stop the retry loop cleanly.
+                _log.info(
+                    "imap_worker_password_empty",
+                    mailbox=label,
+                    note=str(e),
+                )
+                return
             try:
                 await _idle_loop(imap, callback, label)
             finally:
