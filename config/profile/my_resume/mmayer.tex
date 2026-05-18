@@ -6,16 +6,23 @@
   \usepackage[utf8]{inputenc}
   \usepackage[T1]{fontenc}
   \usepackage[default]{lato}
-  \usepackage{hyperref}
-  \hypersetup{
-    colorlinks=true,
-    linkcolor=blue,
-    filecolor=magenta,
-    urlcolor=blue,
-    pdftitle={Overleaf Example},
-    pdfpagemode=FullScreen,
-    }
 \fi
+% hyperref must load AFTER engine-specific font setup and on BOTH paths.
+% Without this, tectonic (xetex) fails on \href inside \personalinfo with
+% "Undefined control sequence" — the original template only loaded hyperref
+% in the non-xetex \else branch.
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  filecolor=magenta,
+  urlcolor=blue,
+  pdftitle={Resume},
+  pdfauthor={Lakshit Gupta},
+  pdfcreator={},
+  pdfproducer={},
+  pdfpagemode=FullScreen,
+}
 \definecolor{VividPurple}{HTML}{000000}
 \definecolor{SlateGrey}{HTML}{2E2E2E}
 \definecolor{LightGrey}{HTML}{2E2E2E}
@@ -25,7 +32,15 @@
 \colorlet{body}{LightGrey}
 \renewcommand{\itemmarker}{{\small\textbullet}}
 \renewcommand{\ratingmarker}{\faCircle}
-\addbibresource{sample.bib}
+
+% AltaCV doesn't ship a \leetcode macro. Define one using fontawesome's
+% generic code glyph so \personalinfo{\leetcode{...}} resolves.
+\newcommand{\leetcodesymbol}{\faCode}
+\newcommand{\leetcode}[1]{\printinfo{\leetcodesymbol}{#1}}
+
+% \addbibresource{sample.bib}  % disabled: resume prints no \printbibliography,
+%                                so biblatex+biber are dead weight and tectonic
+%                                stalls on the empty biber pass.
 
 \begin{document}
 \name{LAKSHIT GUPTA}
@@ -93,7 +108,7 @@
 \smallskip
 \item \textbf{Tech Stack:} HTML, CSS, JavaScript, Bootstrap, PHP, MySQL.
 \end{itemize}
-\\
+
 \divider
 %\divider
 
@@ -182,7 +197,7 @@
 % \item \textbf{Database Management System}
 % \smallskip
 % \end{itemize}
-\\
+
 \cvsection{TECHNICAL SKILLS}
 \begin{itemize}
 \item \large{\textbf{Programming Languages}}
@@ -272,7 +287,7 @@
 
 % \cvsection[page2sidebar]{Publications}
 
-\nocite{*}
+% \nocite{*}  % disabled — see \addbibresource comment above.
 
 % \printbibliography[heading=pubtype,title={\printinfo{\faBook}{Books}},type=book]
 

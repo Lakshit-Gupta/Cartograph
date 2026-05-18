@@ -28,12 +28,17 @@ ARG TECTONIC_VERSION=0.16.9
 USER root
 # - qpdf for PDF linearisation
 # - exiftool for metadata scrub
+# - biber is the default biblatex backend. altacv.cls hardcodes
+#   \RequirePackage[backend=biber,...]{biblatex} so tectonic spawns biber
+#   even when the resume itself has no citations. Without biber the
+#   compile bails with "external tool biber: No such file or directory".
 # - fontconfig + fonts-carlito + fonts-lato for AltaCV (Carlito body,
 #   Lato sans; AltaCV's fontspec block refuses to compile without them
 #   discoverable by fontconfig).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         qpdf \
         libimage-exiftool-perl \
+        biber \
         curl \
         ca-certificates \
         xz-utils \

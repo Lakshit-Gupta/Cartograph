@@ -289,15 +289,24 @@
 
 \newenvironment{cvcolumn}[1]{\begin{minipage}[t]{#1}\raggedright}{\end{minipage}}
 
-\RequirePackage[backend=biber,style=authoryear,sorting=ydnt]{biblatex}
+%% biblatex disabled — this resume has no Publications section that
+%% calls \printbibliography. Loading biblatex makes tectonic spawn biber
+%% on every compile; biber then bails because no \addbibresource has been
+%% declared in mmayer.tex (also commented out for the same reason). Re-
+%% enable both this line and \addbibresource if a Publications section
+%% is ever added back.
+% \RequirePackage[backend=biber,style=authoryear,sorting=ydnt]{biblatex}
 %% For removing numbering entirely when using a numeric style
 % \setlength{\bibhang}{1em}
 % \DeclareFieldFormat{labelnumberwidth}{\makebox[\bibhang][l]{\itemmarker}}
 % \setlength{\biblabelsep}{0pt}
-\defbibheading{pubtype}{\cvsubsection{#1}}
-\renewcommand{\bibsetup}{\vspace*{-\baselineskip}}
-\AtEveryBibitem{\makebox[\bibhang][l]{\itemmarker}}
-\setlength{\bibitemsep}{0.25\baselineskip}
+% \defbibheading{pubtype}{\cvsubsection{#1}}
+% \renewcommand{\bibsetup}{\vspace*{-\baselineskip}}
+% \AtEveryBibitem and \setlength{\bibitemsep} also disabled — both need
+% biblatex symbols (\bibhang, \bibitemsep) that don't exist without the
+% \RequirePackage{biblatex} above.
+% \AtEveryBibitem{\makebox[\bibhang][l]{\itemmarker}}
+% \setlength{\bibitemsep}{0.25\baselineskip}
 
 % v1.1.2: make it easier to add a sidebar aligned with top of next page
 \RequirePackage{afterpage}
