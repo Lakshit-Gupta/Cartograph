@@ -86,6 +86,8 @@ def write_partial(
     doc: Document,
     edits: dict[str, list[str]],
     artifact_dir: Path,
+    *,
+    source_root: Path | None = None,
 ) -> Path:
     """Render the tailored tree under ``<artifact_dir>.partial/``.
 
@@ -95,9 +97,17 @@ def write_partial(
             their original bullets.
         artifact_dir: target directory; this function writes to
             ``artifact_dir.with_suffix('.partial')``.
+        source_root: directory the Document was parsed from. When set,
+            the renderer re-reads each file from disk and aborts with
+            ``SourceDriftError`` if the on-disk sha256 no longer matches
+            ``doc.source_hashes[fname]`` — catches the case where the
+            user edits ``mmayer.tex`` between parse and render. Also used
+            to copy non-source assets (``altacv.cls``, ``profile.jpg``,
+            ``sample.bib``) into the partial dir so tectonic finds them.
 
     Raises:
-        SourceDriftError: a source file's sha256 changed since parse time.
+        SourceDriftError: a source file's on-disk sha256 changed since
+            ``parse(...)`` recorded it.
 
     Returns:
         Path to the populated ``.partial`` directory.
@@ -114,12 +124,21 @@ def write_partial(
             edits_by_file.setdefault(b.file, []).append((b, edits[b.id]))
 
     for fname, source in doc.files.items():
-        current = hashlib.sha256(source.encode("utf-8")).hexdigest()
-        if current != doc.source_hashes.get(fname):
-            # Document.files held the source we parsed; nothing changed
-            # in-memory. The drift guard kicks in when the on-disk file
-            # changed under us — re-read and verify.
-            pass  # in-memory snapshot is always self-consistent
+        # Drift guard: compare against the file on disk if we were given
+        # a root. Catches the editor-saving-mid-render race that would
+        # otherwise produce a corrupted splice (char_range computed against
+        # the OLD source applied to NEW text).
+        if source_root is not None:
+            disk_path = source_root / fname
+            if disk_path.exists():
+                disk_source = disk_path.read_text(encoding="utf-8")
+                disk_hash = hashlib.sha256(disk_source.encode("utf-8")).hexdigest()
+                expected = doc.source_hashes.get(fname)
+                if expected and disk_hash != expected:
+                    raise SourceDriftError(
+                        f"source drift detected on {fname}: "
+                        f"expected {expected[:12]}…, disk {disk_hash[:12]}…"
+                    )
 
         # Descending start-offset splice so earlier edits don't shift later
         # offsets.
@@ -140,23 +159,15 @@ def write_partial(
 
         (partial / fname).write_text(spliced, encoding="utf-8")
 
-    # Copy any non-source assets (altacv.cls, .bib, .jpg) from the original
-    # tree so tectonic finds them next to the main file.
-    source_root = _infer_source_root(doc)
-    if source_root is not None:
+    # Copy non-source assets (altacv.cls, .bib, .jpg) from the original
+    # tree so tectonic finds them next to the main file. Only copy files
+    # the parser didn't already write so we don't overwrite spliced output.
+    if source_root is not None and source_root.is_dir():
         for asset in source_root.iterdir():
             if asset.is_file() and asset.name not in doc.files:
                 shutil.copy2(asset, partial / asset.name)
 
     return partial
-
-
-def _infer_source_root(doc: Document) -> Path | None:
-    """Best-effort: the manifest is loaded relative to a root; we don't
-    have it on the Document, so this is a noop hook for callers that want
-    to add assets manually. Real callers pass them in via the workflow.
-    """
-    return None
 
 
 def commit_complete(partial: Path) -> Path:
