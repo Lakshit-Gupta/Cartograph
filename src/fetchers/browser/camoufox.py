@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from urllib.parse import urlparse
 
 from camoufox.async_api import AsyncCamoufox
 
@@ -21,6 +22,26 @@ _log = get_logger(__name__)
 CF_MARKERS = ("Attention Required", "Just a moment", "Checking your browser")
 
 
+def _cookies_to_playwright(cookies: dict[str, str], url: str) -> list[dict[str, str | bool]]:
+    """Translate `IdentityLease.cookies` (flat name→value) into Playwright's
+    SetCookieParam list. Cookies must carry either `url` or `domain`; we set
+    `url` (Playwright then derives the right scope automatically) which means
+    no leading-dot domain juggling here. Wildcard sharing (e.g. across
+    subdomains) lives elsewhere — the vault stores per-host cookies already.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    base = f"{parsed.scheme}://{host}" if host else url
+    return [
+        {
+            "name": name,
+            "value": value,
+            "url": base,
+        }
+        for name, value in cookies.items()
+    ]
+
+
 class CamoufoxFetcher(Fetcher):
     tier = 2
     name = "camoufox_xvfb"
@@ -33,26 +54,49 @@ class CamoufoxFetcher(Fetcher):
         try:
             async with self._pool.lease() as lease:
                 browser: AsyncCamoufox = lease.browser
-                page = await browser.new_page()
+
+                # Build a fresh BrowserContext when identity context is
+                # present so cookies + UA stay isolated per-fetch. The pool
+                # itself shares the underlying browser process across leases;
+                # the context (and its cookie jar) is per-fetch — recycled by
+                # closing it at the end of this scope. Without a fresh
+                # context, two identities leased back-to-back through the
+                # same browser would cross-contaminate cookie jars.
+                context_kwargs: dict[str, str] = {}
+                if req.ua_string:
+                    context_kwargs["user_agent"] = req.ua_string
+
+                if context_kwargs:
+                    context = await browser.new_context(**context_kwargs)
+                else:
+                    context = await browser.new_context()
+
                 try:
-                    await page.goto(req.url, timeout=int(req.timeout_s * 1000))
-                    await humanize_page(page)
-                    body = await page.content()
-                    status = 200  # Camoufox doesn't surface HTTP status directly; check markers
-                    cf_seen = any(m in body for m in CF_MARKERS)
-                    if cf_seen:
-                        cf_challenge_appeared_rate.set(1.0)
-                    return FetchResponse(
-                        status=0 if cf_seen else status,
-                        body=body,
-                        content_type="text/html",
-                        tier=self.tier,
-                        headers={},
-                        error="cf_challenge" if cf_seen else None,
-                        cf_challenge_observed=cf_seen,
-                    )
+                    if req.cookies:
+                        await context.add_cookies(_cookies_to_playwright(req.cookies, req.url))
+
+                    page = await context.new_page()
+                    try:
+                        await page.goto(req.url, timeout=int(req.timeout_s * 1000))
+                        await humanize_page(page)
+                        body = await page.content()
+                        status = 200  # Camoufox doesn't surface HTTP status directly; check markers
+                        cf_seen = any(m in body for m in CF_MARKERS)
+                        if cf_seen:
+                            cf_challenge_appeared_rate.set(1.0)
+                        return FetchResponse(
+                            status=0 if cf_seen else status,
+                            body=body,
+                            content_type="text/html",
+                            tier=self.tier,
+                            headers={},
+                            error="cf_challenge" if cf_seen else None,
+                            cf_challenge_observed=cf_seen,
+                        )
+                    finally:
+                        await page.close()
                 finally:
-                    await page.close()
+                    await context.close()
         except Exception as e:
             # Positional — `class` is a Python keyword; see http.py:123 for context.
             fetch_errors_total.labels("browser_exc").inc()

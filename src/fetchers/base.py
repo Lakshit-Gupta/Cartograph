@@ -16,6 +16,13 @@ class FetchRequest:
     body: bytes | None = None
     identity_id: int | None = None
     timeout_s: float = 30.0
+    # Optional identity context spliced in by the crawler when the source has
+    # `sources.auth_account_id` set. See `src/workers/crawler.py` for the
+    # lease/release lifecycle and `src/common/identity_vault.py` for the
+    # encryption boundary. Both fields are None for anonymous fetches —
+    # which is the steady state until sock-puppet accounts are seeded.
+    cookies: dict[str, str] | None = None
+    ua_string: str | None = None
 
 
 @dataclass(slots=True)

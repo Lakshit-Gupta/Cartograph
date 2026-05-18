@@ -76,6 +76,13 @@ class HttpFetcher(Fetcher):
         if ua:
             headers.setdefault("User-Agent", ua)
 
+        # Identity-spliced UA wins over cf_clearance UA — a leased sock-puppet
+        # has a stable browser fingerprint that the platform may pin to its
+        # session. The cf_clearance UA is only used to keep the cookie valid
+        # against Cloudflare, never to fool the origin's session tracker.
+        if req.ua_string:
+            headers["User-Agent"] = req.ua_string
+
         # Reddit: set descriptive UA on every reddit.com request (Reddit 429s
         # anonymous traffic without a recognizable UA). Inject OAuth bearer
         # only when targeting oauth.reddit.com AND creds are configured.
@@ -90,6 +97,13 @@ class HttpFetcher(Fetcher):
                 except RuntimeError as e:
                     _log.warning("reddit_bearer_unavailable", url=req.url, err=str(e))
 
+        # Identity cookies (sock-puppet session cookies from identity_vault)
+        # are passed via curl_cffi's `cookies=` kwarg — this lets curl_cffi
+        # serialize them through its own cookie jar with proper escaping,
+        # rather than colliding with the existing `Cookie` header from
+        # cf_clearance_cache. curl_cffi merges header + jar at request time.
+        session_cookies: dict[str, str] | None = req.cookies or None
+
         t0 = time.perf_counter()
         cf_seen = False
         try:
@@ -98,6 +112,7 @@ class HttpFetcher(Fetcher):
                     req.method,
                     req.url,
                     headers=headers or None,
+                    cookies=session_cookies,
                     data=req.body,
                     timeout=req.timeout_s,
                     allow_redirects=True,
