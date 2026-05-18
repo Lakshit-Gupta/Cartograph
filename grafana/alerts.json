@@ -1,0 +1,162 @@
+{
+  "_comment": "Grafana alert rule provisioning file. Import via Grafana UI: Alerting → Alert rules → Import, or place under /etc/grafana/provisioning/alerting/ on the Pi. Rules pipe to the Discord contact point configured in Alerting → Contact points (see Task 7.2 step 2).",
+  "groups": [
+    {
+      "name": "cartograph_pipeline",
+      "folder": "cartograph",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "cart_cf_solve_low",
+          "title": "CF clearance solve rate < 50% (30m)",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prom",
+              "model": {
+                "expr": "avg_over_time(cf_clearance_solve_rate[30m]) < 0.5",
+                "refId": "A",
+                "intervalMs": 60000,
+                "maxDataPoints": 43200
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "30m",
+          "labels": { "severity": "warning", "team": "cartograph" },
+          "annotations": {
+            "summary": "CF clearance solve rate dropped below 50% for the last 30 minutes",
+            "description": "Tier escalation may be saturating Cloudflare-protected sources. Inspect docker compose logs flaresolverr + camoufox-worker."
+          }
+        },
+        {
+          "uid": "cart_llm_cost_cap_warn",
+          "title": "LLM daily cost > 80% of $3 cap",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prom",
+              "model": {
+                "expr": "sum(increase(llm_cost_usd_total[24h])) > 2.4",
+                "refId": "A",
+                "intervalMs": 60000,
+                "maxDataPoints": 43200
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "labels": { "severity": "warning", "team": "cartograph" },
+          "annotations": {
+            "summary": "LLM spend approaching daily cap",
+            "description": "Today's cumulative llm_cost_usd_total exceeded 80% of the $3 cap. The hard kill switch fires at $10; this warning gives you headroom to investigate."
+          }
+        },
+        {
+          "uid": "cart_fetch_errors_high",
+          "title": "Fetch error rate > 5/min (10m)",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prom",
+              "model": {
+                "expr": "sum(rate(fetch_errors_total[5m])) > 5",
+                "refId": "A",
+                "intervalMs": 60000,
+                "maxDataPoints": 43200
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "10m",
+          "labels": { "severity": "warning", "team": "cartograph" },
+          "annotations": {
+            "summary": "Crawler error rate elevated for 10 minutes",
+            "description": "Check the fetch_errors_total{class} timeseries for which class is firing. Common culprits: http_exc (curl_cffi failure), browser_exc (camoufox crash)."
+          }
+        },
+        {
+          "uid": "cart_redis_stream_backlog",
+          "title": "Redis stream backlog > 25k for 5m",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prom",
+              "model": {
+                "expr": "max(redis_stream_length) > 25000",
+                "refId": "A",
+                "intervalMs": 60000,
+                "maxDataPoints": 43200
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "labels": { "severity": "critical", "team": "cartograph" },
+          "annotations": {
+            "summary": "A Redis stream has > 25,000 backlogged entries",
+            "description": "One consumer group is falling behind. Inspect via redis-cli XINFO GROUPS stream:<name>. The per-stream MAXLEN cap kicks in at the limit declared in src/common/queue.py — if you hit this alert, check which stream is saturating and whether the responsible worker is wedged."
+          }
+        },
+        {
+          "uid": "cart_resume_compile_failure_rate",
+          "title": "Resume compile failure rate > 0.2/min (10m)",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prom",
+              "model": {
+                "expr": "sum(rate(resume_compile_failures_total[5m])) > 0.2",
+                "refId": "A",
+                "intervalMs": 60000,
+                "maxDataPoints": 43200
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Alerting",
+          "for": "10m",
+          "labels": { "severity": "warning", "team": "cartograph" },
+          "annotations": {
+            "summary": "LaTeX subsystem is failing > 0.2 compiles per minute",
+            "description": "Check resume_compile_log.tectonic_stderr for the failure class. Auto-fallback should be sending the untailored PDF; verify resume_fallback_used_total is also rising."
+          }
+        },
+        {
+          "uid": "cart_pipeline_silent_5m",
+          "title": "Pipeline silent — no fetches in 5m",
+          "condition": "A",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prom",
+              "model": {
+                "expr": "sum(increase(fetch_latency_seconds_count[5m])) == 0",
+                "refId": "A",
+                "intervalMs": 60000,
+                "maxDataPoints": 43200
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Alerting",
+          "for": "5m",
+          "labels": { "severity": "critical", "team": "cartograph" },
+          "annotations": {
+            "summary": "Scheduler or crawler stalled — no fetches in 5 minutes",
+            "description": "Check jobs-scheduler and crawler-worker container state. The scheduler emits a fetch every 60s for active sources; zero fetches in 5m means the source loop or stream pipeline is broken."
+          }
+        }
+      ]
+    }
+  ]
+}

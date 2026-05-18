@@ -143,6 +143,73 @@
       "datasource": { "type": "prometheus", "uid": "prom" },
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 30 },
       "targets": [ { "expr": "sum(increase(llm_refusals_total[24h]))", "refId": "A" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis stream backlog by stream",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "targets": [
+        { "expr": "sum by (stream) (redis_stream_length)", "refId": "A", "legendFormat": "{{stream}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Score latency p95 (s)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(score_latency_seconds_bucket[5m])))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Resume compile duration p95 (s)",
+      "description": "LaTeX subsystem compile latency. Data appears once MP_RESUME_LATEX_ENABLED is flipped on.",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(resume_compile_duration_seconds_bucket[5m])))", "refId": "A", "legendFormat": "{{outcome}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 10 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Resume compile failures (rate / min)",
+      "description": "Tectonic/timeout/sanitizer/network failures from the LaTeX subsystem.",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "targets": [
+        { "expr": "sum by (class) (rate(resume_compile_failures_total[1m])) * 60", "refId": "A", "legendFormat": "{{class}}" },
+        { "expr": "rate(resume_fallback_used_total[1m]) * 60", "refId": "B", "legendFormat": "fallback_used" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Deliveries by channel (24h)",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 50 },
+      "targets": [
+        { "expr": "sum by (channel) (increase(deliver_success_total[24h]))", "refId": "A", "legendFormat": "{{channel}}" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Identity checkouts active",
+      "datasource": { "type": "prometheus", "uid": "prom" },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 50 },
+      "targets": [ { "expr": "identity_checkout_active_count", "refId": "A" } ]
     }
   ],
   "refresh": "30s",
