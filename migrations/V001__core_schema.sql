@@ -302,6 +302,7 @@ CREATE TABLE IF NOT EXISTS notification_routes (
 -- CF clearance cache
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS cf_clearance_cache (
+    id               BIGSERIAL PRIMARY KEY,
     source_id        BIGINT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
     identity_id      BIGINT REFERENCES identities(id) ON DELETE SET NULL,
     domain           TEXT NOT NULL,
@@ -313,9 +314,15 @@ CREATE TABLE IF NOT EXISTS cf_clearance_cache (
     expires_at       TIMESTAMPTZ NOT NULL,
     last_used_at     TIMESTAMPTZ,
     success_count    INTEGER NOT NULL DEFAULT 0,
-    failure_count    INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (source_id, COALESCE(identity_id, 0), domain)
+    failure_count    INTEGER NOT NULL DEFAULT 0
 );
+-- Logical uniqueness on (source_id, identity_id, domain) where identity_id
+-- can be NULL. Postgres treats NULL as not-equal in regular unique indexes,
+-- so we use COALESCE to fold NULL into 0 for uniqueness purposes. The
+-- expression form requires this to be a separate index, not an inline
+-- PRIMARY KEY constraint (which only accepts bare column refs).
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_cf_clearance
+    ON cf_clearance_cache (source_id, COALESCE(identity_id, 0), domain);
 
 -- =========================================================================
 -- Cost ledger
@@ -341,13 +348,17 @@ CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_ledger(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_user_kind_ts ON usage_ledger(user_id, kind, ts DESC);
 
 CREATE TABLE IF NOT EXISTS daily_spend (
+    id             BIGSERIAL PRIMARY KEY,
     date           DATE NOT NULL,
     source_id      BIGINT,
     tier           INTEGER NOT NULL DEFAULT 0,
     request_count  INTEGER NOT NULL DEFAULT 0,
-    cents_spent    INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (date, COALESCE(source_id, 0), tier)
+    cents_spent    INTEGER NOT NULL DEFAULT 0
 );
+-- Logical uniqueness on (date, source_id, tier) where source_id can be NULL.
+-- See cf_clearance_cache for the same expression-index rationale.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_daily_spend
+    ON daily_spend (date, COALESCE(source_id, 0), tier);
 
 -- =========================================================================
 -- Source health rolling view

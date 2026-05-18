@@ -7,10 +7,15 @@ BEGIN;
 -- Legal transitions: tuples (from, to) — anything else rejected unless trigger param 'force'=true
 -- Implemented as a small lookup table for easy edits.
 CREATE TABLE IF NOT EXISTS opp_state_transitions_allowed (
+    id         BIGSERIAL PRIMARY KEY,
     from_state opp_state_enum,
-    to_state   opp_state_enum NOT NULL,
-    PRIMARY KEY (COALESCE(from_state::text,''), to_state)
+    to_state   opp_state_enum NOT NULL
 );
+-- Logical uniqueness on (from_state, to_state) where from_state can be NULL
+-- (legal "first transition" from no prior state). Postgres NULLs in plain
+-- UNIQUE are never equal, so COALESCE folds NULL into '' for uniqueness.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_opp_state_transitions_allowed
+    ON opp_state_transitions_allowed (COALESCE(from_state::text, ''), to_state);
 
 INSERT INTO opp_state_transitions_allowed (from_state, to_state) VALUES
     (NULL,        'new'),
