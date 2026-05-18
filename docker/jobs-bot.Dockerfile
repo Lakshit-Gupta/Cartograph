@@ -26,7 +26,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Dep layer
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 RUN uv venv /opt/venv && uv sync --no-dev --frozen || uv sync --no-dev
 
 # App
