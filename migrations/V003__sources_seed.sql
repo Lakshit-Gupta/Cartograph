@@ -45,9 +45,9 @@ SELECT _seed_source('rss_remoteok',         'RemoteOK feed',          'rss',  'h
 SELECT _seed_source('rss_weworkremotely',   'WeWorkRemotely feed',    'rss',  'https://weworkremotely.com/remote-jobs.rss',    'rss_generic', 60, 7, 'none', ARRAY[0], FALSE);
 
 -- GitHub markdown lists
-SELECT _seed_source('gh_simplifyjobs', 'SimplifyJobs Summer 2025',  'github_md', 'https://raw.githubusercontent.com/SimplifyJobs/Summer2025-Internships/dev/README.md', 'github_md', 60, 8, 'none', ARRAY[0], FALSE);
+SELECT _seed_source('gh_simplifyjobs', 'SimplifyJobs Summer 2026',  'github_md', 'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md', 'github_md', 60, 8, 'none', ARRAY[0], FALSE);
 SELECT _seed_source('gh_ouckah',       'Ouckah/Summer2025',         'github_md', 'https://raw.githubusercontent.com/Ouckah/Summer2025-Internships/main/README.md',     'github_md', 60, 7, 'none', ARRAY[0], FALSE);
-SELECT _seed_source('gh_pittcsc',      'PittCSC Summer Internships','github_md', 'https://raw.githubusercontent.com/PittCSC/NewGrad-Jobs/main/README.md',                'github_md', 60, 7, 'none', ARRAY[0], FALSE);
+SELECT _seed_source('gh_pittcsc',      'SimplifyJobs New-Grad',     'github_md', 'https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions/dev/README.md',    'github_md', 60, 7, 'none', ARRAY[0], FALSE);
 
 -- HN / Reddit
 SELECT _seed_source('hn_algolia',      'HN Who is hiring',  'hn',     'https://hn.algolia.com/api/v1/search_by_date', 'hn_algolia',    180, 7, 'none', ARRAY[0], FALSE);
