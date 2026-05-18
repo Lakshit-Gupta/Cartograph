@@ -1,4 +1,4 @@
-.PHONY: help install fmt lint type test up down logs migrate migrate-test seed reset psql redis-cli backup restore-drill bootstrap-pi audit-deps prometheus-setup
+.PHONY: help install fmt lint type test up down logs migrate migrate-test seed reset psql redis-cli backup restore-drill durability-drill reaction-probe bootstrap-pi audit-deps prometheus-setup
 
 ROOT := /home/lakshit_gupta/coding/cartograph
 SOPS_ENV := sops exec-env secrets.yaml
@@ -57,6 +57,15 @@ backup: ## pg_dump | age encrypt | rclone → R2
 
 restore-drill: ## restore latest backup into tmpfs (weekly check)
 	bash scripts/restore_drill.sh
+
+durability-drill: ## simulate power-cut (kill pg+redis), verify durability + recovery
+	@bash scripts/durability_drill.sh
+
+reaction-probe: ## end-to-end smoke for discord ✅/❌/🔁 reaction handlers
+	@bash -c 'for emoji in "✅" "❌" "🔁"; do \
+	    echo "── reaction-probe emoji=$$emoji ────────────────"; \
+	    $(SOPS_ENV) "docker compose run --rm -v $$(pwd):/app --entrypoint /opt/venv/bin/python applier-worker /app/scripts/probe_reaction.py $$emoji" || exit 1; \
+	done'
 
 bootstrap-pi: ## first-time Pi bootstrap (run AS PI USER on the Pi only)
 	bash scripts/bootstrap.sh
