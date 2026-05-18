@@ -21,7 +21,8 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",  # runtime CLI server, no import in source
     "prometheus-client>=0.20.0",
-    # ML
+    # ML — pinned to torch from CPU-only index below (no NVIDIA wheels on Pi).
+    "torch>=2.4.0",
     "sentence-transformers>=3.0.0",
     "numpy>=1.26.0",
     "scikit-learn>=1.5.0",       # Phase-2 logistic regression on response rates
@@ -66,6 +67,18 @@ dev = [
 
 [project.scripts]
 carto = "src.cli.main:cli"
+
+# Pull torch from PyTorch CPU-only index. Without this, uv pulls the default
+# CUDA build which drags in ~3 GB of NVIDIA wheels (cublas, cudnn, cufft,
+# cusolver, cusparse, nccl, triton, cuda-bindings). Pi 5 has no GPU; CUDA
+# bytes sit dead in the image. CPU wheel is what we want.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [build-system]
 requires = ["hatchling"]
