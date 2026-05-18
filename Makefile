@@ -1,4 +1,4 @@
-.PHONY: help install fmt lint type test up down logs migrate migrate-test seed reset psql redis-cli backup restore-drill bootstrap-pi audit-deps
+.PHONY: help install fmt lint type test up down logs migrate migrate-test seed reset psql redis-cli backup restore-drill bootstrap-pi audit-deps prometheus-setup
 
 ROOT := /home/lakshit_gupta/coding/cartograph
 SOPS_ENV := sops exec-env secrets.yaml
@@ -66,3 +66,6 @@ pretest-cf: ## run CF clearance pretest
 
 audit-deps: ## verify every declared dep is actually imported somewhere under src/
 	uv run python scripts/audit_deps.py
+
+prometheus-setup: ## print Prometheus scrape setup runbook
+	@cat docs/runbooks/prometheus_scrape_setup.md
