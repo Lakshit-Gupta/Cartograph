@@ -6,6 +6,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import asyncpg
+from pgvector.asyncpg import register_vector
 
 from src.common.logger import get_logger
 from src.common.secrets import get_settings
@@ -13,6 +14,18 @@ from src.common.secrets import get_settings
 _log = get_logger(__name__)
 
 _pool: asyncpg.Pool | None = None
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Per-connection setup, called by asyncpg on every new pool connection.
+
+    Registers the pgvector codec so we can bind Python lists / numpy arrays
+    directly into `vector(N)` columns. Without this, asyncpg raises
+    `DataError: invalid input for query argument $1 (expected str, got list)`
+    even when the SQL has a `$1::vector` cast — the cast happens server-side,
+    but the Python -> wire encode still needs the codec.
+    """
+    await register_vector(conn)
 
 
 async def init_pool(min_size: int = 2, max_size: int = 10) -> asyncpg.Pool:
@@ -25,6 +38,7 @@ async def init_pool(min_size: int = 2, max_size: int = 10) -> asyncpg.Pool:
             max_size=max_size,
             command_timeout=30,
             server_settings={"application_name": "cartograph"},
+            init=_init_connection,
         )
         _log.info("postgres_pool_ready", min_size=min_size, max_size=max_size)
     return _pool
