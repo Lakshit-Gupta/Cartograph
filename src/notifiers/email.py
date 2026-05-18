@@ -5,6 +5,8 @@ Direct REST call against https://api.resend.com/emails — we avoid the
 """
 from __future__ import annotations
 
+import base64
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -36,8 +38,19 @@ async def send_email(
     *,
     text: str | None = None,
     headers: dict[str, str] | None = None,
+    attachments: list[Path] | None = None,
 ) -> bool:
-    """POST a transactional email via Resend. Returns True on 2xx."""
+    """POST a transactional email via Resend. Returns True on 2xx.
+
+    Args:
+        attachments: optional list of file paths. Each file is read,
+            base64-encoded, and posted via the Resend ``attachments``
+            field. Required for the LaTeX resume subsystem so the
+            tailored / fallback PDF rides along with the cover letter.
+            Per CLAUDE.md hard rule #5 the PDF is NEVER posted to a
+            Discord channel — email attachment is the only delivery
+            mechanism.
+    """
     settings = get_settings()
     if not settings.resend_api_key or not settings.resend_from_email:
         _log.warning("resend_misconfigured")
@@ -55,6 +68,22 @@ async def send_email(
         body["reply_to"] = reply_to
     if headers:
         body["headers"] = headers
+    if attachments:
+        body["attachments"] = []
+        for att in attachments:
+            try:
+                data = att.read_bytes()
+            except OSError as e:
+                _log.warning("attachment_read_failed", path=str(att), err=str(e))
+                continue
+            body["attachments"].append({
+                "filename": att.name,
+                "content": base64.b64encode(data).decode("ascii"),
+            })
+        if not body["attachments"]:
+            # All attachments unreadable — drop the field so Resend doesn't
+            # reject the message on the empty array.
+            del body["attachments"]
 
     req_headers = {
         "Authorization": f"Bearer {settings.resend_api_key}",

@@ -43,6 +43,12 @@ def is_latex_enabled() -> bool:
     """
     return bool(getattr(get_settings(), "mp_resume_latex_enabled", False))
 
+
+# Artifact storage for tailored resume trees. Lives on disk (durable),
+# never tmpfs — power loss must not corrupt in-flight applies. Per-user
+# subdir keeps multi-tenancy a config edit, not a code edit.
+_ARTIFACT_ROOT = Path("/var/lib/agent/resume_artifacts")
+
 _FOLLOWUPS_DDL = """
 CREATE TABLE IF NOT EXISTS followups (
     id              BIGSERIAL PRIMARY KEY,
@@ -120,6 +126,399 @@ def _profile_summary(profile_dict: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# LaTeX resume subsystem path
+# ---------------------------------------------------------------------------
+def _resume_root() -> Path:
+    return Path(get_settings().config_root) / "profile" / "my_resume"
+
+
+def _manifest_path() -> Path:
+    return _resume_root() / "manifest.yaml"
+
+
+async def _llm_tailor_blocks(
+    blocks: list[Any],  # list[Block] — imported lazily inside _send_with_latex
+    opp_summary: dict[str, Any],
+    variant_label: str,
+) -> dict[str, list[str]]:
+    """Call the LLM to rewrite the top-K block bullets. Returns block_id -> new bullets.
+
+    On any LLM error returns an empty dict — the caller treats that as
+    "no edits" and renders the untailored tree (still a fresh compile
+    that benefits from PDF metadata scrub + qpdf linearisation).
+    """
+    from src.common.llm import chat_json, fence_untrusted, load_prompt
+
+    block_payload = [
+        {"id": b.id, "kind": b.kind, "title": b.title, "bullets": b.bullets}
+        for b in blocks
+    ]
+    try:
+        prompt = load_prompt("resume_tailor.txt")
+    except FileNotFoundError:
+        _log.warning("resume_tailor_prompt_missing")
+        return {}
+
+    user = (
+        prompt.format(
+            opp_summary=fence_untrusted(json.dumps(opp_summary)),
+            variant_label=variant_label,
+            blocks_json=json.dumps(block_payload),
+        )
+    )
+
+    try:
+        data = await chat_json(
+            messages=[
+                {"role": "system", "content":
+                    "You rewrite resume bullets. Plain text only. Strict JSON. Never invent facts."},
+                {"role": "user", "content": user},
+            ],
+            kind="resume_tailor",
+            model=get_settings().openrouter_model_writer,
+            max_tokens=1200,
+            temperature=0.2,
+        )
+    except Exception as e:
+        _log.warning("resume_tailor_llm_failed", err=str(e))
+        return {}
+
+    edits_list = data.get("edits") if isinstance(data, dict) else None
+    if not isinstance(edits_list, list):
+        return {}
+
+    out: dict[str, list[str]] = {}
+    for entry in edits_list:
+        if not isinstance(entry, dict):
+            continue
+        bid = entry.get("id")
+        bullets = entry.get("bullets")
+        if not isinstance(bid, str) or not isinstance(bullets, list):
+            continue
+        cleaned = [str(b).strip() for b in bullets if str(b).strip()]
+        if cleaned:
+            out[bid] = cleaned
+    return out
+
+
+async def _log_compile_outcome(
+    *,
+    opportunity_id: UUID,
+    user_id: int,
+    source_hash: str | None,
+    artifact_sha256: str | None,
+    block_overrides: dict[str, list[str]] | None,
+    compile_duration_ms: int | None,
+    tectonic_version: str | None,
+    status: str,
+    tectonic_stderr: str | None,
+) -> None:
+    """Insert one row into resume_compile_log. Best-effort; never raises."""
+    try:
+        async with acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO resume_compile_log
+                    (opportunity_id, user_id, source_hash, artifact_sha256,
+                     block_overrides, compile_duration_ms, tectonic_version,
+                     status, tectonic_stderr)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
+                """,
+                opportunity_id, user_id, source_hash, artifact_sha256,
+                json.dumps(block_overrides) if block_overrides is not None else None,
+                compile_duration_ms, tectonic_version, status, tectonic_stderr,
+            )
+    except Exception as e:
+        _log.warning("resume_compile_log_insert_failed", err=str(e),
+                     opp_id=str(opportunity_id), status=status)
+
+
+async def _attach_resume_audit_to_application(
+    application_id: int,
+    *,
+    artifact_sha256: str | None,
+    source_hash: str | None,
+    status: str,
+) -> None:
+    """Backfill the V007 columns onto an existing applications row."""
+    try:
+        async with acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE applications
+                   SET resume_artifact_sha256 = $2,
+                       resume_source_hash     = $3,
+                       resume_compile_status  = $4
+                 WHERE id = $1
+                """,
+                application_id, artifact_sha256, source_hash, status,
+            )
+    except Exception as e:
+        _log.warning("applications_resume_audit_update_failed", err=str(e),
+                     application_id=application_id)
+
+
+def _pdf_sha256(path: Path) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(64 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+async def _send_with_latex(
+    opp_id: UUID,
+    *,
+    override_cover_markdown: str | None = None,
+) -> dict[str, Any]:
+    """The 8-step LaTeX apply flow.
+
+    1. Parse the resume tree (cached by Document; cheap enough to re-parse
+       every apply — see CLAUDE.md "Deferred to Phase 2+: inotify hot-reload").
+    2. Selector ranks blocks against the opportunity.
+    3. LLM rewrites the top-3 blocks (cost-gated through common/llm.py).
+    4. Sanitizer escapes specials, rejects forbidden macros.
+    5. Render writes ``<artifact_dir>.partial/`` then atomic-renames to
+       ``.complete/`` once compile succeeds.
+    6. ``compile.run`` invokes ``tectonic --untrusted`` with a 30 s timeout,
+       qpdf-linearises, exiftool-scrubs metadata.
+    7. ``applications`` + ``resume_compile_log`` rows inserted. Any failure
+       falls back to the boot-warmed untailored PDF; still send the email.
+    8. Resend posts the email with the PDF attached. PDF NEVER goes via
+       Discord (hard rule #5).
+    """
+    # Lazy imports to keep the legacy import surface unchanged when the
+    # flag is off (the LaTeX path may pull in tectonic-only modules in
+    # future; today this is purely organisational).
+    from src.application.resume_latex.compile import CompileError
+    from src.application.resume_latex.compile import run as compile_run
+    from src.application.resume_latex.fallback import get_fallback
+    from src.application.resume_latex.parser.blocks import parse as parse_resume
+    from src.application.resume_latex.parser.manifest import load as load_manifest
+    from src.application.resume_latex.render import (
+        SourceDriftError,
+        commit_complete,
+        write_partial,
+    )
+    from src.application.resume_latex.sanitizer import SanitizerReject, escape_and_check
+    from src.application.resume_latex.selector import rank as select_rank
+
+    await _ensure_followups_table()
+
+    opp = await _load_opp(opp_id)
+    if opp is None:
+        raise ValueError(f"opportunity not found: {opp_id}")
+
+    profile_dict = _load_profile_dict()
+    profile_summary = _profile_summary(profile_dict)
+    prefs = _load_prefs()
+    user_id = 1  # Phase 1 — single tenant; multi-tenant lands in Phase 4.
+
+    variant_label = pick_variant(opp) or (
+        (prefs.get("apply") or {}).get("resume_variant_default") or "backend"
+    )
+    template_name = pick_template(opp, variant_label=variant_label)
+
+    # 1. Parse the resume tree.
+    manifest = load_manifest(_manifest_path())
+    document = parse_resume(manifest, _resume_root())
+
+    # 2. Select the top-K tailorable blocks. We cap K=3 to bound LLM cost.
+    # `cvevent` blocks are the strongest tailoring target. We also let
+    # `section`/`skills_block`/`project` flow through if they outrank events
+    # on keyword vote — the selector is keyword-agnostic by design.
+    tailorable = [b for b in document.blocks if b.kind in ("event", "section", "skills_block", "project")]
+    top_blocks = select_rank(tailorable, opp)[:3]
+
+    opp_summary_for_llm = {
+        "title": opp.get("title"),
+        "company": opp.get("company"),
+        "description": (opp.get("description") or "")[:1500],
+    }
+
+    # 3. LLM tailors bullets (cost-gated).
+    raw_edits = await _llm_tailor_blocks(top_blocks, opp_summary_for_llm, variant_label)
+
+    # 4. Sanitizer enforces the macro denylist + escape.
+    sanitized_edits: dict[str, list[str]] = {}
+    sanitizer_reject_msg: str | None = None
+    for bid, bullets in raw_edits.items():
+        try:
+            sanitized_edits[bid] = escape_and_check(bullets)
+        except SanitizerReject as e:
+            sanitizer_reject_msg = str(e)
+            _log.warning("resume_sanitizer_rejected", block_id=bid, err=str(e))
+            # Skip this block but keep the others — partial tailoring is
+            # better than full fallback when only one block tripped a
+            # forbidden macro.
+            continue
+
+    # 5. Render to <artifact_dir>.partial. The artifact dir is the durable
+    # /var/lib/agent/resume_artifacts/<user_id>/<opp_id> path.
+    user_root = _ARTIFACT_ROOT / str(user_id)
+    user_root.mkdir(parents=True, exist_ok=True)
+    artifact_dir = user_root / str(opp_id)
+
+    pdf_path: Path | None = None
+    compile_status: str = "failed"
+    compile_duration_ms: int | None = None
+    tectonic_version: str | None = None
+    tectonic_stderr: str | None = sanitizer_reject_msg
+    source_hash = next(iter(document.source_hashes.values()), None)
+
+    try:
+        partial = write_partial(
+            document, sanitized_edits, artifact_dir, source_root=_resume_root(),
+        )
+        # 6. Compile.
+        result = await compile_run(partial / manifest.main_file)
+        compile_duration_ms = result.duration_ms
+        tectonic_version = result.tectonic_version
+        complete = commit_complete(partial)
+        pdf_path = complete / manifest.main_file.replace(".tex", ".pdf")
+        if not pdf_path.exists():
+            # tectonic may have renamed the PDF — fall back to scanning.
+            pdfs = list(complete.glob("*.pdf"))
+            pdf_path = pdfs[0] if pdfs else None
+        compile_status = "tailored" if pdf_path is not None else "failed"
+    except SourceDriftError as e:
+        tectonic_stderr = f"source_drift: {e}"
+        _log.warning("resume_source_drift", err=str(e), opp_id=str(opp_id))
+    except CompileError as e:
+        tectonic_stderr = str(e)
+        _log.warning("resume_compile_error", err=str(e), opp_id=str(opp_id))
+    except Exception as e:
+        tectonic_stderr = f"render_error: {e!r}"
+        _log.exception("resume_render_unexpected_error", err=str(e), opp_id=str(opp_id))
+
+    # Compile fallback: untailored PDF pre-warmed at applier boot.
+    if pdf_path is None:
+        fb = get_fallback(user_id)
+        if fb is not None:
+            pdf_path = fb
+            compile_status = "fallback"
+        else:
+            _log.warning("resume_no_fallback_available", opp_id=str(opp_id),
+                         user_id=user_id)
+
+    artifact_sha256 = _pdf_sha256(pdf_path) if pdf_path else None
+
+    # 7. Log compile outcome.
+    await _log_compile_outcome(
+        opportunity_id=opp_id,
+        user_id=user_id,
+        source_hash=source_hash,
+        artifact_sha256=artifact_sha256,
+        block_overrides=sanitized_edits or None,
+        compile_duration_ms=compile_duration_ms,
+        tectonic_version=tectonic_version,
+        status=compile_status,
+        tectonic_stderr=tectonic_stderr,
+    )
+
+    # 8. Build cover, dispatch.
+    if override_cover_markdown:
+        cover_md = override_cover_markdown
+    else:
+        cover_md = await write_cover(profile_summary, opp, variant_label)
+
+    # Surface the tailored bullets in the embed for the user even though
+    # the email already carries them inside the PDF. Empty list when
+    # we fell back to the untailored PDF.
+    tailored_bullets: list[str] = []
+    for b in top_blocks:
+        if b.id in sanitized_edits:
+            tailored_bullets.extend(sanitized_edits[b.id])
+    tailored_bullets = tailored_bullets[:5]
+
+    method_raw = opp.get("apply_method") or ApplyMethod.EXTERNAL.value
+    method = ApplyMethod(str(method_raw))
+    target: str | None = None
+
+    if method == ApplyMethod.EMAIL:
+        target = _extract_email_target(opp.get("apply_url"), opp.get("description"))
+        if not target:
+            _log.warning("email_target_missing", opp_id=str(opp_id))
+            method = ApplyMethod.EXTERNAL
+        else:
+            subject = f"{opp.get('title','Application')} — {profile_summary.get('name','Applicant')}"
+            html = _render_email_html(cover_md, tailored_bullets, opp, profile_summary)
+            reply_to = profile_summary.get("email")
+            attachments = [pdf_path] if pdf_path is not None else None
+            try:
+                sent_ok = await send_email(
+                    to=target, subject=subject, html=html, reply_to=reply_to,
+                    attachments=attachments,
+                )
+            except Exception as e:
+                _log.exception("send_email_failed", err=str(e), to=target)
+                sent_ok = False
+            if not sent_ok:
+                _log.warning("send_email_returned_false", to=target)
+
+    if method != ApplyMethod.EMAIL:
+        target = opp.get("apply_url")
+
+    payload = {
+        "variant": variant_label,
+        "template": template_name,
+        "cover_letter_markdown": cover_md,
+        "tailored_bullets": tailored_bullets,
+        "target": target,
+        "review_url": opp.get("apply_url"),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "resume_compile_status": compile_status,
+        "resume_artifact_sha256": artifact_sha256,
+    }
+
+    application_id = await _upsert_application(opp_id, method, payload)
+    await _transition_to_applied(opp_id, application_id, method)
+    await _attach_resume_audit_to_application(
+        application_id,
+        artifact_sha256=artifact_sha256,
+        source_hash=source_hash,
+        status=compile_status,
+    )
+    applications_sent_total.labels(method=method.value).inc()
+
+    queue = await RedisQ.connect()
+    notify_kind = "applied" if method == ApplyMethod.EMAIL else "manual_apply_ready"
+    thread_title = f"{opp.get('title','?')} @ {opp.get('company','?')}"
+    # CLAUDE.md hard rule #5: PDF is NEVER sent through Discord. We pass
+    # the bullets / cover markdown so the notifier can build a text embed
+    # — but no "resume_pdf_path" field. If a future notifier wants the
+    # tailored bullets, that's what they get; the PDF stays on disk.
+    await queue.publish(Streams.NOTIFY, {
+        "kind": notify_kind,
+        "user_id": user_id,
+        "payload": {
+            "application_id": application_id,
+            "opportunity_id": str(opp_id),
+            "thread_title": thread_title,
+            "method": method.value,
+            "target": target,
+            "review_url": opp.get("apply_url"),
+            "company": opp.get("company"),
+            "title": opp.get("title"),
+            "cover_letter_markdown": cover_md,
+            "tailored_bullets": tailored_bullets,
+            "resume_compile_status": compile_status,
+        },
+    })
+
+    return {
+        "application_id": application_id,
+        "method": method.value,
+        "cover_letter_markdown": cover_md,
+        "tailored_bullets": tailored_bullets,
+        "target": target,
+        "resume_compile_status": compile_status,
+        "resume_artifact_sha256": artifact_sha256,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Opp loader (DB row → minimal opp-like dict)
 # ---------------------------------------------------------------------------
 async def _load_opp(opp_id: UUID) -> dict[str, Any] | None:
@@ -186,7 +585,21 @@ async def send_application(
     When ``override_cover_markdown`` is supplied (e.g. a user-edited freelance
     proposal from the Discord modal), it is used verbatim and the LLM cover
     writer is skipped.
+
+    Branches on ``is_latex_enabled()``. The LaTeX path lives in
+    ``_send_with_latex``; the legacy JSON-template path is below.
     """
+    if is_latex_enabled():
+        try:
+            return await _send_with_latex(opp_id, override_cover_markdown=override_cover_markdown)
+        except Exception as e:
+            # Hard rule: never silently swallow an apply. If the LaTeX
+            # path raises before it can reach its own fallback (e.g. the
+            # parser crashes on a malformed manifest), drop to the legacy
+            # JSON path so the user's click still produces an email.
+            _log.exception("latex_apply_failed_falling_back_to_json", err=str(e),
+                           opp_id=str(opp_id))
+
     await _ensure_followups_table()
 
     opp = await _load_opp(opp_id)
