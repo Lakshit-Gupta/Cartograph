@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# Optional Pi-side compose override: enables host Prometheus scraping
+# of the Cartograph api-service /metrics endpoint.
+#
+# WHAT THIS DOES
+#   Publishes api-service's container port 9090 to the Pi host on the
+#   loopback interface ONLY (127.0.0.1:9090). The Pi's existing host-level
+#   Prometheus daemon can then scrape http://127.0.0.1:9090/metrics while
+#   the rest of the Pi network (LAN, Tailscale, Cloudflared) cannot reach
+#   the metrics endpoint directly.
+#
+# HOW TO ACTIVATE
+#   On the Pi only (NOT in version control on dev laptop):
+#     cp compose.override.example.yaml compose.override.yaml
+#     # or:  ln -s compose.override.example.yaml compose.override.yaml
+#     sops exec-env secrets.yaml 'docker compose up -d --force-recreate api-service'
+#
+#   `compose.override.yaml` is gitignored — keep it that way.
+#
+# SECURITY — DO NOT CHANGE THE BIND ADDRESS
+#   The bind MUST stay 127.0.0.1. The Pi runs Cloudflared and Tailscale,
+#   so a 0.0.0.0 bind would publish raw Prometheus counter values
+#   (LLM spend, identity ban counts, source health) to the public
+#   internet via any tunnel that auto-discovers host ports. Loopback-only
+#   keeps metrics on the Pi host where Prometheus lives.
+#
+# PHASE 4 UPGRADE PATH
+#   When multi-user lands and Prometheus moves off the Pi, swap this
+#   override for a Tailscale-bound listener (e.g. 100.x.y.z:9090:9090)
+#   and add tsnet auth. See docs/runbooks/prometheus_scrape_setup.md
+#   ("Trade-offs + Phase 4 hardening").
+# ---------------------------------------------------------------------------
+
+services:
+  api-service:
+    ports:
+      # host_ip:host_port:container_port — loopback-only, intentional.
+      - "127.0.0.1:9090:9090"
