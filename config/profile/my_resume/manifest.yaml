@@ -1,0 +1,45 @@
+# Resume manifest — drives the LaTeX resume subsystem.
+#
+# Loaded by `src/application/resume_latex/parser/manifest.py` (Pydantic).
+# Schema and rationale live in CLAUDE.md ("LaTeX resume subsystem").
+#
+# Layout
+#  - main_file:        top-level .tex compiled by tectonic.
+#  - class_file:       AltaCV style sheet — never touched by the pipeline.
+#  - macro_vocabulary: maps a "kind" → list of LaTeX macro names that
+#                      the parser should treat as that kind. Each macro
+#                      yields one Block; the block_id is sha256(kind|title|bullets).
+#  - exclude_sections: titles of \cvsection blocks the parser must skip
+#                      (e.g. "Coursework Subjects" so an LLM never rewrites it).
+#  - output_name:      filename of the compiled PDF inside the artifact dir.
+#  - pdf_metadata:     scrubbed into the PDF post-compile via exiftool +
+#                      injected into \hypersetup at render time.
+
+main_file: mmayer.tex
+class_file: altacv.cls
+
+macro_vocabulary:
+  event:
+    - cvevent      # main file: experience entries with bullets after them
+  section:
+    - cvsection    # achievements + technical skills lists
+  project:
+    - cvproject    # sidebar: project blocks with bullets after them
+  skills_block:
+    - cvsection    # same macro as section — vocabulary is a hint, not a tag
+  identity:
+    - name         # not tailorable; parser records but selector skips
+    - tagline
+
+exclude_sections:
+  - Coursework Subjects
+  - Publications
+  - A Day of My Life
+
+output_name: resume.pdf
+
+pdf_metadata:
+  title: Resume
+  author: Lakshit Gupta
+  creator: ""
+  producer: ""
