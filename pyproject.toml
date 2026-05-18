@@ -19,7 +19,7 @@ dependencies = [
     "redis[hiredis]>=5.0.7",
     # API / metrics
     "fastapi>=0.115.0",
-    "uvicorn>=0.30.0",            # runtime CLI server; drop [standard] (uvloop/watchfiles/websockets unused)
+    "uvicorn[standard]>=0.30.0",  # uvloop + httptools = ~30% faster on Pi; keep
     "prometheus-client>=0.20.0",
     # ML — pinned to torch from CPU-only index below (no NVIDIA wheels on Pi).
     "torch>=2.4.0",

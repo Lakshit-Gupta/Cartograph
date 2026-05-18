@@ -31,8 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       wget \
       fonts-liberation \
-      fonts-noto-core \
-      fonts-dejavu-core \
+      fonts-noto \
+      fonts-noto-cjk \
+      fonts-dejavu \
       fonts-roboto \
     && rm -rf /var/lib/apt/lists/*
 
