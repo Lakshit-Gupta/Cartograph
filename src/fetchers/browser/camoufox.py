@@ -53,7 +53,8 @@ class CamoufoxFetcher(Fetcher):
                 finally:
                     await page.close()
         except Exception as e:
-            fetch_errors_total.labels(klass="browser_exc").inc()
+            # Positional — `class` is a Python keyword; see http.py:123 for context.
+            fetch_errors_total.labels("browser_exc").inc()
             _log.warning("camoufox_fetch_failed", url=req.url, err=str(e))
             return FetchResponse(
                 status=0, body="", content_type=None, tier=self.tier,

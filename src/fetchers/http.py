@@ -120,7 +120,10 @@ class HttpFetcher(Fetcher):
                 cf_challenge_observed=cf_seen,
             )
         except Exception as e:
-            fetch_errors_total.labels(klass="http_exc").inc()
+            # `class` is a Python keyword — pass the label positionally so
+            # we are not forced into `**{"class": ...}` ceremony. The metric
+            # is declared with labelnames=("class",) in common/metrics.py.
+            fetch_errors_total.labels("http_exc").inc()
             _log.warning("http_fetch_failed", url=req.url, err=str(e))
             return FetchResponse(
                 status=0, body="", content_type=None, tier=self.tier,
