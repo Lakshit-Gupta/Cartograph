@@ -185,16 +185,27 @@ $ docker compose exec postgres psql -U Cartograph -d Cartogrph -c '\dt'
 → 27 tables
 
 $ ... SELECT count(*) FROM sources;
-→ 29   (CLAUDE.md says 30; one ON CONFLICT collision in V003 — non-blocker, follow-up)
+→ 29   (V003 has exactly 29 SELECT _seed_source() calls — verified
+        2026-05-18; the "30" referenced in chat handoff was an
+        aspirational number from the long-form plan, not the seeded
+        reality. CLAUDE.md says "28+ sources" which is accurate.)
 ```
 
 ## Follow-ups (not in this design)
 
-- Investigate why `sources` count is 29 vs 30 expected. Likely duplicate
-  slug across two YAML files in `config/sources/`.
+- ~~Investigate why `sources` count is 29 vs 30 expected.~~ Resolved
+  2026-05-18: V003 has exactly 29 `SELECT _seed_source(...)` calls with no
+  duplicates and no `ON CONFLICT` collisions. The "30" was an aspirational
+  number from the long-form plan handoff, not the actual seeded reality.
 - When V007 (resume_artifacts) lands, the L1 gate will validate it before
   commit.
 - Per Backend Architect agent: move `INSERT INTO schema_migrations` from
   each SQL file into the runner, strip BEGIN/COMMIT + marker from V00X
   files. Single source of truth. Deferred — requires one-shot rewrite of
   6 files for zero behaviour change.
+- `pre-commit install` was never run on this machine — the `migrate-replay`
+  hook will only auto-fire after that one-time command. `make migrate-test`
+  is always available as the manual entry point.
+- Test suite (`make test` / `pytest`) was not invoked during this work.
+  All verification was via live container logs + DB state. Worth a pass
+  before declaring Phase 1 done.

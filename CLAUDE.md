@@ -758,6 +758,7 @@ Full review records: ephemeral specialist agents; key amendments folded above.
 | Migration SQL fails on apply (semantic, e.g. non-IMMUTABLE in index, missing extension) | Pre-commit `migrate-replay` against ephemeral pgvector blocks the commit | <15s to detect locally; <1min to fix and re-stage | 0 (never reaches prod) |
 | Migration runner aborts mid-chain (e.g. file N fails) | `_format_pg_error` prints `file:line:col` + caret + class name | Fix SQL, re-run `make migrate` — no volume wipe, picks up at file N | 0 (file N's BEGIN/COMMIT rolled back, V1..V(N-1) intact) |
 | Concurrent `migrate` runners race | `pg_advisory_lock(727274)` held for full loop | Second runner blocks until first releases (or first conn drops → auto-release) | 0 |
+| Redis at maxmemory cap (200MB) → `noeviction` blocks all `XADD` | `OutOfMemoryError` in `RedisQ.publish` | Per-stream MAXLEN caps in `src/common/queue.py` keep streams bounded; manual `XTRIM stream:<name> MAXLEN <n>` recovers headroom if a slow consumer (e.g. ranker on cold start) lets the cap drift. | 0 |
 
 ---
 
