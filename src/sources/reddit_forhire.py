@@ -1,8 +1,17 @@
-"""r/forhire (and any reddit subreddit) via OAuth.
+"""r/forhire (and any reddit subreddit) via anonymous JSON endpoint.
 
-For Phase 1 we use the basic 'script' app — bearer is fetched + cached by
-`src/sources/reddit_auth.py` and injected by the HTTP fetcher when the host
-is `oauth.reddit.com`.
+Reddit's `www.reddit.com/r/<sub>/new.json` returns the same JSON shape as the
+OAuth endpoint but requires no app credentials — useful when the developer
+portal is gated (2026+) or when OAuth approval is pending.
+
+Trade-off vs OAuth: anonymous traffic is rate-limited to ~10 req/min by Reddit,
+which is sufficient for our crawl cadence (every 15-60 min per sub). The
+HTTP fetcher must send a descriptive `User-Agent`; without it Reddit returns
+429 aggressively. UA injection lives in `src/fetchers/http.py`.
+
+Strategy names (`reddit_oauth`, `reddit_oauth_push`) are kept for migration
+compatibility — V003 seed rows reference them. The names are historical; the
+fetch path is anonymous.
 """
 from __future__ import annotations
 
@@ -10,22 +19,22 @@ from src.sources.base import CrawlPlan
 from src.sources.registry import register
 
 
-class _RedditOAuth:
+class _RedditJSON:
     slug = "reddit_oauth"
     strategy = "reddit_oauth"
 
     async def plan(self, *, source_id: int, base_url: str, config: dict) -> CrawlPlan:
-        # base_url e.g. https://oauth.reddit.com/r/forhire/new
+        # base_url now: https://www.reddit.com/r/forhire/new.json
         return CrawlPlan(
             source_id=source_id,
             source_slug=config.get("slug", self.slug),
             urls=[f"{base_url}?limit=50"],
             tier_chain=[0],
-            requires_identity=True,    # needs a Reddit identity for OAuth bearer
+            requires_identity=False,    # anonymous endpoint, no identity needed
         )
 
 
-class _RedditOAuthPush:
+class _RedditJSONPush:
     slug = "reddit_oauth_push"
     strategy = "reddit_oauth_push"
 
@@ -33,11 +42,11 @@ class _RedditOAuthPush:
         return CrawlPlan(
             source_id=source_id,
             source_slug=config.get("slug", self.slug),
-            urls=[f"{base_url}?limit=25"],   # smaller burst, fast lane
+            urls=[f"{base_url}?limit=25"],
             tier_chain=[0],
-            requires_identity=True,
+            requires_identity=False,
         )
 
 
-register(_RedditOAuth())
-register(_RedditOAuthPush())
+register(_RedditJSON())
+register(_RedditJSONPush())

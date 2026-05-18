@@ -24,6 +24,7 @@ _log = get_logger(__name__)
 
 CF_MARKERS = ("Attention Required", "Just a moment", "Checking your browser")
 REDDIT_OAUTH_HOST = "oauth.reddit.com"
+REDDIT_HOSTS = ("oauth.reddit.com", "www.reddit.com", "reddit.com")
 
 
 class HttpFetcher(Fetcher):
@@ -74,14 +75,19 @@ class HttpFetcher(Fetcher):
         if ua:
             headers.setdefault("User-Agent", ua)
 
-        # Gated: only inject Reddit OAuth bearer when targeting oauth.reddit.com.
-        if host == REDDIT_OAUTH_HOST and reddit_auth.is_configured():
-            try:
-                token = await reddit_auth.get_bearer_token()
-                headers["Authorization"] = f"Bearer {token}"
-                headers["User-Agent"] = get_settings().reddit_user_agent
-            except RuntimeError as e:
-                _log.warning("reddit_bearer_unavailable", url=req.url, err=str(e))
+        # Reddit: set descriptive UA on every reddit.com request (Reddit 429s
+        # anonymous traffic without a recognizable UA). Inject OAuth bearer
+        # only when targeting oauth.reddit.com AND creds are configured.
+        if host in REDDIT_HOSTS:
+            reddit_ua = get_settings().reddit_user_agent
+            if reddit_ua:
+                headers["User-Agent"] = reddit_ua
+            if host == REDDIT_OAUTH_HOST and reddit_auth.is_configured():
+                try:
+                    token = await reddit_auth.get_bearer_token()
+                    headers["Authorization"] = f"Bearer {token}"
+                except RuntimeError as e:
+                    _log.warning("reddit_bearer_unavailable", url=req.url, err=str(e))
 
         t0 = time.perf_counter()
         cf_seen = False

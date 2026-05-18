@@ -51,8 +51,8 @@ SELECT _seed_source('gh_pittcsc',      'PittCSC Summer Internships','github_md',
 
 -- HN / Reddit
 SELECT _seed_source('hn_algolia',      'HN Who is hiring',  'hn',     'https://hn.algolia.com/api/v1/search_by_date', 'hn_algolia',    180, 7, 'none', ARRAY[0], FALSE);
-SELECT _seed_source('reddit_forhire',  'r/forhire',         'reddit', 'https://oauth.reddit.com/r/forhire/new',       'reddit_oauth',   15, 8, 'none', ARRAY[0], FALSE);
-SELECT _seed_source('reddit_remotejs', 'r/remotejs',        'reddit', 'https://oauth.reddit.com/r/remotejs/new',      'reddit_oauth',   60, 6, 'none', ARRAY[0], FALSE);
+SELECT _seed_source('reddit_forhire',  'r/forhire',         'reddit', 'https://www.reddit.com/r/forhire/new.json',    'reddit_oauth',   15, 8, 'none', ARRAY[0], FALSE);
+SELECT _seed_source('reddit_remotejs', 'r/remotejs',        'reddit', 'https://www.reddit.com/r/remotejs/new.json',   'reddit_oauth',   60, 6, 'none', ARRAY[0], FALSE);
 
 -- Fellowships (mix of HTML scraping + RSS)
 SELECT _seed_source('fellow_anthropic',  'Anthropic Fellows',   'fellowship', 'https://www.anthropic.com/jobs', 'fellowship_html', 1440, 9, 'managed', ARRAY[0,1,2], FALSE);
@@ -75,7 +75,7 @@ SELECT _seed_source('in_yourstory',    'YourStory Funding', 'india',  'https://y
 SELECT _seed_source('fl_contra',          'Contra hot opps',    'freelance', 'https://contra.com/opportunities',          'freelance_contra',     2,  10, 'managed', ARRAY[0,1,2], FALSE);
 SELECT _seed_source('fl_upwork_email',    'Upwork email digest','freelance', 'imap:gmail-worker',                          'freelance_upwork_im',  5,  9,  'none',    ARRAY[0],     FALSE);
 SELECT _seed_source('fl_telegram',        'Telegram channels',  'freelance', 'tg://channels',                              'freelance_telegram',   5,  9,  'none',    ARRAY[0],     FALSE);
-SELECT _seed_source('fl_forhire_push',    'r/forhire push',     'freelance', 'https://oauth.reddit.com/r/forhire/new',     'reddit_oauth_push',    2,  10, 'none',    ARRAY[0],     FALSE);
+SELECT _seed_source('fl_forhire_push',    'r/forhire push',     'freelance', 'https://www.reddit.com/r/forhire/new.json',  'reddit_oauth_push',    2,  10, 'none',    ARRAY[0],     FALSE);
 
 DROP FUNCTION IF EXISTS _seed_source(TEXT, TEXT, TEXT, TEXT, TEXT, INTEGER, INTEGER, TEXT, INTEGER[], BOOLEAN);
 
