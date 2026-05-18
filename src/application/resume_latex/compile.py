@@ -50,12 +50,18 @@ async def run(main_tex: Path, *, timeout: float = 30.0) -> CompileResult:
 
     # start_new_session=True puts tectonic in its own process group so
     # killpg can take it out cleanly on timeout.
+    #
+    # `--keep-intermediates` is a boolean flag (no value) in tectonic 0.16.x,
+    # not a key=value option. Omitting it gets the default behaviour we
+    # want: intermediates are discarded after compile, leaving only the PDF
+    # and log next to the input. Passing `--keep-intermediates=false`
+    # parses as the flag followed by a positional INPUT `=false`, which
+    # tectonic then tries to compile and bails out on.
     proc = await asyncio.create_subprocess_exec(
         "tectonic",
         "-X",
         "compile",
         "--untrusted",
-        "--keep-intermediates=false",
         str(main_tex),
         cwd=str(cwd),
         env=env,
