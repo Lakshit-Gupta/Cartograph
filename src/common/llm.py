@@ -34,19 +34,50 @@ _log = get_logger(__name__)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Approx per-1M-token pricing in USD. Refresh periodically. Conservative ceilings.
+# Unknown slug falls back to (1.0, 5.0) — costs over-report, not under-report.
 _PRICING: dict[str, tuple[float, float]] = {
-    "google/gemini-flash-1.5":          (0.075, 0.30),
-    "google/gemini-2.0-flash":          (0.10,  0.40),
-    "anthropic/claude-3.5-sonnet":      (3.00,  15.00),
-    "anthropic/claude-3.5-haiku":       (0.80,   4.00),
-    "openai/gpt-4o-mini":               (0.15,   0.60),
-    "openai/gpt-4o":                    (2.50,  10.00),
-    "meta-llama/llama-3.1-70b-instruct":(0.40,   0.40),
+    # Google Gemini (current as of 2026-05)
+    "google/gemini-2.5-flash-lite":            (0.10,  0.40),
+    "google/gemini-2.5-flash":                 (0.15,  0.60),
+    "google/gemini-3-flash-preview":           (0.50,  3.00),
+    "google/gemini-3.1-flash-lite":            (0.25,  1.50),
+    "google/gemini-3.1-flash-lite-preview":    (0.25,  1.50),
+    # Anthropic Claude (current)
+    "anthropic/claude-haiku-4.5":              (1.00,  5.00),
+    "anthropic/claude-sonnet-4.6":             (3.00, 15.00),
+    # DeepSeek V4 family
+    "deepseek/deepseek-v4-flash":              (0.112, 0.224),
+    "deepseek/deepseek-v4-pro":                (0.435, 0.87),
+    # xAI Grok (current)
+    "x-ai/grok-4.20":                          (1.25,  2.50),
+    "x-ai/grok-4.20-beta":                     (2.00,  6.00),
+    # Moonshot Kimi (current)
+    "moonshotai/kimi-k2.6":                    (0.73,  3.49),
+    "moonshotai/kimi-k2.5":                    (0.40,  1.90),
+    # OpenAI (reference)
+    "openai/gpt-4o-mini":                      (0.15,  0.60),
+    "openai/gpt-4o":                           (2.50, 10.00),
+    # Legacy (kept for backward compat with old usage_ledger rows)
+    "google/gemini-flash-1.5":                 (0.075, 0.30),
+    "anthropic/claude-3.5-sonnet":             (3.00, 15.00),
+    "anthropic/claude-3.5-haiku":              (0.80,  4.00),
 }
 
 
 class CostCapReached(RuntimeError):
     pass
+
+
+class LLMEmptyResponse(RuntimeError):
+    """Provider returned no content (empty string, null, or missing field)."""
+
+
+class LLMSafetyBlock(RuntimeError):
+    """Provider refused output via safety filter (finish_reason=content_filter)."""
+
+
+class LLMInvalidJSON(RuntimeError):
+    """Provider returned content but it failed json.loads."""
 
 
 def _prompt_path(filename: str) -> Path:
@@ -108,6 +139,7 @@ async def chat(
     response_format: dict[str, Any] | None = None,
     temperature: float = 0.0,
     max_tokens: int = 1024,
+    reasoning_effort: str | None = None,
     correlation_id: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -130,6 +162,10 @@ async def chat(
     }
     if response_format:
         payload["response_format"] = response_format
+    if reasoning_effort:
+        # OpenRouter pass-through for reasoning-capable models (Gemini 3 thinking,
+        # DeepSeek V4 high/xhigh, Grok 4.x). Ignored by non-reasoning models.
+        payload["reasoning"] = {"effort": reasoning_effort}
 
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
@@ -171,20 +207,54 @@ async def chat(
     return data
 
 
+def _extract_content(data: dict[str, Any]) -> str:
+    """Safely pull content out of an OpenRouter response, raising typed errors.
+
+    Handles: missing choices, empty list, null/missing message, null/empty content,
+    safety filter blocks. Each failure mode raises a distinct exception so callers
+    and metrics can distinguish "model down" from "model refused" from "model
+    returned junk".
+    """
+    if data.get("error"):
+        raise LLMEmptyResponse(f"upstream_error: {data['error']}")
+    choices = data.get("choices") or []
+    if not choices:
+        raise LLMEmptyResponse("no_choices_in_response")
+    choice = choices[0] or {}
+    finish_reason = (choice.get("finish_reason") or "").lower()
+    if finish_reason in ("content_filter", "safety", "blocked"):
+        raise LLMSafetyBlock(f"safety_block: {finish_reason}")
+    msg = choice.get("message") or {}
+    content = msg.get("content")
+    if content is None or (isinstance(content, str) and not content.strip()):
+        raise LLMEmptyResponse(f"empty_content: finish_reason={finish_reason or 'none'}")
+    return content
+
+
 async def chat_json(
     *,
     messages: list[dict[str, str]],
     schema_hint: str = "object",
     **kwargs: Any,
 ) -> Any:
-    """Call chat() with a JSON response format and parse the result."""
+    """Call chat() with a JSON response format and parse the result.
+
+    Raises:
+        LLMEmptyResponse: provider returned no content (empty/null).
+        LLMSafetyBlock: provider refused via safety filter.
+        LLMInvalidJSON: content present but not parseable as JSON.
+    """
     data = await chat(
         messages=messages,
         response_format={"type": "json_object"} if schema_hint == "object" else None,
         **kwargs,
     )
-    content = data["choices"][0]["message"]["content"]
-    return json.loads(content)
+    content = _extract_content(data)
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        snippet = content[:200].replace("\n", "\\n")
+        raise LLMInvalidJSON(f"json_decode_failed at pos {e.pos}: {snippet!r}") from e
 
 
 def fence_untrusted(text: str) -> str:

@@ -46,7 +46,11 @@ async def rerank(
         {"role": "user", "content": f"<CANDIDATES>\n{json.dumps(items)}\n</CANDIDATES>"},
     ]
     try:
-        resp = await chat_json(messages=msgs, kind="llm_rerank", temperature=0.0, max_tokens=2000)
+        # V4 Flash + xhigh = max reasoning. Ignored by non-reasoning models.
+        resp = await chat_json(
+            messages=msgs, kind="llm_rerank", temperature=0.0, max_tokens=2000,
+            reasoning_effort="xhigh",
+        )
     except Exception as e:
         _log.warning("rerank_failed", err=str(e))
         # Fall back to base order
