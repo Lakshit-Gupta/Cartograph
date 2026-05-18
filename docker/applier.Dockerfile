@@ -26,14 +26,22 @@ ARG TARGETARCH
 ARG TECTONIC_VERSION=0.16.9
 
 USER root
-# qpdf for PDF linearisation, exiftool for metadata scrub. Both packaged.
+# - qpdf for PDF linearisation
+# - exiftool for metadata scrub
+# - fontconfig + fonts-carlito + fonts-lato for AltaCV (Carlito body,
+#   Lato sans; AltaCV's fontspec block refuses to compile without them
+#   discoverable by fontconfig).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         qpdf \
         libimage-exiftool-perl \
         curl \
         ca-certificates \
         xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+        fontconfig \
+        fonts-crosextra-carlito \
+        fonts-lato \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -f
 
 # tectonic — static musl binary from upstream release. Picks the right
 # arch (amd64 on dev, arm64 on Pi). Pin matches TECTONIC_VERSION above.
