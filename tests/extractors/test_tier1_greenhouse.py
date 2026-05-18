@@ -38,6 +38,7 @@ async def test_returns_empty_on_invalid_json():
     assert out.confidence == 0.0
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_extracts_single_internship():
     out = await extract(_input({"jobs": [{

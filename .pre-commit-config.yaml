@@ -31,6 +31,16 @@ repos:
         language: system
         files: ^secrets\.yaml$
 
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.0
+    hooks:
+      - id: mypy
+        files: ^src/common/
+        additional_dependencies:
+          - pydantic>=2
+          - pydantic-settings>=2
+          - asyncpg-stubs
+
   - repo: local
     hooks:
       - id: migrate-replay
@@ -38,5 +48,13 @@ repos:
         entry: scripts/validate_migrations.sh
         language: script
         files: ^migrations/V[0-9]+__.*\.sql$
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: pytest-smoke
+        name: pytest smoke (fast, hermetic tests)
+        entry: uv run pytest -m smoke --tb=short -q
+        language: system
+        types: [python]
         pass_filenames: false
         stages: [pre-commit]

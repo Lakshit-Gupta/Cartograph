@@ -119,3 +119,7 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+markers = [
+    "smoke: fast hermetic tests run by the pre-commit pytest-smoke hook",
+    "integration: requires live Docker / Postgres / network access; skipped in CI by default",
+]

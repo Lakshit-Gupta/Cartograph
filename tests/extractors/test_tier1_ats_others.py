@@ -31,6 +31,7 @@ def _ei(payload: dict | list, *, source_id: int = 1, slug: str = "x",
 
 # ---------- Lever ------------------------------------------------------------
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_lever_basic_extraction():
     out = await lever_extract(_ei([{
@@ -92,6 +93,7 @@ async def test_ashby_basic_extraction():
     assert o.comp_currency == "USD"
 
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_ashby_handles_null_compensation():
     """Repro of the AttributeError crash that bit the live extractor."""
@@ -155,6 +157,7 @@ async def test_workable_intern_classification():
 
 # ---------- Contra (freelance) ----------------------------------------------
 
+@pytest.mark.smoke
 @pytest.mark.asyncio
 async def test_contra_handles_null_budget():
     """Repro: contra serves budget=null for hourly-only listings."""
