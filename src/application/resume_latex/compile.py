@@ -9,6 +9,7 @@ Hard rules (CLAUDE.md "LaTeX resume subsystem"):
   faster streaming, then ``exiftool -all:all=`` strips every metadata
   tag (per hard rule #4 — PDF metadata must never reach the recipient).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -99,8 +100,12 @@ async def run(main_tex: Path, *, timeout: float = 30.0) -> CompileResult:  # noq
 async def _qpdf_linearize(pdf: Path) -> None:
     try:
         proc = await asyncio.create_subprocess_exec(
-            "qpdf", "--linearize", "--replace-input", str(pdf),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "qpdf",
+            "--linearize",
+            "--replace-input",
+            str(pdf),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         await proc.wait()
     except FileNotFoundError as exc:
@@ -110,8 +115,12 @@ async def _qpdf_linearize(pdf: Path) -> None:
 async def _exiftool_scrub(pdf: Path) -> None:
     try:
         proc = await asyncio.create_subprocess_exec(
-            "exiftool", "-all:all=", "-overwrite_original", str(pdf),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "exiftool",
+            "-all:all=",
+            "-overwrite_original",
+            str(pdf),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         await proc.wait()
     except FileNotFoundError as exc:
@@ -121,8 +130,10 @@ async def _exiftool_scrub(pdf: Path) -> None:
 async def _tectonic_version() -> str:
     try:
         proc = await asyncio.create_subprocess_exec(
-            "tectonic", "--version",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            "tectonic",
+            "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         out, _ = await proc.communicate()
         return out.decode("utf-8", errors="replace").strip().split("\n", 1)[0]

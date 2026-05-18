@@ -1,4 +1,5 @@
 """Camoufox 0.4+ driver — Firefox-based headless / Xvfb-driven. ARM64."""
+
 from __future__ import annotations
 
 import time
@@ -57,10 +58,13 @@ class CamoufoxFetcher(Fetcher):
             fetch_errors_total.labels("browser_exc").inc()
             _log.warning("camoufox_fetch_failed", url=req.url, err=str(e))
             return FetchResponse(
-                status=0, body="", content_type=None, tier=self.tier,
-                headers={}, error=str(e), cf_challenge_observed=False,
+                status=0,
+                body="",
+                content_type=None,
+                tier=self.tier,
+                headers={},
+                error=str(e),
+                cf_challenge_observed=False,
             )
         finally:
-            fetch_latency_seconds.labels(source=req.source_slug, tier=str(self.tier)).observe(
-                time.perf_counter() - t0
-            )
+            fetch_latency_seconds.labels(source=req.source_slug, tier=str(self.tier)).observe(time.perf_counter() - t0)

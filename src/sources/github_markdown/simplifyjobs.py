@@ -1,4 +1,5 @@
 """GitHub markdown plugin. Strategy 'github_md' handles every awesome-list source."""
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin

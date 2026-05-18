@@ -18,6 +18,7 @@ default behaviour for missing markers is to deselect via ``-m`` filter;
 here we let them collect but rely on the host having tectonic — if it
 doesn't, the test fails loudly rather than silently passing).
 """
+
 from __future__ import annotations
 
 import shutil
@@ -70,13 +71,7 @@ async def test_compile_rejects_write18_injection(tmp_path):
         if not _have_tool(tool):
             pytest.skip(f"{tool} not installed")
     main_tex = tmp_path / "evil.tex"
-    main_tex.write_text(
-        "\\documentclass{article}\n"
-        "\\begin{document}\n"
-        "\\write18{rm -rf /tmp/should_never_run}\n"
-        "evil\n"
-        "\\end{document}\n"
-    )
+    main_tex.write_text("\\documentclass{article}\n\\begin{document}\n\\write18{rm -rf /tmp/should_never_run}\nevil\n\\end{document}\n")
     # tectonic --untrusted: write18 silently disabled (the body should
     # still compile, but the shell command must not execute).
     canary = tmp_path / "should_never_run"
@@ -108,7 +103,9 @@ async def test_compile_strips_pdf_metadata(tmp_path):
     result = await run(main_tex)
     out = subprocess.run(
         ["exiftool", "-Author", "-Producer", "-Creator", str(result.pdf_path)],
-        check=False, capture_output=True, text=True,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     # exiftool -all:all= clears every tag; the value column for each
     # requested field should be empty (or the field absent altogether).

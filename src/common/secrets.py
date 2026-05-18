@@ -6,6 +6,7 @@ reads `os.environ` and provides typed accessors.
 
 For local dev without SOPS, fall back to `.env`.
 """
+
 from __future__ import annotations
 
 import os
@@ -129,10 +130,7 @@ class Settings(BaseSettings):
         # contain `+`, `/`, `=`, and sometimes `:` which break asyncpg's DSN parser.
         user = _urlquote(self.postgres_user, safe="")
         pw = _urlquote(self.postgres_password, safe="")
-        return (
-            f"postgresql://{user}:{pw}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
+        return f"postgresql://{user}:{pw}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     @property
     def redis_url(self) -> str:
@@ -147,9 +145,20 @@ class Settings(BaseSettings):
 
     # ---- Discord channel helpers ------------------------------------------
     _CHANNEL_NAMES: tuple[str, ...] = (
-        "daily_digest", "priority_push", "fulltime", "internships",
-        "fellowships", "freelance", "applied", "responses", "interviews",
-        "offers", "alerts", "costs", "source_health", "bot_logs",
+        "daily_digest",
+        "priority_push",
+        "fulltime",
+        "internships",
+        "fellowships",
+        "freelance",
+        "applied",
+        "responses",
+        "interviews",
+        "offers",
+        "alerts",
+        "costs",
+        "source_health",
+        "bot_logs",
     )
 
     def discord_channel(self, name: str) -> int:
@@ -170,10 +179,7 @@ class Settings(BaseSettings):
         required = required or self._CHANNEL_NAMES
         missing = [n for n in required if self.discord_channel(n) == 0]
         if missing:
-            raise RuntimeError(
-                "discord channel IDs not configured: "
-                + ", ".join(f"discord_channel_{n}" for n in missing)
-            )
+            raise RuntimeError("discord channel IDs not configured: " + ", ".join(f"discord_channel_{n}" for n in missing))
 
 
 @lru_cache(maxsize=1)

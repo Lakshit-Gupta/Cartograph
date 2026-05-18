@@ -1,4 +1,5 @@
 """Strategy → SourcePlugin registry. Workers look up by crawler_strategy column."""
+
 from __future__ import annotations
 
 from src.sources.base import SourcePlugin

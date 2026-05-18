@@ -4,6 +4,7 @@ Posted as the thread starter in #✅-applied after `src/application/sender.py`
 fires an EMAIL application. The forum thread itself is created by the caller
 (`Bot._post_applied`); this module just renders the embed.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

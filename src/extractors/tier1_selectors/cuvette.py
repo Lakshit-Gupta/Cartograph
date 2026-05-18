@@ -1,4 +1,5 @@
 """Cuvette mobile-API JSON extractor."""
+
 from __future__ import annotations
 
 import hashlib
@@ -41,25 +42,31 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
             except ValueError:
                 posted = None
 
-        category = OppCategory.INTERNSHIP if "intern" in str(j.get("type", "")).lower() or "intern" in title.lower() else OppCategory.FULLTIME
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=url,
-            title=title,
-            company=company,
-            description=(j.get("description") or "")[:1200],
-            comp_min=float(stipend_low) if stipend_low else None,
-            comp_max=float(stipend_high) if stipend_high else None,
-            comp_currency=currency,
-            comp_period="month" if "intern" in title.lower() else "year",
-            location=location,
-            remote_type=RemoteType.REMOTE if remote == "remote" else (RemoteType.HYBRID if remote == "hybrid" else RemoteType.UNSPECIFIED),
-            category=category,
-            posted_at=posted,
-            apply_url=url,
-            apply_method=ApplyMethod.IN_PLATFORM,
-            fingerprint_hash=_fp(company or "", title, location or "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.86,
-        ))
+        type_lower = str(j.get("type", "")).lower()
+        is_intern = "intern" in type_lower or "intern" in title.lower()
+        category = OppCategory.INTERNSHIP if is_intern else OppCategory.FULLTIME
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=url,
+                title=title,
+                company=company,
+                description=(j.get("description") or "")[:1200],
+                comp_min=float(stipend_low) if stipend_low else None,
+                comp_max=float(stipend_high) if stipend_high else None,
+                comp_currency=currency,
+                comp_period="month" if "intern" in title.lower() else "year",
+                location=location,
+                remote_type=RemoteType.REMOTE
+                if remote == "remote"
+                else (RemoteType.HYBRID if remote == "hybrid" else RemoteType.UNSPECIFIED),
+                category=category,
+                posted_at=posted,
+                apply_url=url,
+                apply_method=ApplyMethod.IN_PLATFORM,
+                fingerprint_hash=_fp(company or "", title, location or "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.86,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.86 if opps else 0.0)

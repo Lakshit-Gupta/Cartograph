@@ -5,6 +5,7 @@ one ## section per opportunity. The notifier worker mounts the vault dir
 into the container; default `/vault` in dev, `/mnt/storage/obsidian_vault`
 on the Pi.
 """
+
 from __future__ import annotations
 
 import asyncio

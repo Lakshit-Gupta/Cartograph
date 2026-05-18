@@ -4,6 +4,7 @@ Used for ATS_FORM / EMBEDDED_FORM / IN_PLATFORM / EXTERNAL applications where
 sender.py prepared a cover letter + tailored bullets but couldn't auto-submit.
 The user reviews in #✅-applied and clicks Mark applied / Cancel.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -95,7 +96,7 @@ def chunk_cover_letter(cover_md: str, *, max_len: int = 1900) -> list[str]:
     paragraphs = text.split("\n\n")
     cur = ""
     for p in paragraphs:
-        addition = (p if not cur else "\n\n" + p)
+        addition = p if not cur else "\n\n" + p
         if len(cur) + len(addition) <= max_len:
             cur += addition
             continue

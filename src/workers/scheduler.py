@@ -1,4 +1,5 @@
 """APScheduler driver — turns sources.fetch_freq_minutes into Redis Streams FetchTask emissions."""
+
 from __future__ import annotations
 
 import asyncio
@@ -89,9 +90,7 @@ async def reload_digest_schedule(scheduler: AsyncIOScheduler) -> None:
     global _DIGEST_SCHEDULE_CACHE
     try:
         async with acquire() as conn:
-            rec = await conn.fetchrow(
-                "SELECT digest_hour_utc, digest_minute_utc FROM users WHERE id = 1"
-            )
+            rec = await conn.fetchrow("SELECT digest_hour_utc, digest_minute_utc FROM users WHERE id = 1")
     except Exception as e:
         _log.warning("digest_schedule_db_read_failed", err=str(e))
         return
@@ -108,9 +107,7 @@ async def reload_digest_schedule(scheduler: AsyncIOScheduler) -> None:
 async def emit_apply_rate_nudge(q: RedisQ) -> None:
     """9pm reminder if applied < target today."""
     async with acquire() as conn:
-        rec = await conn.fetchrow(
-            "SELECT COUNT(*) AS n FROM applications WHERE sent_at::date = CURRENT_DATE"
-        )
+        rec = await conn.fetchrow("SELECT COUNT(*) AS n FROM applications WHERE sent_at::date = CURRENT_DATE")
     sent = int(rec["n"] if rec else 0)
     if sent < 5:
         await q.publish(
@@ -131,7 +128,11 @@ async def main() -> None:
     scheduler.add_job(emit_daily_digest, "cron", hour=2, minute=30, args=[q], id="emit_digest_utc")
     scheduler.add_job(emit_apply_rate_nudge, "cron", hour=15, minute=30, args=[q], id="nudge_21_ist")
     scheduler.add_job(
-        reload_digest_schedule, "interval", minutes=1, args=[scheduler], id="reload_digest_schedule",
+        reload_digest_schedule,
+        "interval",
+        minutes=1,
+        args=[scheduler],
+        id="reload_digest_schedule",
     )
     scheduler.start()
     _log.info("scheduler_started", now=datetime.now(UTC).isoformat())

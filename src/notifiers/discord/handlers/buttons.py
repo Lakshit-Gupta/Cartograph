@@ -4,6 +4,7 @@ Each button publishes the user's intent onto `stream:apply`. The
 appliers worker decides what to do (transition state, fire Resend, etc.).
 This keeps the Discord gateway thread snappy.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,10 +60,10 @@ class OppActionView(discord.ui.View):
         opp = str(opp_id)
         # We register all 5 buttons with stable custom_ids so the View can be
         # rebuilt on bot restart and still respond.
-        self.add_item(_btn("Apply",   "apply",   opp, discord.ButtonStyle.success, "✅"))
-        self.add_item(_btn("Skip",    "skip",    opp, discord.ButtonStyle.secondary, "❌"))
-        self.add_item(_btn("Snooze",  "snooze",  opp, discord.ButtonStyle.secondary, "🔁"))
-        self.add_item(_btn("Pin",     "pin",     opp, discord.ButtonStyle.primary,   "🔖"))
+        self.add_item(_btn("Apply", "apply", opp, discord.ButtonStyle.success, "✅"))
+        self.add_item(_btn("Skip", "skip", opp, discord.ButtonStyle.secondary, "❌"))
+        self.add_item(_btn("Snooze", "snooze", opp, discord.ButtonStyle.secondary, "🔁"))
+        self.add_item(_btn("Pin", "pin", opp, discord.ButtonStyle.primary, "🔖"))
         self.add_item(_btn("Explain", "explain", opp, discord.ButtonStyle.secondary, "💬"))
 
 
@@ -77,8 +78,8 @@ class OppReviewView(discord.ui.View):
     def __init__(self, opp_id: str | UUID, *, timeout: float | None = None):
         super().__init__(timeout=timeout)
         opp = str(opp_id)
-        self.add_item(_btn("Mark applied", "apply",  opp, discord.ButtonStyle.success,   "✅"))
-        self.add_item(_btn("Cancel",       "cancel", opp, discord.ButtonStyle.secondary, "↩️"))
+        self.add_item(_btn("Mark applied", "apply", opp, discord.ButtonStyle.success, "✅"))
+        self.add_item(_btn("Cancel", "cancel", opp, discord.ButtonStyle.secondary, "↩️"))
 
 
 def _btn(

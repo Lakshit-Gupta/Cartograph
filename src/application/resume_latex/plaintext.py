@@ -1,4 +1,5 @@
 """Plain-text view of the resume tree for the ranker profile embedding."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,4 +1,5 @@
 """Lever JSON API extractor."""
+
 from __future__ import annotations
 
 import hashlib
@@ -47,35 +48,40 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
             except (ValueError, TypeError):
                 posted = None
         desc_lists = j.get("lists") or []
-        desc = " ".join(
-            (lst.get("content") or "") for lst in desc_lists
-        )[:1200]
+        desc = " ".join((lst.get("content") or "") for lst in desc_lists)[:1200]
 
         category = (
-            OppCategory.INTERNSHIP if "intern" in commitment or "intern" in title.lower() else
-            OppCategory.FELLOWSHIP if "fellow" in title.lower() else
-            OppCategory.FULLTIME
+            OppCategory.INTERNSHIP
+            if "intern" in commitment or "intern" in title.lower()
+            else OppCategory.FELLOWSHIP
+            if "fellow" in title.lower()
+            else OppCategory.FULLTIME
         )
         remote = (
-            RemoteType.REMOTE if workplace == "remote" else
-            RemoteType.HYBRID if workplace == "hybrid" else
-            RemoteType.ONSITE if workplace == "on-site" else
-            RemoteType.UNSPECIFIED
+            RemoteType.REMOTE
+            if workplace == "remote"
+            else RemoteType.HYBRID
+            if workplace == "hybrid"
+            else RemoteType.ONSITE
+            if workplace == "on-site"
+            else RemoteType.UNSPECIFIED
         )
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=absolute_url,
-            title=title,
-            company=team,
-            description=desc,
-            location=location,
-            remote_type=remote,
-            category=category,
-            posted_at=posted,
-            apply_url=absolute_url,
-            apply_method=ApplyMethod.ATS_FORM,
-            fingerprint_hash=_fp(team or "", title, location or "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.92,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=absolute_url,
+                title=title,
+                company=team,
+                description=desc,
+                location=location,
+                remote_type=remote,
+                category=category,
+                posted_at=posted,
+                apply_url=absolute_url,
+                apply_method=ApplyMethod.ATS_FORM,
+                fingerprint_hash=_fp(team or "", title, location or "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.92,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.92 if opps else 0.0)

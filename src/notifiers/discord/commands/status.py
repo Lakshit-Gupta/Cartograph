@@ -1,4 +1,5 @@
 """/status — pipeline summary embed."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -15,12 +16,8 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     @bot.tree.command(name="status", description="Pipeline summary.")
     async def status_cmd(interaction: discord.Interaction):
         try:
-            opps_24h = await db.fetch_one(
-                "SELECT COUNT(*) AS c FROM opportunities WHERE first_seen > NOW() - INTERVAL '24 hours'"
-            )
-            applied_today = await db.fetch_one(
-                "SELECT COUNT(*) AS c FROM applications WHERE user_id = 1 AND sent_at::date = CURRENT_DATE"
-            )
+            opps_24h = await db.fetch_one("SELECT COUNT(*) AS c FROM opportunities WHERE first_seen > NOW() - INTERVAL '24 hours'")
+            applied_today = await db.fetch_one("SELECT COUNT(*) AS c FROM applications WHERE user_id = 1 AND sent_at::date = CURRENT_DATE")
             sources = await db.fetch_one(
                 """
                 SELECT

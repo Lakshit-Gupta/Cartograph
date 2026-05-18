@@ -1,4 +1,5 @@
 """/snooze <opp_id> <days> — hide opp for N days."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -21,19 +22,16 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
         try:
             uid = str(UUID(opp_id))
         except ValueError:
-            await interaction.response.send_message(
-                f"`{opp_id}` is not a valid UUID.", ephemeral=True
-            )
+            await interaction.response.send_message(f"`{opp_id}` is not a valid UUID.", ephemeral=True)
             return
         if days < 1 or days > 30:
-            await interaction.response.send_message(
-                "Days must be 1..30.", ephemeral=True
-            )
+            await interaction.response.send_message("Days must be 1..30.", ephemeral=True)
             return
         try:
             await db.execute(
                 "UPDATE opportunities SET state = $2 WHERE id = $1",
-                UUID(uid), "snoozed",
+                UUID(uid),
+                "snoozed",
             )
             q = await RedisQ.connect()
             await q.publish(
@@ -46,9 +44,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                     "source": "slash",
                 },
             )
-            await interaction.response.send_message(
-                f"{voice.pick('snoozed_confirm')} ({days}d)", ephemeral=True
-            )
+            await interaction.response.send_message(f"{voice.pick('snoozed_confirm')} ({days}d)", ephemeral=True)
         except Exception as e:
             _log.exception("snooze_failed", err=str(e), opp_id=uid)
             await interaction.response.send_message(f"Error: {e}", ephemeral=True)

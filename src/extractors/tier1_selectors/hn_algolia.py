@@ -1,4 +1,5 @@
 """HN Algolia 'Who is hiring' comment extractor — splits comment threads into opps."""
+
 from __future__ import annotations
 
 import hashlib
@@ -38,28 +39,33 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
             continue
         m = _LOC_RE.search(plain)
         remote = (
-            RemoteType.REMOTE if m and "remote" in m.group(0).lower() else
-            RemoteType.HYBRID if m and "hybrid" in m.group(0).lower() else
-            RemoteType.ONSITE if m else
-            RemoteType.UNSPECIFIED
+            RemoteType.REMOTE
+            if m and "remote" in m.group(0).lower()
+            else RemoteType.HYBRID
+            if m and "hybrid" in m.group(0).lower()
+            else RemoteType.ONSITE
+            if m
+            else RemoteType.UNSPECIFIED
         )
         email_m = _EMAIL_RE.search(plain)
         apply_url = f"mailto:{email_m.group(0)}" if email_m else f"https://news.ycombinator.com/item?id={h.get('objectID')}"
         ts = h.get("created_at_i")
         posted = datetime.fromtimestamp(ts, tz=UTC) if ts else None
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=f"https://news.ycombinator.com/item?id={h.get('objectID')}",
-            title=first_line,
-            company=None,
-            description=plain[:1200],
-            remote_type=remote,
-            category=OppCategory.FULLTIME,
-            posted_at=posted,
-            apply_url=apply_url,
-            apply_method=ApplyMethod.EMAIL if email_m else ApplyMethod.EXTERNAL,
-            fingerprint_hash=_fp("hn", first_line, "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.6,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=f"https://news.ycombinator.com/item?id={h.get('objectID')}",
+                title=first_line,
+                company=None,
+                description=plain[:1200],
+                remote_type=remote,
+                category=OppCategory.FULLTIME,
+                posted_at=posted,
+                apply_url=apply_url,
+                apply_method=ApplyMethod.EMAIL if email_m else ApplyMethod.EXTERNAL,
+                fingerprint_hash=_fp("hn", first_line, "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.6,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.6 if opps else 0.0)

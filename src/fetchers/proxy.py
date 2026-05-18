@@ -1,4 +1,5 @@
 """ProxyResolver — no-op in Phase 1 (home ISP). Residential pool lands in Phase 4."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

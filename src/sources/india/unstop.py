@@ -1,4 +1,5 @@
 """Unstop public JSON API."""
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin
@@ -15,8 +16,11 @@ class _Unstop:
             f"{base_url}/opportunity-types/jobs?per_page=50&page=1",
         ]
         return CrawlPlan(
-            source_id=source_id, source_slug=self.slug, urls=urls,
-            tier_chain=[0], requires_identity=False,
+            source_id=source_id,
+            source_slug=self.slug,
+            urls=urls,
+            tier_chain=[0],
+            requires_identity=False,
         )
 
 

@@ -4,6 +4,7 @@ The Pi co-hosts Jellyfin. When Jellyfin is actively transcoding (CPU > 60% on
 ffmpeg cgroup), we drop browser replicas to 1 to keep playback smooth.
 Polled by the scheduler.
 """
+
 from __future__ import annotations
 
 import shutil
@@ -47,7 +48,10 @@ def _jellyfin_transcoding() -> bool:
     try:
         r = subprocess.run(
             ["pgrep", "-fa", "ffmpeg.*jellyfin"],
-            capture_output=True, text=True, timeout=3, check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
         )
         return bool(r.stdout.strip())
     except Exception:

@@ -7,6 +7,7 @@
 - JSON-schema validated output.
 - Cost-gated via src.common.llm.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -51,11 +52,7 @@ class Tier2LLM:
             {
                 "role": "user",
                 "content": (
-                    f"<URL>{inp.url}</URL>\n"
-                    f"<SOURCE>{inp.source_slug}</SOURCE>\n"
-                    "<CONTENT>\n"
-                    f"{fence_untrusted(content_snip)}\n"
-                    "</CONTENT>\n"
+                    f"<URL>{inp.url}</URL>\n<SOURCE>{inp.source_slug}</SOURCE>\n<CONTENT>\n{fence_untrusted(content_snip)}\n</CONTENT>\n"
                 ),
             },
         ]

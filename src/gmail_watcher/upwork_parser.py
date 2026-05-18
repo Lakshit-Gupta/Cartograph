@@ -7,6 +7,7 @@ followed by a snippet with budget, posted time, country, and category.
 Resulting Opportunity rows get published directly to Streams.RANK so they skip
 the fetch + extract tiers entirely (the email is already structured data).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -22,13 +23,15 @@ _log = get_logger(__name__)
 
 _UPWORK_SOURCE_SLUG = "fl_upwork_email"
 _JOB_URL_RX = re.compile(
-    r"https?://(?:www\.)?upwork\.com/jobs/[A-Za-z0-9_~\-]+", re.IGNORECASE,
+    r"https?://(?:www\.)?upwork\.com/jobs/[A-Za-z0-9_~\-]+",
+    re.IGNORECASE,
 )
 _BUDGET_FIXED_RX = re.compile(r"\$([\d,]+(?:\.\d+)?)\s*(?:fixed|fixed[- ]price)?", re.IGNORECASE)
 _BUDGET_RANGE_RX = re.compile(r"\$([\d,]+(?:\.\d+)?)\s*[-–to]+\s*\$?([\d,]+(?:\.\d+)?)", re.IGNORECASE)
 _HOURLY_RX = re.compile(r"\$([\d,]+(?:\.\d+)?)\s*(?:-\s*\$?([\d,]+(?:\.\d+)?))?\s*/\s*hr", re.IGNORECASE)
 _POSTED_RX = re.compile(
-    r"posted\s+(\d+)\s+(minute|hour|day|week)s?\s+ago", re.IGNORECASE,
+    r"posted\s+(\d+)\s+(minute|hour|day|week)s?\s+ago",
+    re.IGNORECASE,
 )
 
 
@@ -74,9 +77,9 @@ def _parse_posted_at(text: str) -> datetime | None:
     now = datetime.now(UTC)
     delta = {
         "minute": timedelta(minutes=qty),
-        "hour":   timedelta(hours=qty),
-        "day":    timedelta(days=qty),
-        "week":   timedelta(weeks=qty),
+        "hour": timedelta(hours=qty),
+        "day": timedelta(days=qty),
+        "week": timedelta(weeks=qty),
     }.get(unit)
     return now - delta if delta else None
 
@@ -160,34 +163,37 @@ def parse_upwork_digest(msg: Message, *, source_id: int | None = None) -> list[O
             budget = _parse_budget(surrounding)
             posted = _parse_posted_at(surrounding)
 
-            opps.append(Opportunity(
-                source_id=source_id,
-                canonical_url=url,
-                title=title[:200],
-                company=None,                          # not exposed in digest
-                description=surrounding[:1200] or None,
-                comp_min=budget["comp_min"],
-                comp_max=budget["comp_max"],
-                comp_currency=budget["comp_currency"],
-                comp_period=budget["comp_period"],
-                location=None,
-                remote_type=RemoteType.REMOTE,
-                category=OppCategory.FREELANCE,
-                posted_at=posted,
-                apply_url=url,
-                apply_method=ApplyMethod.IN_PLATFORM,
-                fingerprint_hash=_fp(
-                    "upwork", title[:80],
-                    str(budget["comp_min"] or ""), str(posted)[:10] if posted else "",
-                ),
-                extraction_tier=0,
-                extraction_confidence=0.85,
-            ))
+            opps.append(
+                Opportunity(
+                    source_id=source_id,
+                    canonical_url=url,
+                    title=title[:200],
+                    company=None,  # not exposed in digest
+                    description=surrounding[:1200] or None,
+                    comp_min=budget["comp_min"],
+                    comp_max=budget["comp_max"],
+                    comp_currency=budget["comp_currency"],
+                    comp_period=budget["comp_period"],
+                    location=None,
+                    remote_type=RemoteType.REMOTE,
+                    category=OppCategory.FREELANCE,
+                    posted_at=posted,
+                    apply_url=url,
+                    apply_method=ApplyMethod.IN_PLATFORM,
+                    fingerprint_hash=_fp(
+                        "upwork",
+                        title[:80],
+                        str(budget["comp_min"] or ""),
+                        str(posted)[:10] if posted else "",
+                    ),
+                    extraction_tier=0,
+                    extraction_confidence=0.85,
+                )
+            )
         except Exception as e:
             _log.warning("upwork_parser_card_failed", err=str(e))
             continue
 
     if not opps:
-        _log.info("upwork_parser_empty",
-                  subject=(msg.get("Subject") or "")[:120])
+        _log.info("upwork_parser_empty", subject=(msg.get("Subject") or "")[:120])
     return opps

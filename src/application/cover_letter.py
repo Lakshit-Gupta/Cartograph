@@ -5,6 +5,7 @@ Picks a template from `config/profile/cover_letters/` based on opp category
 content drawn strictly from <PROFILE> + <OPP>. Template structure is preserved
 verbatim; only placeholders may be replaced.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,13 +21,30 @@ from src.common.types import OppCategory, Opportunity
 _log = get_logger(__name__)
 
 _AVAILABLE_TEMPLATES = {
-    "generic", "backend", "fullstack", "ml",
-    "freelance", "contract", "fellowship", "intern_india",
+    "generic",
+    "backend",
+    "fullstack",
+    "ml",
+    "freelance",
+    "contract",
+    "fellowship",
+    "intern_india",
 }
 
 _INDIA_HINTS = (
-    "india", "bangalore", "bengaluru", "hyderabad", "pune", "mumbai",
-    "delhi", "ncr", "gurgaon", "noida", "chennai", "kolkata", "ahmedabad",
+    "india",
+    "bangalore",
+    "bengaluru",
+    "hyderabad",
+    "pune",
+    "mumbai",
+    "delhi",
+    "ncr",
+    "gurgaon",
+    "noida",
+    "chennai",
+    "kolkata",
+    "ahmedabad",
 )
 
 
@@ -42,8 +60,10 @@ def _opp_field(opp: Opportunity | dict[str, Any], name: str) -> Any:
 
 def _opp_text_blob(opp: Opportunity | dict[str, Any]) -> str:
     parts = [
-        _opp_field(opp, "title"), _opp_field(opp, "company"),
-        _opp_field(opp, "description"), _opp_field(opp, "location"),
+        _opp_field(opp, "title"),
+        _opp_field(opp, "company"),
+        _opp_field(opp, "description"),
+        _opp_field(opp, "location"),
     ]
     return " ".join(str(p) for p in parts if p).lower()
 
@@ -129,10 +149,7 @@ async def write_cover(
     template_md = _read_template(template_name)
 
     prompt_template = load_prompt("cover_letter.txt")
-    profile_json = (
-        profile_summary if isinstance(profile_summary, str)
-        else json.dumps(profile_summary)[:3000]
-    )
+    profile_json = profile_summary if isinstance(profile_summary, str) else json.dumps(profile_summary)[:3000]
     opp_json = json.dumps(_opp_summary_for_prompt(opp))
 
     system = prompt_template.format(
@@ -147,13 +164,12 @@ async def write_cover(
         f"<OPP>{fence_untrusted(opp_json)}</OPP>\n"
         f"<VARIANT>{variant_label}</VARIANT>\n"
         f"<TEMPLATE>\n{template_md}\n</TEMPLATE>\n\n"
-        "Return JSON: {\"markdown\": \"<filled letter as markdown>\"} and nothing else."
+        'Return JSON: {"markdown": "<filled letter as markdown>"} and nothing else.'
     )
 
     try:
         data = await chat_json(
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user}],
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             kind="llm_writer",
             model=get_settings().openrouter_model_writer,
             max_tokens=900,

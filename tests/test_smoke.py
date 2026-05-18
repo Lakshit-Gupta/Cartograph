@@ -1,9 +1,11 @@
 """Smoke tests — verify pure-Python modules import without infra."""
+
 from __future__ import annotations
 
 
 def test_imports_common_types() -> None:
     from src.common import types
+
     assert types.OppState.NEW.value == "new"
 
 
@@ -31,7 +33,10 @@ def test_imports_ranker_formula() -> None:
         title="Senior Python Engineer",
         company="Acme",
         description="Build distributed systems in Python and Postgres.",
-        comp_min=120000, comp_max=150000, comp_currency="USD", comp_period="year",
+        comp_min=120000,
+        comp_max=150000,
+        comp_currency="USD",
+        comp_period="year",
         remote_type=RemoteType.REMOTE,
         category=OppCategory.FULLTIME,
         fingerprint_hash="abc",

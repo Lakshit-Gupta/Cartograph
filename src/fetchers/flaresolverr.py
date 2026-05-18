@@ -3,6 +3,7 @@
 Tier-1 — used ONLY to obtain a fresh cf_clearance cookie + UA, NOT to fetch pages.
 After clearance lands, fetcher falls back to tier-0 curl_cffi with the cookie set.
 """
+
 from __future__ import annotations
 
 import time
@@ -45,8 +46,13 @@ class FlareSolverrFetcher(Fetcher):
         except Exception as e:
             _log.warning("flaresolverr_failed", url=req.url, err=str(e))
             return FetchResponse(
-                status=0, body="", content_type=None, tier=self.tier,
-                headers={}, error=str(e), cf_challenge_observed=True,
+                status=0,
+                body="",
+                content_type=None,
+                tier=self.tier,
+                headers={},
+                error=str(e),
+                cf_challenge_observed=True,
             )
 
         status_str = data.get("status")  # "ok" | "error"

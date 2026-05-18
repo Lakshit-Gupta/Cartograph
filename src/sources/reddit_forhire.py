@@ -13,6 +13,7 @@ Strategy names (`reddit_oauth`, `reddit_oauth_push`) are kept for migration
 compatibility — V003 seed rows reference them. The names are historical; the
 fetch path is anonymous.
 """
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan
@@ -30,7 +31,7 @@ class _RedditJSON:
             source_slug=config.get("slug", self.slug),
             urls=[f"{base_url}?limit=50"],
             tier_chain=[0],
-            requires_identity=False,    # anonymous endpoint, no identity needed
+            requires_identity=False,  # anonymous endpoint, no identity needed
         )
 
 

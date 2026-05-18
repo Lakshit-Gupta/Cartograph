@@ -1,4 +1,5 @@
 """Internshala HTML scraping selectors."""
+
 from __future__ import annotations
 
 import hashlib
@@ -26,7 +27,7 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
     cards = tree.css("div.individual_internship") or tree.css("div.container-fluid.individual_internship")
     for card in cards:
         title_node = card.css_first(".heading_4_5.profile, .job-internship-name") or card.css_first("a.view_detail_button")
-        title = (title_node.text(strip=True) if title_node else "")
+        title = title_node.text(strip=True) if title_node else ""
         if not title:
             continue
         company_node = card.css_first(".company_and_premium .company-name, p.company a")
@@ -51,24 +52,26 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
         absolute = href if href.startswith("http") else f"https://internshala.com{href}"
         is_remote = "work from home" in (card.text() or "").lower()
 
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=absolute or inp.url,
-            title=title,
-            company=company,
-            description=stipend_text[:600],
-            location=location,
-            remote_type=RemoteType.REMOTE if is_remote else RemoteType.ONSITE,
-            category=OppCategory.INTERNSHIP,
-            posted_at=datetime.now(UTC),
-            apply_url=absolute,
-            apply_method=ApplyMethod.IN_PLATFORM,
-            comp_min=comp_min,
-            comp_max=comp_max,
-            comp_currency="INR",
-            comp_period=comp_period,
-            fingerprint_hash=_fp(company or "", title, location or "", ""),
-            extraction_tier=1,
-            extraction_confidence=0.78,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=absolute or inp.url,
+                title=title,
+                company=company,
+                description=stipend_text[:600],
+                location=location,
+                remote_type=RemoteType.REMOTE if is_remote else RemoteType.ONSITE,
+                category=OppCategory.INTERNSHIP,
+                posted_at=datetime.now(UTC),
+                apply_url=absolute,
+                apply_method=ApplyMethod.IN_PLATFORM,
+                comp_min=comp_min,
+                comp_max=comp_max,
+                comp_currency="INR",
+                comp_period=comp_period,
+                fingerprint_hash=_fp(company or "", title, location or "", ""),
+                extraction_tier=1,
+                extraction_confidence=0.78,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.78 if opps else 0.0)

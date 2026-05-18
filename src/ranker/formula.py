@@ -1,4 +1,5 @@
 """Formula ranker: kw_match + emb_sim + comp + freshness + source_quality + resp_rate."""
+
 from __future__ import annotations
 
 import math

@@ -6,6 +6,7 @@ to rewrite them so that opp-specific tech is surfaced. The original
 profile.json is treated as authoritative — the LLM may emphasize but never
 invent.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,20 +28,66 @@ _DEFAULT_VARIANT = "backend"
 
 # Tokens used by pick_variant to vote
 _BACKEND_BIAS = {
-    "backend", "infra", "platform", "devops", "sre", "reliability",
-    "api", "database", "postgres", "redis", "queue", "kafka", "systems",
-    "distributed", "microservice", "docker", "kubernetes", "k8s", "linux",
+    "backend",
+    "infra",
+    "platform",
+    "devops",
+    "sre",
+    "reliability",
+    "api",
+    "database",
+    "postgres",
+    "redis",
+    "queue",
+    "kafka",
+    "systems",
+    "distributed",
+    "microservice",
+    "docker",
+    "kubernetes",
+    "k8s",
+    "linux",
 }
 _FULLSTACK_BIAS = {
-    "fullstack", "full-stack", "full stack", "frontend", "front-end",
-    "react", "next.js", "nextjs", "typescript", "ui", "ux", "tailwind",
-    "node", "express", "product engineer", "web", "saas",
+    "fullstack",
+    "full-stack",
+    "full stack",
+    "frontend",
+    "front-end",
+    "react",
+    "next.js",
+    "nextjs",
+    "typescript",
+    "ui",
+    "ux",
+    "tailwind",
+    "node",
+    "express",
+    "product engineer",
+    "web",
+    "saas",
 }
 _ML_BIAS = {
-    "ml", "ai", "llm", "rag", "embedding", "embeddings", "vector",
-    "agent", "agentic", "generative", "openai", "anthropic", "transformer",
-    "nlp", "computer vision", "deep learning", "pytorch", "tensorflow",
-    "data scientist", "research engineer",
+    "ml",
+    "ai",
+    "llm",
+    "rag",
+    "embedding",
+    "embeddings",
+    "vector",
+    "agent",
+    "agentic",
+    "generative",
+    "openai",
+    "anthropic",
+    "transformer",
+    "nlp",
+    "computer vision",
+    "deep learning",
+    "pytorch",
+    "tensorflow",
+    "data scientist",
+    "research engineer",
 }
 
 
@@ -75,30 +122,41 @@ def _collect_candidate_bullets(profile_dict: dict[str, Any]) -> list[dict[str, A
         for bullet in exp.get("bullets", []) or []:
             if not bullet or bullet.startswith("Quantified achievement"):
                 continue
-            out.append({
-                "source": "experience",
-                "context": f"{exp.get('title','')} @ {exp.get('company','')}",
-                "bullet": bullet,
-                "keywords": kws,
-            })
+            out.append(
+                {
+                    "source": "experience",
+                    "context": f"{exp.get('title', '')} @ {exp.get('company', '')}",
+                    "bullet": bullet,
+                    "keywords": kws,
+                }
+            )
     for proj in profile_dict.get("projects", []) or []:
         kws = [k.lower() for k in (proj.get("keywords") or [])]
         summary = proj.get("summary") or ""
         if summary:
-            out.append({
-                "source": "project",
-                "context": proj.get("name", ""),
-                "bullet": summary,
-                "keywords": kws,
-            })
+            out.append(
+                {
+                    "source": "project",
+                    "context": proj.get("name", ""),
+                    "bullet": summary,
+                    "keywords": kws,
+                }
+            )
     return out
 
 
 def _opp_tokens(opp: Opportunity | dict[str, Any]) -> set[str]:
     if isinstance(opp, dict):
-        text = " ".join(filter(None, [
-            opp.get("title"), opp.get("description"), opp.get("company"),
-        ]))
+        text = " ".join(
+            filter(
+                None,
+                [
+                    opp.get("title"),
+                    opp.get("description"),
+                    opp.get("company"),
+                ],
+            )
+        )
     else:
         text = " ".join(filter(None, [opp.title, opp.description, opp.company]))
     tokens = re.findall(r"[a-zA-Z][a-zA-Z+#\.\-]{1,}", text.lower())
@@ -146,11 +204,13 @@ def _rank_candidates(
     variant_kws: set[str],
 ) -> list[dict[str, Any]]:
     """Sort candidates by overlap with (opp tokens) + (variant lean keywords)."""
+
     def score(c: dict[str, Any]) -> int:
         kw_hits = sum(1 for k in c["keywords"] if k in opp_tokens)
         text_hits = sum(1 for t in opp_tokens if t in c["bullet"].lower())
         lean_hits = sum(1 for k in c["keywords"] if k in variant_kws)
         return kw_hits * 3 + text_hits + lean_hits
+
     return sorted(candidates, key=score, reverse=True)
 
 
@@ -177,8 +237,7 @@ async def tailor_bullets(
     opp_summary = {
         "title": getattr(opp, "title", None) or (opp.get("title") if isinstance(opp, dict) else ""),
         "company": getattr(opp, "company", None) or (opp.get("company") if isinstance(opp, dict) else ""),
-        "description": (getattr(opp, "description", None) or
-                        (opp.get("description") if isinstance(opp, dict) else "") or "")[:1500],
+        "description": (getattr(opp, "description", None) or (opp.get("description") if isinstance(opp, dict) else "") or "")[:1500],
     }
 
     system = (
@@ -188,8 +247,8 @@ async def tailor_bullets(
     user = (
         "Rewrite the candidate bullets to emphasize tech mentioned in <OPP>. "
         "Preserve all numbers, employers, project names. Never invent new claims. "
-        "Output JSON: {\"bullets\": [\"...\", \"...\", \"...\"]} with at most 5 entries.\n\n"
-        f"<VARIANT>{variant.get('label')} — {variant.get('headline','')}</VARIANT>\n"
+        'Output JSON: {"bullets": ["...", "...", "..."]} with at most 5 entries.\n\n'
+        f"<VARIANT>{variant.get('label')} — {variant.get('headline', '')}</VARIANT>\n"
         f"<LEAN_KEYWORDS>{', '.join(sorted(variant_kws))}</LEAN_KEYWORDS>\n"
         f"<SKILL_HINTS>{json.dumps({k: list(v.keys()) for k, v in skills.items() if isinstance(v, dict)})[:1200]}</SKILL_HINTS>\n"
         f"<OPP>{fence_untrusted(json.dumps(opp_summary))}</OPP>\n"
@@ -198,8 +257,7 @@ async def tailor_bullets(
 
     try:
         data = await chat_json(
-            messages=[{"role": "system", "content": system},
-                      {"role": "user", "content": user}],
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             kind="llm_writer",
             model=get_settings().openrouter_model_writer,
             max_tokens=900,

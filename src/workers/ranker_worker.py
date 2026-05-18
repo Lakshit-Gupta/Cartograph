@@ -1,4 +1,5 @@
 """Consumes Streams.RANK → scores opps → writes opportunity_scores → transitions to 'ranked'."""
+
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +71,12 @@ async def _ensure_profile_embedding() -> tuple[list[float], dict]:
                 raw_prefs_yaml = EXCLUDED.raw_prefs_yaml,
                 updated_at = NOW()
             """,
-            emb, headline, skill_words, json.dumps(resume), json.dumps(skills_doc), json.dumps(prefs),
+            emb,
+            headline,
+            skill_words,
+            json.dumps(resume),
+            json.dumps(skills_doc),
+            json.dumps(prefs),
         )
     return emb, raw
 
@@ -78,8 +84,15 @@ async def _ensure_profile_embedding() -> tuple[list[float], dict]:
 def _comp_floor(prefs_comp: dict, cat: str) -> float:
     table = (prefs_comp.get("floors") or {}).get(cat) or {}
     # Prefer USD if present, else INR, else 0
-    return float(table.get("usd_per_year") or table.get("usd_per_month") or table.get("usd_per_hour") or
-                 table.get("inr_per_year") or table.get("inr_per_month") or table.get("inr_per_hour") or 0)
+    return float(
+        table.get("usd_per_year")
+        or table.get("usd_per_month")
+        or table.get("usd_per_hour")
+        or table.get("inr_per_year")
+        or table.get("inr_per_month")
+        or table.get("inr_per_hour")
+        or 0
+    )
 
 
 async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], raw: dict, resp_rates: dict[int, float]) -> None:
@@ -104,7 +117,8 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
         async with acquire() as conn:
             await conn.execute(
                 "UPDATE opportunities SET embedding = $1::vector WHERE id = $2",
-                opp_emb, opportunity_id,
+                opp_emb,
+                opportunity_id,
             )
     else:
         opp_emb = list(rec["embedding"])
@@ -134,11 +148,11 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
     floors_table = raw["comp_floors"]
     floors = {
         "internship": _comp_floor(floors_table, "internship"),
-        "fulltime":   _comp_floor(floors_table, "fulltime"),
-        "freelance":  _comp_floor(floors_table, "freelance"),
+        "fulltime": _comp_floor(floors_table, "fulltime"),
+        "freelance": _comp_floor(floors_table, "freelance"),
         "fellowship": _comp_floor(floors_table, "fellowship"),
-        "contract":   _comp_floor(floors_table, "freelance"),
-        "unknown":    0.0,
+        "contract": _comp_floor(floors_table, "freelance"),
+        "unknown": 0.0,
     }
     out = score(
         opp,
@@ -160,7 +174,9 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
                   score_components = EXCLUDED.score_components,
                   scored_at = NOW()
             """,
-            opportunity_id, out.score, json.dumps(out.components),
+            opportunity_id,
+            out.score,
+            json.dumps(out.components),
         )
         await conn.execute(
             "UPDATE opportunities SET state = 'ranked' WHERE id = $1 AND state IN ('new','queued')",
@@ -171,9 +187,14 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
 
     # Priority push if freelance + high score
     if rec["category"] == "freelance" and out.score >= 0.75:
-        await q.publish(Streams.NOTIFY, {
-            "kind": "priority_push", "user_id": 1, "opportunity_id": opportunity_id,
-        })
+        await q.publish(
+            Streams.NOTIFY,
+            {
+                "kind": "priority_push",
+                "user_id": 1,
+                "opportunity_id": opportunity_id,
+            },
+        )
 
 
 async def main() -> None:
@@ -210,7 +231,9 @@ async def main() -> None:
                 # opportunity_id. Producers that have inline opps should call
                 # src.extractors.persist.persist_and_publish() first.
                 await q.dlq(
-                    Streams.RANK, msg.msg_id, msg.fields,
+                    Streams.RANK,
+                    msg.msg_id,
+                    msg.fields,
                     "contract_violation_missing_opportunity_id",
                 )
                 _log.error("rank_contract_violation", payload=msg.fields)

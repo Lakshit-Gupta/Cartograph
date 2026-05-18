@@ -12,6 +12,7 @@ The wrapper exists for two reasons:
 custom macros registered. Callers iterate the list and match
 ``LatexMacroNode.macroname`` against their own dispatch dict.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -31,14 +32,14 @@ from pylatexenc.macrospec import MacroSpec  # type: ignore[import-untyped]
 # back to a single mandatory arg ('{') — safe default that still walks past
 # the call without consuming siblings.
 _KNOWN_SIGS: dict[str, str] = {
-    "cvsection":   "[{",
-    "cvevent":     "{{{{",
-    "cvproject":   "{",
-    "name":        "{",
-    "tagline":     "{",
+    "cvsection": "[{",
+    "cvevent": "{{{{",
+    "cvproject": "{",
+    "name": "{",
+    "tagline": "{",
     "personalinfo": "{",
-    "input":       "{",
-    "include":     "{",
+    "input": "{",
+    "include": "{",
 }
 
 

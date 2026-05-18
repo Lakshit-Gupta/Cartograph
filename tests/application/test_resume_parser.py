@@ -1,4 +1,5 @@
 """Parser smoke test against the real resume tree."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -58,6 +59,4 @@ def test_parser_excludes_listed_sections():
     doc = parse(m, RESUME_ROOT)
     titles = [b.title.strip().lower() for b in doc.blocks]
     for excluded in m.exclude_sections:
-        assert excluded.strip().lower() not in titles, (
-            f"excluded section {excluded!r} leaked through into blocks"
-        )
+        assert excluded.strip().lower() not in titles, f"excluded section {excluded!r} leaked through into blocks"

@@ -1,4 +1,5 @@
 """/pin <opp_id> — keep an opp at the top of next digest."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -20,9 +21,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
         try:
             uid = str(UUID(opp_id))
         except ValueError:
-            await interaction.response.send_message(
-                f"`{opp_id}` is not a valid UUID.", ephemeral=True
-            )
+            await interaction.response.send_message(f"`{opp_id}` is not a valid UUID.", ephemeral=True)
             return
         try:
             q = await RedisQ.connect()

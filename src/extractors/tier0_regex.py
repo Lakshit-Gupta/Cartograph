@@ -3,6 +3,7 @@
 Picks up embedded form posts, mailto: apply targets, ATS-embedded iframes —
 anything where a single page contains exactly one opportunity with strong markers.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -12,7 +13,7 @@ from src.common.types import ApplyMethod, OppCategory, Opportunity, RemoteType
 from src.extractors.base import ExtractInput, Extractor, ExtractOutput
 
 _TITLE_RE = re.compile(r"<title>(.+?)</title>", re.IGNORECASE | re.DOTALL)
-_MAILTO_RE = re.compile(r'mailto:([\w.+-]+@[\w.-]+\.[a-z]{2,})', re.IGNORECASE)
+_MAILTO_RE = re.compile(r"mailto:([\w.+-]+@[\w.-]+\.[a-z]{2,})", re.IGNORECASE)
 _ATS_IFRAME_RE = re.compile(
     r'<iframe[^>]+src=["\'](https?://(?:boards|jobs|apply)\.[^"\']+)["\']',
     re.IGNORECASE,
@@ -106,9 +107,13 @@ class Tier0Regex(Extractor):
                 comp_currency = {"$": "USD", "₹": "INR", "€": "EUR", "£": "GBP"}.get(cur, cur)
                 per = (comp_m.group("per") or "").lower()
                 comp_period = (
-                    "hour" if per in ("hour", "hr") else
-                    "month" if per in ("month", "mo") else
-                    "year" if per in ("year", "yr", "annum") else None
+                    "hour"
+                    if per in ("hour", "hr")
+                    else "month"
+                    if per in ("month", "mo")
+                    else "year"
+                    if per in ("year", "yr", "annum")
+                    else None
                 )
             except (ValueError, AttributeError):
                 pass

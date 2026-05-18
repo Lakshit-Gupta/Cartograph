@@ -3,6 +3,7 @@
 Public ingress through cloudflared whitelists only `/webhooks/*`; the rest of
 the FastAPI surface lives behind Tailscale ACLs (configured at the host).
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

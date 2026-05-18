@@ -17,6 +17,7 @@ The bearer is cached in-process and refreshed when within
 `_REFRESH_WINDOW_SECONDS` (5 min) of expiry. A module-level asyncio.Lock
 prevents concurrent fetchers from racing on refresh.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,7 +40,7 @@ _log = get_logger(__name__)
 
 ACCESS_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
 _REFRESH_WINDOW_SECONDS = 5 * 60  # refresh if expiring within 5 min
-_DEFAULT_TTL_SECONDS = 3600        # fallback if Reddit omits expires_in
+_DEFAULT_TTL_SECONDS = 3600  # fallback if Reddit omits expires_in
 _HTTP_TIMEOUT_SECONDS = 15.0
 
 # Module-level cache. Single tenant for Phase 1.

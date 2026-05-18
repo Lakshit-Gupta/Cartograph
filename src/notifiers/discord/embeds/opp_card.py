@@ -1,4 +1,5 @@
 """Standard opportunity embed used in lane forums + tracker threads."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

@@ -1,4 +1,5 @@
 """r/forhire post extractor (and r/remotejs, r/freelance_forhire)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -39,23 +40,22 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
         created = post.get("created_utc")
         posted = datetime.fromtimestamp(created, tz=UTC) if created else None
         remote = RemoteType.REMOTE if "remote" in (title + body).lower() else RemoteType.UNSPECIFIED
-        category = (
-            OppCategory.FREELANCE if "freelance" in title.lower() or "contract" in title.lower() else
-            OppCategory.FULLTIME
+        category = OppCategory.FREELANCE if "freelance" in title.lower() or "contract" in title.lower() else OppCategory.FULLTIME
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=perma,
+                title=title[:200],
+                company=None,
+                description=body[:1200],
+                remote_type=remote,
+                category=category,
+                posted_at=posted,
+                apply_url=perma,
+                apply_method=ApplyMethod.EXTERNAL,
+                fingerprint_hash=_fp("reddit", title[:80], str(posted)[:10] if posted else "", ""),
+                extraction_tier=1,
+                extraction_confidence=0.7,
+            )
         )
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=perma,
-            title=title[:200],
-            company=None,
-            description=body[:1200],
-            remote_type=remote,
-            category=category,
-            posted_at=posted,
-            apply_url=perma,
-            apply_method=ApplyMethod.EXTERNAL,
-            fingerprint_hash=_fp("reddit", title[:80], str(posted)[:10] if posted else "", ""),
-            extraction_tier=1,
-            extraction_confidence=0.7,
-        ))
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.7 if opps else 0.0)

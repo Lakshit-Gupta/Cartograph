@@ -3,6 +3,7 @@
 Every LLM call in the codebase goes through this module. Refuses when
 daily_spend exceeds `cost_cap_daily_kill_usd`. Warns past `cost_cap_daily_usd`.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,30 +38,30 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Unknown slug falls back to (1.0, 5.0) — costs over-report, not under-report.
 _PRICING: dict[str, tuple[float, float]] = {
     # Google Gemini (current as of 2026-05)
-    "google/gemini-2.5-flash-lite":            (0.10,  0.40),
-    "google/gemini-2.5-flash":                 (0.15,  0.60),
-    "google/gemini-3-flash-preview":           (0.50,  3.00),
-    "google/gemini-3.1-flash-lite":            (0.25,  1.50),
-    "google/gemini-3.1-flash-lite-preview":    (0.25,  1.50),
+    "google/gemini-2.5-flash-lite": (0.10, 0.40),
+    "google/gemini-2.5-flash": (0.15, 0.60),
+    "google/gemini-3-flash-preview": (0.50, 3.00),
+    "google/gemini-3.1-flash-lite": (0.25, 1.50),
+    "google/gemini-3.1-flash-lite-preview": (0.25, 1.50),
     # Anthropic Claude (current)
-    "anthropic/claude-haiku-4.5":              (1.00,  5.00),
-    "anthropic/claude-sonnet-4.6":             (3.00, 15.00),
+    "anthropic/claude-haiku-4.5": (1.00, 5.00),
+    "anthropic/claude-sonnet-4.6": (3.00, 15.00),
     # DeepSeek V4 family
-    "deepseek/deepseek-v4-flash":              (0.112, 0.224),
-    "deepseek/deepseek-v4-pro":                (0.435, 0.87),
+    "deepseek/deepseek-v4-flash": (0.112, 0.224),
+    "deepseek/deepseek-v4-pro": (0.435, 0.87),
     # xAI Grok (current)
-    "x-ai/grok-4.20":                          (1.25,  2.50),
-    "x-ai/grok-4.20-beta":                     (2.00,  6.00),
+    "x-ai/grok-4.20": (1.25, 2.50),
+    "x-ai/grok-4.20-beta": (2.00, 6.00),
     # Moonshot Kimi (current)
-    "moonshotai/kimi-k2.6":                    (0.73,  3.49),
-    "moonshotai/kimi-k2.5":                    (0.40,  1.90),
+    "moonshotai/kimi-k2.6": (0.73, 3.49),
+    "moonshotai/kimi-k2.5": (0.40, 1.90),
     # OpenAI (reference)
-    "openai/gpt-4o-mini":                      (0.15,  0.60),
-    "openai/gpt-4o":                           (2.50, 10.00),
+    "openai/gpt-4o-mini": (0.15, 0.60),
+    "openai/gpt-4o": (2.50, 10.00),
     # Legacy (kept for backward compat with old usage_ledger rows)
-    "google/gemini-flash-1.5":                 (0.075, 0.30),
-    "anthropic/claude-3.5-sonnet":             (3.00, 15.00),
-    "anthropic/claude-3.5-haiku":              (0.80,  4.00),
+    "google/gemini-flash-1.5": (0.075, 0.30),
+    "anthropic/claude-3.5-sonnet": (3.00, 15.00),
+    "anthropic/claude-3.5-haiku": (0.80, 4.00),
 }
 
 
@@ -101,9 +102,7 @@ async def _today_spend_usd() -> float:
     return float(rec["m"]) / 1_000_000.0
 
 
-async def _record_usage(
-    *, kind: str, model: str, in_tok: int, out_tok: int, cost_usd: float, correlation_id: str
-) -> None:
+async def _record_usage(*, kind: str, model: str, in_tok: int, out_tok: int, cost_usd: float, correlation_id: str) -> None:
     async with acquire() as conn:
         await conn.execute(
             """
@@ -111,7 +110,12 @@ async def _record_usage(
                                      cost_usd_micros, correlation_id)
             VALUES ($1,'openrouter',$2,$3,$4,$5,$6)
             """,
-            kind, model, in_tok, out_tok, int(round(cost_usd * 1_000_000)), correlation_id,
+            kind,
+            model,
+            in_tok,
+            out_tok,
+            int(round(cost_usd * 1_000_000)),
+            correlation_id,
         )
         today = date.today()
         await conn.execute(
@@ -122,7 +126,8 @@ async def _record_usage(
             DO UPDATE SET request_count = daily_spend.request_count + 1,
                           cents_spent  = daily_spend.cents_spent + $2
             """,
-            today, int(round(cost_usd * 100)),
+            today,
+            int(round(cost_usd * 100)),
         )
 
 
@@ -201,8 +206,12 @@ async def chat(
     cost = _calc_cost(model, in_tok, out_tok)
     llm_cost_usd_total.labels(kind=kind, model=model).inc(cost)
     await _record_usage(
-        kind=kind, model=model, in_tok=in_tok, out_tok=out_tok,
-        cost_usd=cost, correlation_id=correlation_id,
+        kind=kind,
+        model=model,
+        in_tok=in_tok,
+        out_tok=out_tok,
+        cost_usd=cost,
+        correlation_id=correlation_id,
     )
     return data
 

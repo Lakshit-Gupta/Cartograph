@@ -16,6 +16,7 @@ caller can re-parse and retry instead of writing a corrupted output.
 Bullets are spliced in **descending** char-range order so each edit's
 offset stays valid relative to the unedited tail of the file.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -35,7 +36,8 @@ class SourceDriftError(RuntimeError):
 # / \item / nested itemize between them). We do not parse: a greedy
 # match is fine because the block's char_range is already a tight bound.
 _ITEMIZE_RE = re.compile(
-    r"\\begin\{itemize\}.*?\\end\{itemize\}", flags=re.DOTALL,
+    r"\\begin\{itemize\}.*?\\end\{itemize\}",
+    flags=re.DOTALL,
 )
 
 
@@ -135,10 +137,7 @@ def write_partial(
                 disk_hash = hashlib.sha256(disk_source.encode("utf-8")).hexdigest()
                 expected = doc.source_hashes.get(fname)
                 if expected and disk_hash != expected:
-                    raise SourceDriftError(
-                        f"source drift detected on {fname}: "
-                        f"expected {expected[:12]}…, disk {disk_hash[:12]}…"
-                    )
+                    raise SourceDriftError(f"source drift detected on {fname}: expected {expected[:12]}…, disk {disk_hash[:12]}…")
 
         # Descending start-offset splice so earlier edits don't shift later
         # offsets.

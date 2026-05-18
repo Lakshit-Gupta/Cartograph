@@ -1,4 +1,5 @@
 """YC India — list page → ATS slug harvest. Phase 1 fetches the listing only."""
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin
@@ -11,9 +12,11 @@ class _YCIndia:
 
     async def plan(self, *, source_id: int, base_url: str, config: dict) -> CrawlPlan:
         return CrawlPlan(
-            source_id=source_id, source_slug=self.slug,
+            source_id=source_id,
+            source_slug=self.slug,
             urls=[base_url],
-            tier_chain=[0], requires_identity=False,
+            tier_chain=[0],
+            requires_identity=False,
         )
 
 

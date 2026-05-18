@@ -8,6 +8,7 @@ Tests are pure-function unit tests (no live infra needed):
 - Streams.NOTIFY kinds enumerated; routing exists for each
 - Streams.FETCH shape: source_id + url + tier_chain required
 """
+
 from __future__ import annotations
 
 from uuid import UUID, uuid4
@@ -43,9 +44,11 @@ def test_streams_rank_inline_opp_rejected():
 def test_persist_and_publish_signature():
     """Both extractor_worker and gmail_worker call this symbol — keep it importable."""
     from src.extractors.persist import persist_and_publish
+
     assert callable(persist_and_publish)
     # Module docstring documents the single-write-path invariant.
     import src.extractors.persist as mod
+
     assert "Single write-path" in (mod.__doc__ or "")
 
 

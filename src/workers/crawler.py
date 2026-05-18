@@ -1,4 +1,5 @@
 """Crawler worker — consumes Streams.FETCH, dispatches through tier chain, emits Streams.EXTRACT."""
+
 from __future__ import annotations
 
 import asyncio

@@ -11,6 +11,7 @@ Side effects:
 - Publishes follow-up messages onto `Streams.NOTIFY` so the bot reflects
   the action in the tracker channels.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,8 +71,7 @@ def _user_id(payload: dict[str, Any]) -> int:
     return int(payload.get("user_id", 1))
 
 
-async def _tracker_update(q: RedisQ, *, user_id: int, opp_id: str, verb: str,
-                          extra: dict[str, Any] | None = None) -> None:
+async def _tracker_update(q: RedisQ, *, user_id: int, opp_id: str, verb: str, extra: dict[str, Any] | None = None) -> None:
     msg = {
         "kind": "tracker_update",
         "user_id": user_id,
@@ -121,10 +121,14 @@ async def _do_snooze(q: RedisQ, payload: dict[str, Any]) -> None:
                    expires_at = NOW() + ($2 || ' days')::interval
              WHERE id = $1
             """,
-            opp_id, str(days),
+            opp_id,
+            str(days),
         )
     await _tracker_update(
-        q, user_id=_user_id(payload), opp_id=str(opp_id), verb=f"snoozed {days}d",
+        q,
+        user_id=_user_id(payload),
+        opp_id=str(opp_id),
+        verb=f"snoozed {days}d",
     )
 
 
@@ -138,7 +142,8 @@ async def _do_pin(q: RedisQ, payload: dict[str, Any]) -> None:
             VALUES ($1, $2)
             ON CONFLICT DO NOTHING
             """,
-            user_id, opp_id,
+            user_id,
+            opp_id,
         )
     await _tracker_update(q, user_id=user_id, opp_id=str(opp_id), verb="pinned")
 
@@ -157,13 +162,16 @@ async def _do_explain(q: RedisQ, payload: dict[str, Any]) -> None:
         opp_id,
     )
     if row is None:
-        await q.publish(Streams.NOTIFY, {
-            "kind": "explain_dm",
-            "user_id": user_id,
-            "opp_id": str(opp_id),
-            "reason": "no score recorded yet",
-            "components": {},
-        })
+        await q.publish(
+            Streams.NOTIFY,
+            {
+                "kind": "explain_dm",
+                "user_id": user_id,
+                "opp_id": str(opp_id),
+                "reason": "no score recorded yet",
+                "components": {},
+            },
+        )
         return
     comps = row["score_components"]
     if isinstance(comps, str):
@@ -171,13 +179,16 @@ async def _do_explain(q: RedisQ, payload: dict[str, Any]) -> None:
             comps = json.loads(comps)
         except Exception:
             comps = {}
-    await q.publish(Streams.NOTIFY, {
-        "kind": "explain_dm",
-        "user_id": user_id,
-        "opp_id": str(opp_id),
-        "reason": f"score={float(row['score']):.2f}",
-        "components": comps or {},
-    })
+    await q.publish(
+        Streams.NOTIFY,
+        {
+            "kind": "explain_dm",
+            "user_id": user_id,
+            "opp_id": str(opp_id),
+            "reason": f"score={float(row['score']):.2f}",
+            "components": comps or {},
+        },
+    )
 
 
 async def _do_budget_set(q: RedisQ, payload: dict[str, Any]) -> None:
@@ -207,7 +218,9 @@ async def _do_budget_set(q: RedisQ, payload: dict[str, Any]) -> None:
                    SET value = EXCLUDED.value,
                        updated_at = NOW()
                 """,
-                user_id, db_key, json.dumps(value),
+                user_id,
+                db_key,
+                json.dumps(value),
             )
             persisted[db_key] = value
     _log.info("budget_set_persisted", user_id=user_id, persisted=persisted)
@@ -241,14 +254,20 @@ async def _do_source_add(q: RedisQ, payload: dict[str, Any]) -> None:
             VALUES ($1, $2, $3, $4, 'generic_html', 360, 5, 'paused', 'discord_modal')
             ON CONFLICT (slug) DO NOTHING
             """,
-            slug, host, category, url,
+            slug,
+            host,
+            category,
+            url,
         )
 
-    await q.publish(Streams.ALERTS, {
-        "kind": "alert",
-        "alert": "source_add",
-        "message": f"queued source `{slug}` (lane={lane}, status=paused) — `/source resume {slug}` to enable",
-    })
+    await q.publish(
+        Streams.ALERTS,
+        {
+            "kind": "alert",
+            "alert": "source_add",
+            "message": f"queued source `{slug}` (lane={lane}, status=paused) — `/source resume {slug}` to enable",
+        },
+    )
 
 
 async def _do_proposal_send(q: RedisQ, payload: dict[str, Any]) -> None:
@@ -303,11 +322,9 @@ async def _process(q: RedisQ, payload: dict[str, Any]) -> None:
     if handler is None:
         _log.warning("applier_unknown_action", action=action, payload=payload)
         return
-    _log.info("applier_action_start", action=action,
-              opp_id=payload.get("opp_id"), user_id=payload.get("user_id"))
+    _log.info("applier_action_start", action=action, opp_id=payload.get("opp_id"), user_id=payload.get("user_id"))
     await handler(q, payload)
-    _log.info("applier_action_done", action=action,
-              opp_id=payload.get("opp_id"))
+    _log.info("applier_action_done", action=action, opp_id=payload.get("opp_id"))
 
 
 async def main() -> None:

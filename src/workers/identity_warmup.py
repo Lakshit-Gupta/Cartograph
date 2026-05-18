@@ -4,6 +4,7 @@ For Phase 1 we keep this skeletal: it picks an identity, simulates 4-8 page view
 via curl_cffi with the identity's cookies, and bumps warmup_score on success.
 Real workflow is Day -3 → Day 0 with the user, this worker takes over after.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,11 +23,11 @@ _log = get_logger(__name__)
 
 _PLATFORM_PROBES: dict[str, list[str]] = {
     "internshala": ["https://internshala.com/internships", "https://internshala.com/jobs"],
-    "cuvette":     ["https://cuvette.tech/", "https://cuvette.tech/internships"],
-    "unstop":      ["https://unstop.com/internships", "https://unstop.com/jobs"],
-    "contra":      ["https://contra.com/", "https://contra.com/opportunities"],
-    "wellfound":   ["https://wellfound.com/jobs", "https://wellfound.com/discover"],
-    "reddit":      ["https://www.reddit.com/r/forhire/new"],
+    "cuvette": ["https://cuvette.tech/", "https://cuvette.tech/internships"],
+    "unstop": ["https://unstop.com/internships", "https://unstop.com/jobs"],
+    "contra": ["https://contra.com/", "https://contra.com/opportunities"],
+    "wellfound": ["https://wellfound.com/jobs", "https://wellfound.com/discover"],
+    "reddit": ["https://www.reddit.com/r/forhire/new"],
 }
 
 
@@ -38,7 +39,7 @@ async def warmup_one(platform: str) -> None:
     probes = _PLATFORM_PROBES.get(platform, [])
     random.shuffle(probes)
     try:
-        for url in probes[:random.randint(4, 8)]:
+        for url in probes[: random.randint(4, 8)]:
             req = FetchRequest(source_id=0, source_slug=f"warmup_{platform}", url=url)
             await fetcher.fetch(req)
             await asyncio.sleep(random.uniform(8, 25))

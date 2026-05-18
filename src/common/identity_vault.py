@@ -3,6 +3,7 @@
 Master key lives in SOPS-encrypted secrets.yaml (LIBSODIUM_MASTER_KEY_HEX),
 delivered via env at compose-up. NEVER log decrypted contents.
 """
+
 from __future__ import annotations
 
 import json
@@ -89,15 +90,21 @@ async def store(
                 email_alias           = COALESCE(EXCLUDED.email_alias, identities.email_alias)
             RETURNING id
             """,
-            user_id, platform, account_label,
-            cred_ct, cred_nonce, cookie_ct, cookie_nonce,
-            fingerprint_id, email_alias,
+            user_id,
+            platform,
+            account_label,
+            cred_ct,
+            cred_nonce,
+            cookie_ct,
+            cookie_nonce,
+            fingerprint_id,
+            email_alias,
         )
         ident_id = int(rec["id"])
         await conn.execute(
-            "INSERT INTO user_identities(user_id, identity_id, role) VALUES ($1,$2,'owner') "
-            "ON CONFLICT DO NOTHING",
-            user_id, ident_id,
+            "INSERT INTO user_identities(user_id, identity_id, role) VALUES ($1,$2,'owner') ON CONFLICT DO NOTHING",
+            user_id,
+            ident_id,
         )
         await conn.execute(
             "INSERT INTO identity_audit(identity_id, action, actor) VALUES ($1,'store','system')",
@@ -164,7 +171,9 @@ async def checkout(
                 SELECT id, $2, $3 FROM leased
                 RETURNING id, identity_id
                 """,
-            platform, worker_id, expires,
+            platform,
+            worker_id,
+            expires,
         )
         if rec is None:
             return None
@@ -199,7 +208,8 @@ async def mark_banned(identity_id: int, reason: str) -> None:
         )
         await conn.execute(
             "INSERT INTO identity_audit(identity_id, action, actor, metadata) VALUES ($1,'ban','system',$2::jsonb)",
-            identity_id, json.dumps({"reason": reason}),
+            identity_id,
+            json.dumps({"reason": reason}),
         )
     _log.warning("identity_banned", identity_id=identity_id, reason=reason)
 

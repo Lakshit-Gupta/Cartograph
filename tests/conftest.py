@@ -1,4 +1,5 @@
 """Pytest fixtures — disabled-by-default so CI never hits live infra."""
+
 from __future__ import annotations
 
 import os

@@ -1,4 +1,5 @@
 """Prometheus instrumentation. Exposed via FastAPI /metrics in api-service."""
+
 from __future__ import annotations
 
 from prometheus_client import (
@@ -14,106 +15,138 @@ REGISTRY = CollectorRegistry(auto_describe=True)
 
 # Pipeline
 fetch_latency_seconds = Histogram(
-    "fetch_latency_seconds", "Per-fetch wall latency.",
+    "fetch_latency_seconds",
+    "Per-fetch wall latency.",
     labelnames=("source", "tier"),
     registry=REGISTRY,
 )
 fetch_errors_total = Counter(
-    "fetch_errors_total", "Fetch failures.",
+    "fetch_errors_total",
+    "Fetch failures.",
     labelnames=("class",),
     registry=REGISTRY,
 )
 extract_selector_miss_total = Counter(
-    "extract_selector_miss_total", "Tier-1 selector misses (fell back to T2).",
+    "extract_selector_miss_total",
+    "Tier-1 selector misses (fell back to T2).",
     labelnames=("source",),
     registry=REGISTRY,
 )
 extract_tier_distribution = Counter(
-    "extract_tier_distribution", "Successful extractions by tier.",
+    "extract_tier_distribution",
+    "Successful extractions by tier.",
     labelnames=("source", "tier"),
     registry=REGISTRY,
 )
 dedup_hits_total = Counter(
-    "dedup_hits_total", "Opportunities collapsed by dedup.",
+    "dedup_hits_total",
+    "Opportunities collapsed by dedup.",
     labelnames=("lane",),
     registry=REGISTRY,
 )
 score_latency_seconds = Histogram(
-    "score_latency_seconds", "Ranking latency per opp.",
+    "score_latency_seconds",
+    "Ranking latency per opp.",
     registry=REGISTRY,
 )
 llm_refusals_total = Counter(
-    "llm_refusals_total", "LLM refused due to cost cap or guardrails.",
+    "llm_refusals_total",
+    "LLM refused due to cost cap or guardrails.",
     registry=REGISTRY,
 )
 llm_cost_usd_total = Counter(
-    "llm_cost_usd_total", "Cumulative LLM cost in USD.",
+    "llm_cost_usd_total",
+    "Cumulative LLM cost in USD.",
     labelnames=("kind", "model"),
     registry=REGISTRY,
 )
 digest_size = Gauge(
-    "digest_size", "Most recent digest size.",
+    "digest_size",
+    "Most recent digest size.",
     registry=REGISTRY,
 )
 digest_attention_minutes = Gauge(
-    "digest_attention_minutes", "Estimated minutes spent reviewing last digest.",
+    "digest_attention_minutes",
+    "Estimated minutes spent reviewing last digest.",
     registry=REGISTRY,
 )
 deliver_success_total = Counter(
-    "deliver_success_total", "Successful notification deliveries.",
+    "deliver_success_total",
+    "Successful notification deliveries.",
     labelnames=("channel",),
     registry=REGISTRY,
 )
 applications_sent_total = Counter(
-    "applications_sent_total", "Applications sent.",
+    "applications_sent_total",
+    "Applications sent.",
     labelnames=("method",),
     registry=REGISTRY,
 )
 outcome_events_total = Counter(
-    "outcome_events_total", "Application outcomes observed via Gmail.",
+    "outcome_events_total",
+    "Application outcomes observed via Gmail.",
     labelnames=("type",),
     registry=REGISTRY,
 )
 
 # CF (7 critical signals)
 cf_clearance_solve_rate = Gauge(
-    "cf_clearance_solve_rate", "Rolling cf_clearance solve rate (0-1).", registry=REGISTRY,
+    "cf_clearance_solve_rate",
+    "Rolling cf_clearance solve rate (0-1).",
+    registry=REGISTRY,
 )
 cf_challenge_appeared_rate = Gauge(
-    "cf_challenge_appeared_rate", "Rolling rate of CF challenge appearances.", registry=REGISTRY,
+    "cf_challenge_appeared_rate",
+    "Rolling rate of CF challenge appearances.",
+    registry=REGISTRY,
 )
 cf_js_challenge_solve_time_ms = Histogram(
-    "cf_js_challenge_solve_time_ms", "JS challenge solve time (ms).",
+    "cf_js_challenge_solve_time_ms",
+    "JS challenge solve time (ms).",
     buckets=(100, 250, 500, 1000, 2500, 5000, 10000, 30000),
     registry=REGISTRY,
 )
 cf_403_with_ray_header_per_hour = Gauge(
-    "cf_403_with_ray_header_per_hour", "403 responses bearing cf-ray header.", registry=REGISTRY,
+    "cf_403_with_ray_header_per_hour",
+    "403 responses bearing cf-ray header.",
+    registry=REGISTRY,
 )
 cf_attention_required_body_per_hour = Gauge(
-    "cf_attention_required_body_per_hour", "Bodies containing 'Attention Required' marker.", registry=REGISTRY,
+    "cf_attention_required_body_per_hour",
+    "Bodies containing 'Attention Required' marker.",
+    registry=REGISTRY,
 )
 cf_checking_browser_persistent_per_hour = Gauge(
-    "cf_checking_browser_persistent_per_hour", "Persistent 'Checking your browser' interstitial rate.", registry=REGISTRY,
+    "cf_checking_browser_persistent_per_hour",
+    "Persistent 'Checking your browser' interstitial rate.",
+    registry=REGISTRY,
 )
 cf_bm_cookie_rotation_rate = Gauge(
-    "cf_bm_cookie_rotation_rate", "Rate of __cf_bm cookie rotations.", registry=REGISTRY,
+    "cf_bm_cookie_rotation_rate",
+    "Rate of __cf_bm cookie rotations.",
+    registry=REGISTRY,
 )
 
 # Infrastructure
 postgres_connections = Gauge(
-    "postgres_connections", "asyncpg pool active connections.", registry=REGISTRY,
+    "postgres_connections",
+    "asyncpg pool active connections.",
+    registry=REGISTRY,
 )
 redis_stream_length = Gauge(
-    "redis_stream_length", "Length per Redis stream.",
+    "redis_stream_length",
+    "Length per Redis stream.",
     labelnames=("stream",),
     registry=REGISTRY,
 )
 identity_checkout_active_count = Gauge(
-    "identity_checkout_active_count", "Identity checkouts currently leased.", registry=REGISTRY,
+    "identity_checkout_active_count",
+    "Identity checkouts currently leased.",
+    registry=REGISTRY,
 )
 identity_ban_status_count = Gauge(
-    "identity_ban_status_count", "Identities by ban status.",
+    "identity_ban_status_count",
+    "Identities by ban status.",
     labelnames=("status",),
     registry=REGISTRY,
 )

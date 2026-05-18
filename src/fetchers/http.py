@@ -2,6 +2,7 @@
 
 Reuses cf_clearance_cache rows before falling through to higher tiers via dispatcher.
 """
+
 from __future__ import annotations
 
 import time
@@ -44,7 +45,8 @@ class HttpFetcher(Fetcher):
                 ORDER BY last_used_at DESC NULLS LAST
                 LIMIT 1
                 """,
-                source_id, host,
+                source_id,
+                host,
             )
         if rec is None:
             return None, None
@@ -60,7 +62,8 @@ class HttpFetcher(Fetcher):
                     last_used_at = NOW()
                 WHERE source_id = $1 AND domain = $2 AND expires_at > NOW()
                 """,
-                source_id, host,
+                source_id,
+                host,
             )
 
     async def fetch(self, req: FetchRequest) -> FetchResponse:
@@ -69,9 +72,7 @@ class HttpFetcher(Fetcher):
         headers: dict[str, str] = dict(req.headers or {})
         if cookie_val:
             existing_cookie = headers.get("Cookie", "")
-            headers["Cookie"] = (
-                f"{existing_cookie}; {cookie_val}" if existing_cookie else cookie_val
-            ).strip("; ")
+            headers["Cookie"] = (f"{existing_cookie}; {cookie_val}" if existing_cookie else cookie_val).strip("; ")
         if ua:
             headers.setdefault("User-Agent", ua)
 
@@ -94,7 +95,8 @@ class HttpFetcher(Fetcher):
         try:
             async with AsyncSession(impersonate=self._impersonate) as session:  # type: ignore[arg-type]
                 resp = await session.request(
-                    req.method, req.url,
+                    req.method,
+                    req.url,
                     headers=headers or None,
                     data=req.body,
                     timeout=req.timeout_s,
@@ -126,24 +128,33 @@ class HttpFetcher(Fetcher):
             fetch_errors_total.labels("http_exc").inc()
             _log.warning("http_fetch_failed", url=req.url, err=str(e))
             return FetchResponse(
-                status=0, body="", content_type=None, tier=self.tier,
-                headers={}, error=str(e), cf_challenge_observed=False,
+                status=0,
+                body="",
+                content_type=None,
+                tier=self.tier,
+                headers={},
+                error=str(e),
+                cf_challenge_observed=False,
             )
         finally:
-            fetch_latency_seconds.labels(source=req.source_slug, tier=str(self.tier)).observe(
-                time.perf_counter() - t0
-            )
+            fetch_latency_seconds.labels(source=req.source_slug, tier=str(self.tier)).observe(time.perf_counter() - t0)
 
 
 def _host(url: str) -> str:
     from urllib.parse import urlparse
+
     return (urlparse(url).hostname or "").lower()
 
 
 async def save_clearance(
-    *, source_id: int, identity_id: int | None,
-    host: str, cookie_value: str, ua_string: str,
-    ja4: str | None = None, ttl_minutes: int = 30,
+    *,
+    source_id: int,
+    identity_id: int | None,
+    host: str,
+    cookie_value: str,
+    ua_string: str,
+    ja4: str | None = None,
+    ttl_minutes: int = 30,
 ) -> None:
     expires = datetime.now(UTC) + timedelta(minutes=ttl_minutes)
     async with acquire() as conn:
@@ -161,5 +172,11 @@ async def save_clearance(
                           acquired_at  = NOW(),
                           expires_at   = EXCLUDED.expires_at
             """,
-            source_id, identity_id, host, cookie_value, ua_string, ja4, expires,
+            source_id,
+            identity_id,
+            host,
+            cookie_value,
+            ua_string,
+            ja4,
+            expires,
         )

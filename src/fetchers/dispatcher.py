@@ -4,6 +4,7 @@ Routes a FetchRequest through `source.tier_chain` in order, escalating to the
 next tier on failure / CF challenge. Tracks tier success in cf_clearance_cache
 and metrics.
 """
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -31,6 +32,7 @@ def _get(tier: int) -> Fetcher:
         f = FlareSolverrFetcher()
     elif tier == 2:
         from src.fetchers.browser.camoufox import CamoufoxFetcher
+
         f = CamoufoxFetcher()
     else:
         raise NotImplementedError(f"tier {tier} not implemented")
@@ -74,6 +76,11 @@ class TierDispatcher:
 
         # All tiers failed
         return last or FetchResponse(
-            status=0, body="", content_type=None, tier=-1, headers={},
-            error="all_tiers_failed", cf_challenge_observed=True,
+            status=0,
+            body="",
+            content_type=None,
+            tier=-1,
+            headers={},
+            error="all_tiers_failed",
+            cf_challenge_observed=True,
         )

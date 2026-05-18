@@ -1,4 +1,5 @@
 """Lever plugin — reads `config/sources/lever_slugs.yaml`."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,8 +20,11 @@ class _LeverPlugin:
         slugs = yaml.safe_load(cfg_path.read_text()).get("slugs") or []
         urls = [f"https://api.lever.co/v0/postings/{s}?mode=json" for s in slugs]
         return CrawlPlan(
-            source_id=source_id, source_slug=self.slug,
-            urls=urls, tier_chain=[0], requires_identity=False,
+            source_id=source_id,
+            source_slug=self.slug,
+            urls=urls,
+            tier_chain=[0],
+            requires_identity=False,
         )
 
 

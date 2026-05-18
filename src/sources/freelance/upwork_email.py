@@ -9,6 +9,7 @@ This plugin is therefore a NO-OP at the crawler tier — it exists so the
 registry has a strategy for the sources row, and so the scheduler logs the
 fact that we 'crawled' it.
 """
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin
@@ -22,8 +23,11 @@ class _UpworkEmail:
     async def plan(self, *, source_id: int, base_url: str, config: dict) -> CrawlPlan:
         # No fetch — gmail_watcher feeds this lane.
         return CrawlPlan(
-            source_id=source_id, source_slug=self.slug, urls=[],
-            tier_chain=[], requires_identity=False,
+            source_id=source_id,
+            source_slug=self.slug,
+            urls=[],
+            tier_chain=[],
+            requires_identity=False,
         )
 
 

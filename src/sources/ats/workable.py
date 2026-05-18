@@ -1,4 +1,5 @@
 """Workable plugin — reads `config/sources/workable_slugs.yaml`."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,8 +20,11 @@ class _WorkablePlugin:
         slugs = yaml.safe_load(cfg_path.read_text()).get("slugs") or []
         urls = [f"https://apply.workable.com/api/v1/widget/accounts/{s}" for s in slugs]
         return CrawlPlan(
-            source_id=source_id, source_slug=self.slug,
-            urls=urls, tier_chain=[0], requires_identity=False,
+            source_id=source_id,
+            source_slug=self.slug,
+            urls=urls,
+            tier_chain=[0],
+            requires_identity=False,
         )
 
 

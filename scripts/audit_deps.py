@@ -4,6 +4,7 @@
 Exits non-zero with a list of unused declared deps. Lint-only — does not catch
 missing deps (let pip / uv handle that at install time).
 """
+
 from __future__ import annotations
 
 import re
@@ -17,11 +18,11 @@ SRC = ROOT / "src"
 # Deps that are intentionally not imported in source — runtime CLI entrypoints,
 # Postgres adapters used through the driver, or planned for next phase.
 WHITELIST: set[str] = {
-    "uvicorn",          # CLI runtime, no python import
-    "pgvector",         # adapter used via asyncpg at the SQL boundary
-    "scikit-learn",     # Phase-2 logistic regression on response rates
-    "resend",           # Phase-2 SDK switch (currently raw httpx)
-    "telethon",         # Day-13 telegram freelance scraper
+    "uvicorn",  # CLI runtime, no python import
+    "pgvector",  # adapter used via asyncpg at the SQL boundary
+    "scikit-learn",  # Phase-2 logistic regression on response rates
+    "resend",  # Phase-2 SDK switch (currently raw httpx)
+    "telethon",  # Day-13 telegram freelance scraper
 }
 
 # Map of pip name → root import module(s) used in code, when they differ.

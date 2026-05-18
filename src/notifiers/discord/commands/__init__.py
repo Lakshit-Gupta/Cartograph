@@ -4,6 +4,7 @@ during `on_ready` / `setup_hook` to register `app_commands.Command` objects.
 Importing the package imports every submodule so command files self-register
 their `setup` function via the `ALL_SETUPS` list below.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

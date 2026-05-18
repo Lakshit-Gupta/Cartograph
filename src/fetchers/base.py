@@ -1,4 +1,5 @@
 """Fetcher Protocol — every tier implements this. Swappable behind dispatcher."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

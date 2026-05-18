@@ -3,6 +3,7 @@
 Two connection helpers + a generic IDLE watch loop. Each new message is delivered
 to a callback exactly once — last-seen UID is persisted in `imap_state`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -62,9 +63,7 @@ async def _ensure_state_table() -> None:
 async def _load_last_uid(mailbox: str) -> int:
     await _ensure_state_table()
     async with acquire() as conn:
-        rec = await conn.fetchrow(
-            "SELECT last_uid FROM imap_state WHERE mailbox = $1", mailbox
-        )
+        rec = await conn.fetchrow("SELECT last_uid FROM imap_state WHERE mailbox = $1", mailbox)
     return int(rec["last_uid"]) if rec else 0
 
 
@@ -78,7 +77,8 @@ async def _save_last_uid(mailbox: str, uid: int) -> None:
               SET last_uid = EXCLUDED.last_uid, updated_at = NOW()
               WHERE imap_state.last_uid < EXCLUDED.last_uid
             """,
-            mailbox, uid,
+            mailbox,
+            uid,
         )
 
 
@@ -93,8 +93,7 @@ async def _refresh_access_token() -> str:
     if cached and cached["expires_at"] - now > 60:
         return str(cached["token"])
 
-    if not (settings.gmail_oauth_client_id and settings.gmail_oauth_client_secret
-            and settings.gmail_oauth_refresh_token):
+    if not (settings.gmail_oauth_client_id and settings.gmail_oauth_client_secret and settings.gmail_oauth_refresh_token):
         raise RuntimeError("gmail oauth credentials missing")
 
     payload = {
@@ -145,6 +144,7 @@ async def connect_personal() -> Any:
     else:
         # Manual AUTHENTICATE XOAUTH2 with base64-encoded payload.
         import base64
+
         b64 = base64.b64encode(auth.encode()).decode()
         resp = await imap.protocol.send(f"AUTHENTICATE XOAUTH2 {b64}")
     _log.info("imap_connected_personal", user=user, status=getattr(resp, "result", "?"))

@@ -3,6 +3,7 @@
 A simple rolling response rate (response within 14 days / total apps) per source
 becomes the `response_rate` input to formula.score().
 """
+
 from __future__ import annotations
 
 from src.common.db import acquire

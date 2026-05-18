@@ -4,6 +4,7 @@ Reads `config/routing_rules.yaml` at runtime (so ops can edit without
 redeploying) and the channel-id table from settings env (sourced from
 SOPS-encrypted `secrets.yaml`).
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -59,9 +60,7 @@ def route_for(opp: dict[str, Any], kind: str = "lane") -> dict[str, Any]:
 
     if kind == "lane":
         cat = (opp.get("category") or "unknown").lower()
-        section = (rules.get("per_lane") or {}).get(cat) \
-                  or (rules.get("per_lane") or {}).get("unknown") \
-                  or {}
+        section = (rules.get("per_lane") or {}).get(cat) or (rules.get("per_lane") or {}).get("unknown") or {}
     elif kind == "tracker":
         key = (opp.get("tracker") or opp.get("state") or "applied").lower()
         section = (rules.get("tracker") or {}).get(key) or {}

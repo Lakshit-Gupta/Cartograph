@@ -1,4 +1,5 @@
 """Unstop public JSON API extractor."""
+
 from __future__ import annotations
 
 import hashlib
@@ -41,23 +42,25 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
                 posted = datetime.fromisoformat(str(j.get("start_date") or j.get("created_at")).replace("Z", "+00:00"))
             except ValueError:
                 posted = None
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=url,
-            title=title,
-            company=org,
-            description=(j.get("description") or "")[:1200],
-            comp_min=float(j.get("prize_amount", 0)) or None,
-            comp_currency="INR",
-            comp_period="month" if is_internship else "year",
-            location=j.get("location"),
-            remote_type=RemoteType.UNSPECIFIED,
-            category=cat,
-            posted_at=posted,
-            apply_url=url,
-            apply_method=ApplyMethod.IN_PLATFORM,
-            fingerprint_hash=_fp(org or "", title, str(posted)[:10] if posted else "", ""),
-            extraction_tier=1,
-            extraction_confidence=0.84,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=url,
+                title=title,
+                company=org,
+                description=(j.get("description") or "")[:1200],
+                comp_min=float(j.get("prize_amount", 0)) or None,
+                comp_currency="INR",
+                comp_period="month" if is_internship else "year",
+                location=j.get("location"),
+                remote_type=RemoteType.UNSPECIFIED,
+                category=cat,
+                posted_at=posted,
+                apply_url=url,
+                apply_method=ApplyMethod.IN_PLATFORM,
+                fingerprint_hash=_fp(org or "", title, str(posted)[:10] if posted else "", ""),
+                extraction_tier=1,
+                extraction_confidence=0.84,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.84 if opps else 0.0)

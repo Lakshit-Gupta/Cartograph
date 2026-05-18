@@ -8,6 +8,7 @@ Responsibilities:
 The worker entrypoint `src/workers/notifier_worker.py` instantiates and
 runs this class. No global state created at import time.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -64,9 +65,7 @@ class Bot(discord.Client):
         settings = get_settings()
         # Fail loud if Discord channel IDs missing — silent posts to channel 0
         # waste an entire day of debugging.
-        settings.assert_channels_configured(
-            required=("daily_digest", "priority_push", "alerts", "applied")
-        )
+        settings.assert_channels_configured(required=("daily_digest", "priority_push", "alerts", "applied"))
         if settings.discord_guild_id:
             guild_obj = discord.Object(id=settings.discord_guild_id)
             self.tree.copy_global_to(guild=guild_obj)
@@ -85,9 +84,7 @@ class Bot(discord.Client):
         _log.info("discord_ready", user=str(self.user), guilds=len(self.guilds))
         # Spin up notify-stream consumer once.
         if self._consumer_task is None:
-            self._consumer_task = asyncio.create_task(
-                self._notify_consumer(), name="notify-consumer"
-            )
+            self._consumer_task = asyncio.create_task(self._notify_consumer(), name="notify-consumer")
 
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         await handle_raw_reaction_add(payload, self)
@@ -150,9 +147,7 @@ class Bot(discord.Client):
 
         score = payload.get("score")
         score_components = payload.get("score_components") or {}
-        embed = build_opp_card(
-            opp, score=score, score_components=score_components
-        )
+        embed = build_opp_card(opp, score=score, score_components=score_components)
         view = OppActionView(opp_id=str(opp.get("id") or payload.get("opportunity_id")))
         await self._send_embed(chan, embed, view=view, route=route)
 
@@ -193,7 +188,9 @@ class Bot(discord.Client):
         top = payload.get("top_score") or (opp_rows[0]["score"] if opp_rows else None)
 
         header = build_digest_header(
-            datetime.now(UTC), count=count, top_score=top,
+            datetime.now(UTC),
+            count=count,
+            top_score=top,
         )
         await chan.send(embed=header)
         deliver_success_total.labels(channel="digest").inc()
@@ -283,9 +280,8 @@ class Bot(discord.Client):
                     comps = json.loads(comps)
                 except Exception:
                     comps = {}
-            text = (
-                f"{voice.pick('explain_intro')} score={row['score']:.2f} — "
-                + ", ".join(f"{k}={v:.2f}" for k, v in (comps or {}).items())
+            text = f"{voice.pick('explain_intro')} score={row['score']:.2f} — " + ", ".join(
+                f"{k}={v:.2f}" for k, v in (comps or {}).items()
             )
             chan = await self._resolve_channel(payload.get("channel_id"))
             if chan is not None:
@@ -348,7 +344,8 @@ class Bot(discord.Client):
                 try:
                     await db.execute(
                         "UPDATE applications SET discord_thread_id = $1 WHERE id = $2",
-                        int(thread_id), int(application_id),
+                        int(thread_id),
+                        int(application_id),
                     )
                 except Exception as e:
                     _log.warning("applications_thread_id_update_failed", err=str(e))
@@ -376,19 +373,19 @@ class Bot(discord.Client):
 
             title = data.get("title") or opp_row.get("title") or "(untitled)"
             company = data.get("company") or opp_row.get("company") or "—"
-            apply_url = (
-                data.get("apply_url") or data.get("review_url")
-                or data.get("target") or opp_row.get("apply_url") or ""
-            )
+            apply_url = data.get("apply_url") or data.get("review_url") or data.get("target") or opp_row.get("apply_url") or ""
             cover_md = data.get("cover_letter_markdown") or ""
             bullets = data.get("tailored_bullets") or []
 
-            embed = manual_apply_embed.build_manual_apply({
-                "title": title, "company": company,
-                "apply_url": apply_url,
-                "tailored_bullets": bullets,
-                "cover_letter_markdown": cover_md,
-            })
+            embed = manual_apply_embed.build_manual_apply(
+                {
+                    "title": title,
+                    "company": company,
+                    "apply_url": apply_url,
+                    "tailored_bullets": bullets,
+                    "cover_letter_markdown": cover_md,
+                }
+            )
             view = OppReviewView(opp_id=str(opp_id or "00000000-0000-0000-0000-000000000000"))
 
             chan_id = channel_id_for("applied")

@@ -9,6 +9,7 @@ format these lists all use:
 
 stdlib only — no markdown parser dependency.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -32,8 +33,19 @@ _HTML_RE = re.compile(r"<[^>]+>")
 _URL_RE = re.compile(r"https?://[^\s)>\]]+")
 _REL_DAYS_RE = re.compile(r"(\d+)\s*d", re.IGNORECASE)
 _MONTHS = {
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-    "jul": 7, "aug": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12,
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "sept": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
 }
 
 
@@ -136,32 +148,28 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
             continue
 
         loc_lower = location.lower()
-        remote = (
-            RemoteType.REMOTE if "remote" in loc_lower else
-            RemoteType.HYBRID if "hybrid" in loc_lower else
-            RemoteType.ONSITE
-        )
+        remote = RemoteType.REMOTE if "remote" in loc_lower else RemoteType.HYBRID if "hybrid" in loc_lower else RemoteType.ONSITE
         category = OppCategory.INTERNSHIP if "intern" in title.lower() else OppCategory.FULLTIME
         url_lower = apply_url.lower()
-        apply_method = (
-            ApplyMethod.ATS_FORM if any(d in url_lower for d in _ATS_DOMAINS) else ApplyMethod.EXTERNAL
-        )
+        apply_method = ApplyMethod.ATS_FORM if any(d in url_lower for d in _ATS_DOMAINS) else ApplyMethod.EXTERNAL
         posted = _parse_date(date_raw)
 
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=apply_url,
-            title=title,
-            company=company,
-            description=None,
-            location=location or None,
-            remote_type=remote,
-            category=category,
-            posted_at=posted,
-            apply_url=apply_url,
-            apply_method=apply_method,
-            fingerprint_hash=_fp(company, title, location, str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.78,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=apply_url,
+                title=title,
+                company=company,
+                description=None,
+                location=location or None,
+                remote_type=remote,
+                category=category,
+                posted_at=posted,
+                apply_url=apply_url,
+                apply_method=apply_method,
+                fingerprint_hash=_fp(company, title, location, str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.78,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.78 if opps else 0.0)

@@ -1,4 +1,5 @@
 """/apply <opp_id> — transition opp into `applied` and enqueue send."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -21,14 +22,13 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
         try:
             uid = str(UUID(opp_id))
         except ValueError:
-            await interaction.response.send_message(
-                f"`{opp_id}` is not a valid UUID.", ephemeral=True
-            )
+            await interaction.response.send_message(f"`{opp_id}` is not a valid UUID.", ephemeral=True)
             return
         try:
             await db.execute(
                 "UPDATE opportunities SET state = $2 WHERE id = $1",
-                UUID(uid), "applied",
+                UUID(uid),
+                "applied",
             )
             q = await RedisQ.connect()
             await q.publish(

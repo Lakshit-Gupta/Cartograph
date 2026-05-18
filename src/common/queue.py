@@ -1,4 +1,5 @@
 """Redis Streams wrapper. Subsystems communicate ONLY through this module."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,14 +20,14 @@ _log = get_logger(__name__)
 
 # Canonical stream names (single source of truth)
 class Streams:
-    FETCH = "stream:fetch"               # FetchTask
-    EXTRACT = "stream:extract"           # FetchResult
-    RANK = "stream:rank"                 # Opportunity
-    NOTIFY = "stream:notify"             # RankedOpportunity / NotificationTask
-    APPLY = "stream:apply"               # apply commands from buttons
-    EMAIL_INBOUND = "stream:email_in"    # Gmail watcher → state writer
-    ALERTS = "stream:alerts"             # system alerts
-    DLQ = "stream:dlq"                   # dead-letter for any handler
+    FETCH = "stream:fetch"  # FetchTask
+    EXTRACT = "stream:extract"  # FetchResult
+    RANK = "stream:rank"  # Opportunity
+    NOTIFY = "stream:notify"  # RankedOpportunity / NotificationTask
+    APPLY = "stream:apply"  # apply commands from buttons
+    EMAIL_INBOUND = "stream:email_in"  # Gmail watcher → state writer
+    ALERTS = "stream:alerts"  # system alerts
+    DLQ = "stream:dlq"  # dead-letter for any handler
 
 
 # Consumer groups
@@ -91,14 +92,14 @@ class RedisQ:
     #   NOTIFY  — consumed by notifier-discord (network-bound).
     #   APPLY   — small, user-initiated.
     _MAXLEN: dict[str, int] = {
-        "stream:fetch":     50_000,
-        "stream:extract":   20_000,
-        "stream:rank":      30_000,
-        "stream:notify":    10_000,
-        "stream:apply":      5_000,
-        "stream:email_in":  10_000,
-        "stream:alerts":     5_000,
-        "stream:dlq":       50_000,
+        "stream:fetch": 50_000,
+        "stream:extract": 20_000,
+        "stream:rank": 30_000,
+        "stream:notify": 10_000,
+        "stream:apply": 5_000,
+        "stream:email_in": 10_000,
+        "stream:alerts": 5_000,
+        "stream:dlq": 50_000,
     }
     _DEFAULT_MAXLEN = 20_000
 
@@ -124,9 +125,7 @@ class RedisQ:
         while True:
             # First: try to reclaim any pending messages stuck >= idle_reclaim_ms
             try:
-                reclaimed = await self._r.xautoclaim(
-                    stream, group, self._consumer_name, min_idle_time=idle_reclaim_ms, count=count
-                )
+                reclaimed = await self._r.xautoclaim(stream, group, self._consumer_name, min_idle_time=idle_reclaim_ms, count=count)
                 if reclaimed and len(reclaimed) >= 2:
                     _, messages = reclaimed[0], reclaimed[1]
                     for msg_id, fields in messages or []:
@@ -136,8 +135,11 @@ class RedisQ:
 
             try:
                 resp = await self._r.xreadgroup(
-                    group, self._consumer_name,
-                    streams={stream: ">"}, block=block_ms, count=count,
+                    group,
+                    self._consumer_name,
+                    streams={stream: ">"},
+                    block=block_ms,
+                    count=count,
                 )
             except Exception as e:
                 _log.exception("xreadgroup_failed", err=str(e))

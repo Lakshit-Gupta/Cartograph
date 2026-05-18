@@ -1,4 +1,5 @@
 """gmail-watcher container entrypoint — runs personal + worker mailboxes concurrently."""
+
 from __future__ import annotations
 
 import asyncio

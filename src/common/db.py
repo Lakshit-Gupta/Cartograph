@@ -1,4 +1,5 @@
 """asyncpg pool + tiny query helpers + tenant resolver hook."""
+
 from __future__ import annotations
 
 import contextlib

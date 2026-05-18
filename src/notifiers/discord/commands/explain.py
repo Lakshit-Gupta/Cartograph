@@ -1,4 +1,5 @@
 """/explain <opp_id> — show the score breakdown for an opp."""
+
 from __future__ import annotations
 
 import json
@@ -21,9 +22,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
         try:
             uid = str(UUID(opp_id))
         except ValueError:
-            await interaction.response.send_message(
-                f"`{opp_id}` is not a valid UUID.", ephemeral=True
-            )
+            await interaction.response.send_message(f"`{opp_id}` is not a valid UUID.", ephemeral=True)
             return
         try:
             row = await db.fetch_one(
@@ -37,9 +36,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 UUID(uid),
             )
             if not row:
-                await interaction.response.send_message(
-                    "No score for that opp yet.", ephemeral=True
-                )
+                await interaction.response.send_message("No score for that opp yet.", ephemeral=True)
                 return
             comps = row["score_components"]
             if isinstance(comps, str):

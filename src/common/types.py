@@ -1,4 +1,5 @@
 """Shared Pydantic types crossing subsystem boundaries via Redis Streams."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

@@ -9,6 +9,7 @@ This is intentionally cheap — it runs before the LLM tailor step which
 operates only on the top-3 blocks. Anything more sophisticated belongs in
 the ranker subsystem, not here.
 """
+
 from __future__ import annotations
 
 import re

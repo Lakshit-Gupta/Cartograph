@@ -1,4 +1,5 @@
 """LLM re-rank — top-K candidates through OpenRouter for final ordering."""
+
 from __future__ import annotations
 
 import json
@@ -26,20 +27,22 @@ async def rerank(
     prompt = load_prompt("re_ranker.txt")
     items: list[dict[str, Any]] = []
     for opp, base in head:
-        items.append({
-            "id": str(opp.id) if opp.id else opp.canonical_url,
-            "title": opp.title,
-            "company": opp.company,
-            "description": fence_untrusted((opp.description or "")[:400]),
-            "remote_type": opp.remote_type.value,
-            "location": opp.location,
-            "comp_min": opp.comp_min,
-            "comp_max": opp.comp_max,
-            "comp_currency": opp.comp_currency,
-            "category": opp.category.value,
-            "source_quality": 1.0,
-            "base_score": float(base),
-        })
+        items.append(
+            {
+                "id": str(opp.id) if opp.id else opp.canonical_url,
+                "title": opp.title,
+                "company": opp.company,
+                "description": fence_untrusted((opp.description or "")[:400]),
+                "remote_type": opp.remote_type.value,
+                "location": opp.location,
+                "comp_min": opp.comp_min,
+                "comp_max": opp.comp_max,
+                "comp_currency": opp.comp_currency,
+                "category": opp.category.value,
+                "source_quality": 1.0,
+                "base_score": float(base),
+            }
+        )
 
     msgs = [
         {"role": "system", "content": prompt.format(profile_summary=profile_summary)},
@@ -48,7 +51,10 @@ async def rerank(
     try:
         # V4 Flash + xhigh = max reasoning. Ignored by non-reasoning models.
         resp = await chat_json(
-            messages=msgs, kind="llm_rerank", temperature=0.0, max_tokens=2000,
+            messages=msgs,
+            kind="llm_rerank",
+            temperature=0.0,
+            max_tokens=2000,
             reasoning_effort="xhigh",
         )
     except Exception as e:
@@ -59,9 +65,7 @@ async def rerank(
     if not isinstance(resp, list):
         return [(opp, base, "rerank malformed") for opp, base in candidates]
 
-    by_id: dict[str, tuple[Opportunity, float]] = {
-        (str(opp.id) if opp.id else opp.canonical_url): (opp, b) for opp, b in head
-    }
+    by_id: dict[str, tuple[Opportunity, float]] = {(str(opp.id) if opp.id else opp.canonical_url): (opp, b) for opp, b in head}
     out: list[tuple[Opportunity, float, str]] = []
     seen: set[str] = set()
     for item in resp:

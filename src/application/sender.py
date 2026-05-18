@@ -8,6 +8,7 @@ Phase 1 rules:
   and publishes NotificationTask onto Streams.NOTIFY so the notifier worker
   opens a forum thread in #✅-applied.
 """
+
 from __future__ import annotations
 
 import json
@@ -119,8 +120,7 @@ def _profile_summary(profile_dict: dict[str, Any]) -> dict[str, Any]:
         "summary": basics.get("summary"),
         "skills": profile_dict.get("skills"),
         "projects": [
-            {"name": p.get("name"), "url": p.get("url"), "summary": p.get("summary")}
-            for p in (profile_dict.get("projects") or [])
+            {"name": p.get("name"), "url": p.get("url"), "summary": p.get("summary")} for p in (profile_dict.get("projects") or [])
         ],
     }
 
@@ -149,29 +149,23 @@ async def _llm_tailor_blocks(
     """
     from src.common.llm import chat_json, fence_untrusted, load_prompt
 
-    block_payload = [
-        {"id": b.id, "kind": b.kind, "title": b.title, "bullets": b.bullets}
-        for b in blocks
-    ]
+    block_payload = [{"id": b.id, "kind": b.kind, "title": b.title, "bullets": b.bullets} for b in blocks]
     try:
         prompt = load_prompt("resume_tailor.txt")
     except FileNotFoundError:
         _log.warning("resume_tailor_prompt_missing")
         return {}
 
-    user = (
-        prompt.format(
-            opp_summary=fence_untrusted(json.dumps(opp_summary)),
-            variant_label=variant_label,
-            blocks_json=json.dumps(block_payload),
-        )
+    user = prompt.format(
+        opp_summary=fence_untrusted(json.dumps(opp_summary)),
+        variant_label=variant_label,
+        blocks_json=json.dumps(block_payload),
     )
 
     try:
         data = await chat_json(
             messages=[
-                {"role": "system", "content":
-                    "You rewrite resume bullets. Plain text only. Strict JSON. Never invent facts."},
+                {"role": "system", "content": "You rewrite resume bullets. Plain text only. Strict JSON. Never invent facts."},
                 {"role": "user", "content": user},
             ],
             kind="resume_tailor",
@@ -224,13 +218,18 @@ async def _log_compile_outcome(
                      status, tectonic_stderr)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9)
                 """,
-                opportunity_id, user_id, source_hash, artifact_sha256,
+                opportunity_id,
+                user_id,
+                source_hash,
+                artifact_sha256,
                 json.dumps(block_overrides) if block_overrides is not None else None,
-                compile_duration_ms, tectonic_version, status, tectonic_stderr,
+                compile_duration_ms,
+                tectonic_version,
+                status,
+                tectonic_stderr,
             )
     except Exception as e:
-        _log.warning("resume_compile_log_insert_failed", err=str(e),
-                     opp_id=str(opportunity_id), status=status)
+        _log.warning("resume_compile_log_insert_failed", err=str(e), opp_id=str(opportunity_id), status=status)
 
 
 async def _attach_resume_audit_to_application(
@@ -251,15 +250,18 @@ async def _attach_resume_audit_to_application(
                        resume_compile_status  = $4
                  WHERE id = $1
                 """,
-                application_id, artifact_sha256, source_hash, status,
+                application_id,
+                artifact_sha256,
+                source_hash,
+                status,
             )
     except Exception as e:
-        _log.warning("applications_resume_audit_update_failed", err=str(e),
-                     application_id=application_id)
+        _log.warning("applications_resume_audit_update_failed", err=str(e), application_id=application_id)
 
 
 def _pdf_sha256(path: Path) -> str:
     import hashlib
+
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(64 * 1024), b""):
@@ -315,9 +317,7 @@ async def _send_with_latex(
     prefs = _load_prefs()
     user_id = 1  # Phase 1 — single tenant; multi-tenant lands in Phase 4.
 
-    variant_label = pick_variant(opp) or (
-        (prefs.get("apply") or {}).get("resume_variant_default") or "backend"
-    )
+    variant_label = pick_variant(opp) or ((prefs.get("apply") or {}).get("resume_variant_default") or "backend")
     template_name = pick_template(opp, variant_label=variant_label)
 
     # 1. Parse the resume tree.
@@ -369,7 +369,10 @@ async def _send_with_latex(
 
     try:
         partial = write_partial(
-            document, sanitized_edits, artifact_dir, source_root=_resume_root(),
+            document,
+            sanitized_edits,
+            artifact_dir,
+            source_root=_resume_root(),
         )
         # 6. Compile.
         result = await compile_run(partial / manifest.main_file)
@@ -399,8 +402,7 @@ async def _send_with_latex(
             pdf_path = fb
             compile_status = "fallback"
         else:
-            _log.warning("resume_no_fallback_available", opp_id=str(opp_id),
-                         user_id=user_id)
+            _log.warning("resume_no_fallback_available", opp_id=str(opp_id), user_id=user_id)
 
     artifact_sha256 = _pdf_sha256(pdf_path) if pdf_path else None
 
@@ -442,13 +444,16 @@ async def _send_with_latex(
             _log.warning("email_target_missing", opp_id=str(opp_id))
             method = ApplyMethod.EXTERNAL
         else:
-            subject = f"{opp.get('title','Application')} — {profile_summary.get('name','Applicant')}"
+            subject = f"{opp.get('title', 'Application')} — {profile_summary.get('name', 'Applicant')}"
             html = _render_email_html(cover_md, tailored_bullets, opp, profile_summary)
             reply_to = profile_summary.get("email")
             attachments = [pdf_path] if pdf_path is not None else None
             try:
                 sent_ok = await send_email(
-                    to=target, subject=subject, html=html, reply_to=reply_to,
+                    to=target,
+                    subject=subject,
+                    html=html,
+                    reply_to=reply_to,
                     attachments=attachments,
                 )
             except Exception as e:
@@ -484,28 +489,31 @@ async def _send_with_latex(
 
     queue = await RedisQ.connect()
     notify_kind = "applied" if method == ApplyMethod.EMAIL else "manual_apply_ready"
-    thread_title = f"{opp.get('title','?')} @ {opp.get('company','?')}"
+    thread_title = f"{opp.get('title', '?')} @ {opp.get('company', '?')}"
     # CLAUDE.md hard rule #5: PDF is NEVER sent through Discord. We pass
     # the bullets / cover markdown so the notifier can build a text embed
     # — but no "resume_pdf_path" field. If a future notifier wants the
     # tailored bullets, that's what they get; the PDF stays on disk.
-    await queue.publish(Streams.NOTIFY, {
-        "kind": notify_kind,
-        "user_id": user_id,
-        "payload": {
-            "application_id": application_id,
-            "opportunity_id": str(opp_id),
-            "thread_title": thread_title,
-            "method": method.value,
-            "target": target,
-            "review_url": opp.get("apply_url"),
-            "company": opp.get("company"),
-            "title": opp.get("title"),
-            "cover_letter_markdown": cover_md,
-            "tailored_bullets": tailored_bullets,
-            "resume_compile_status": compile_status,
+    await queue.publish(
+        Streams.NOTIFY,
+        {
+            "kind": notify_kind,
+            "user_id": user_id,
+            "payload": {
+                "application_id": application_id,
+                "opportunity_id": str(opp_id),
+                "thread_title": thread_title,
+                "method": method.value,
+                "target": target,
+                "review_url": opp.get("apply_url"),
+                "company": opp.get("company"),
+                "title": opp.get("title"),
+                "cover_letter_markdown": cover_md,
+                "tailored_bullets": tailored_bullets,
+                "resume_compile_status": compile_status,
+            },
         },
-    })
+    )
 
     return {
         "application_id": application_id,
@@ -554,15 +562,14 @@ def _extract_email_target(apply_url: str | None, description: str | None) -> str
     return None
 
 
-def _render_email_html(cover_md: str, bullets: list[str], opp: dict[str, Any],
-                      profile_summary: dict[str, Any]) -> str:
+def _render_email_html(cover_md: str, bullets: list[str], opp: dict[str, Any], profile_summary: dict[str, Any]) -> str:
     bullets_html = "".join(f"<li>{b}</li>" for b in bullets)
     name = profile_summary.get("name") or ""
     links = profile_summary.get("links") or {}
     portfolio = links.get("portfolio") or links.get("github") or ""
     cover_html = cover_md.replace("\n\n", "</p><p>").replace("\n", "<br/>")
     return (
-        f"<div style=\"font-family:system-ui,sans-serif;font-size:14px;line-height:1.5\">"
+        f'<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.5">'
         f"<p>{cover_html}</p>"
         f"<hr/>"
         f"<p><strong>Relevant highlights:</strong></p>"
@@ -597,8 +604,7 @@ async def send_application(
             # path raises before it can reach its own fallback (e.g. the
             # parser crashes on a malformed manifest), drop to the legacy
             # JSON path so the user's click still produces an email.
-            _log.exception("latex_apply_failed_falling_back_to_json", err=str(e),
-                           opp_id=str(opp_id))
+            _log.exception("latex_apply_failed_falling_back_to_json", err=str(e), opp_id=str(opp_id))
 
     await _ensure_followups_table()
 
@@ -610,9 +616,7 @@ async def send_application(
     profile_summary = _profile_summary(profile_dict)
     prefs = _load_prefs()
 
-    variant_label = pick_variant(opp) or (
-        (prefs.get("apply") or {}).get("resume_variant_default") or "backend"
-    )
+    variant_label = pick_variant(opp) or ((prefs.get("apply") or {}).get("resume_variant_default") or "backend")
     template_name = pick_template(opp, variant_label=variant_label)
 
     bullets = await tailor_bullets(profile_dict, opp, variant_label)
@@ -631,7 +635,7 @@ async def send_application(
             _log.warning("email_target_missing", opp_id=str(opp_id))
             method = ApplyMethod.EXTERNAL  # downgrade so we surface for manual handling
         else:
-            subject = f"{opp.get('title','Application')} — {profile_summary.get('name','Applicant')}"
+            subject = f"{opp.get('title', 'Application')} — {profile_summary.get('name', 'Applicant')}"
             html = _render_email_html(cover_md, bullets, opp, profile_summary)
             reply_to = profile_summary.get("email")
             sent_ok = False
@@ -661,23 +665,26 @@ async def send_application(
 
     queue = await RedisQ.connect()
     notify_kind = "applied" if method == ApplyMethod.EMAIL else "manual_apply_ready"
-    thread_title = f"{opp.get('title','?')} @ {opp.get('company','?')}"
-    await queue.publish(Streams.NOTIFY, {
-        "kind": notify_kind,
-        "user_id": 1,
-        "payload": {
-            "application_id": application_id,
-            "opportunity_id": str(opp_id),
-            "thread_title": thread_title,
-            "method": method.value,
-            "target": target,
-            "review_url": opp.get("apply_url"),
-            "company": opp.get("company"),
-            "title": opp.get("title"),
-            "cover_letter_markdown": cover_md,
-            "tailored_bullets": bullets,
+    thread_title = f"{opp.get('title', '?')} @ {opp.get('company', '?')}"
+    await queue.publish(
+        Streams.NOTIFY,
+        {
+            "kind": notify_kind,
+            "user_id": 1,
+            "payload": {
+                "application_id": application_id,
+                "opportunity_id": str(opp_id),
+                "thread_title": thread_title,
+                "method": method.value,
+                "target": target,
+                "review_url": opp.get("apply_url"),
+                "company": opp.get("company"),
+                "title": opp.get("title"),
+                "cover_letter_markdown": cover_md,
+                "tailored_bullets": bullets,
+            },
         },
-    })
+    )
 
     return {
         "application_id": application_id,
@@ -688,8 +695,7 @@ async def send_application(
     }
 
 
-async def _upsert_application(opp_id: UUID, method: ApplyMethod,
-                              payload: dict[str, Any]) -> int:
+async def _upsert_application(opp_id: UUID, method: ApplyMethod, payload: dict[str, Any]) -> int:
     rec = await fetch_one(
         """
         INSERT INTO applications (user_id, opportunity_id, method, payload)
@@ -700,15 +706,16 @@ async def _upsert_application(opp_id: UUID, method: ApplyMethod,
                 payload = $3::jsonb
         RETURNING id
         """,
-        opp_id, method.value, json.dumps(payload, default=str),
+        opp_id,
+        method.value,
+        json.dumps(payload, default=str),
     )
     if rec is None:
         raise RuntimeError("applications insert returned no row")
     return int(rec["id"])
 
 
-async def _transition_to_applied(opp_id: UUID, application_id: int,
-                                  method: ApplyMethod) -> None:
+async def _transition_to_applied(opp_id: UUID, application_id: int, method: ApplyMethod) -> None:
     async with acquire() as conn, conn.transaction():
         row = await conn.fetchrow(
             "SELECT state FROM opportunities WHERE id = $1 FOR UPDATE",
@@ -721,7 +728,8 @@ async def _transition_to_applied(opp_id: UUID, application_id: int,
             return
         await conn.execute(
             "UPDATE opportunities SET state = $1::opp_state_enum, last_seen = NOW() WHERE id = $2",
-            OppState.APPLIED.value, opp_id,
+            OppState.APPLIED.value,
+            opp_id,
         )
         await conn.execute(
             """
@@ -729,7 +737,9 @@ async def _transition_to_applied(opp_id: UUID, application_id: int,
                     (opportunity_id, from_state, to_state, trigger, metadata)
                 VALUES ($1, $2::opp_state_enum, $3::opp_state_enum, 'send_application', $4::jsonb)
                 """,
-            opp_id, from_state, OppState.APPLIED.value,
+            opp_id,
+            from_state,
+            OppState.APPLIED.value,
             json.dumps({"application_id": application_id, "method": method.value}),
         )
 
@@ -744,13 +754,13 @@ async def queue_followup(application_id: int, days: int = 4) -> int:
         VALUES ($1, $2)
         RETURNING id
         """,
-        application_id, fire_at,
+        application_id,
+        fire_at,
     )
     if rec is None:
         raise RuntimeError("followups insert returned no row")
     fid = int(rec["id"])
-    _log.info("followup_queued", application_id=application_id, followup_id=fid,
-              fire_at=fire_at.isoformat())
+    _log.info("followup_queued", application_id=application_id, followup_id=fid, fire_at=fire_at.isoformat())
     return fid
 
 

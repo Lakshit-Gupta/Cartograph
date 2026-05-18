@@ -1,4 +1,5 @@
 """/budget set | today | status — comp-floor + daily target management."""
+
 from __future__ import annotations
 
 import discord
@@ -27,9 +28,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 """,
                 usd_per_hr,
             )
-            await interaction.response.send_message(
-                f"Comp floor set to ${usd_per_hr:g}/hr.", ephemeral=True
-            )
+            await interaction.response.send_message(f"Comp floor set to ${usd_per_hr:g}/hr.", ephemeral=True)
         except Exception as e:
             _log.exception("budget_set_failed", err=str(e))
             await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -43,9 +42,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 Streams.APPLY,
                 {"action": "set_daily_target", "user_id": 1, "target": int(target)},
             )
-            await interaction.response.send_message(
-                f"Today's target = {target} applications.", ephemeral=True
-            )
+            await interaction.response.send_message(f"Today's target = {target} applications.", ephemeral=True)
         except Exception as e:
             _log.exception("budget_today_failed", err=str(e))
             await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -53,13 +50,9 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     @group.command(name="status", description="Show current budget + daily target.")
     async def status(interaction: discord.Interaction):
         try:
-            row = await db.fetch_one(
-                "SELECT min_comp_usd_hr FROM profiles WHERE user_id = 1"
-            )
+            row = await db.fetch_one("SELECT min_comp_usd_hr FROM profiles WHERE user_id = 1")
             floor = row["min_comp_usd_hr"] if row else None
-            applied_today = await db.fetch_one(
-                "SELECT COUNT(*) AS c FROM applications WHERE user_id = 1 AND sent_at::date = CURRENT_DATE"
-            )
+            applied_today = await db.fetch_one("SELECT COUNT(*) AS c FROM applications WHERE user_id = 1 AND sent_at::date = CURRENT_DATE")
             n = int(applied_today["c"]) if applied_today else 0
             await interaction.response.send_message(
                 f"Comp floor: ${floor or '—'}/hr · Sent today: {n}",

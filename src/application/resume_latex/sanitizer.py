@@ -16,6 +16,7 @@ Two layers of defense:
 The sanitizer is intentionally chatty: every reject raises with the macro
 name so the caller can log + log + fall back without guessing the cause.
 """
+
 from __future__ import annotations
 
 import re
@@ -85,9 +86,11 @@ def _strip_unallowed_commands(text: str) -> str:
     \\textbackslash. So we have to keep the allowlisted commands by
     temporarily swapping them out, escape, then swap them back.
     """
+
     # Strip non-allowed commands first.
     def _strip(m: re.Match[str]) -> str:
         return "" if m.group(0) not in _ALLOW else m.group(0)
+
     return _CMD_RE.sub(_strip, text)
 
 

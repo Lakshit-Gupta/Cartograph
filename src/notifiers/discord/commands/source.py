@@ -1,4 +1,5 @@
 """/source list | pause | resume | add — source management."""
+
 from __future__ import annotations
 
 import discord
@@ -19,10 +20,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     async def list_(interaction: discord.Interaction, status_filter: str = "active"):
         try:
             params: tuple = ()
-            sql = (
-                "SELECT slug, category, status, opps_extracted_30d, last_successful_crawl_at "
-                "FROM sources"
-            )
+            sql = "SELECT slug, category, status, opps_extracted_30d, last_successful_crawl_at FROM sources"
             if status_filter and status_filter != "all":
                 sql += " WHERE status = $1"
                 params = (status_filter,)
@@ -32,11 +30,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
             if not rows:
                 await interaction.response.send_message("No sources match.", ephemeral=True)
                 return
-            lines = [
-                f"`{r['slug']}` [{r['category']}/{r['status']}] — "
-                f"opps30d={r['opps_extracted_30d']}"
-                for r in rows
-            ]
+            lines = [f"`{r['slug']}` [{r['category']}/{r['status']}] — opps30d={r['opps_extracted_30d']}" for r in rows]
             chunks: list[str] = []
             cur = ""
             for line in lines:

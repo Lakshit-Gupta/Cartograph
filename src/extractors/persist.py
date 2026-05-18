@@ -5,6 +5,7 @@ Both the extractor cascade (HTML/JSON pages) AND the gmail watcher Upwork lane
 path in one place means dedup, state machine, and Streams.RANK contract all
 behave identically for every producer.
 """
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -42,12 +43,25 @@ async def persist_and_publish(q: RedisQ, opp: Opportunity, *, user_id: int = 1) 
             ON CONFLICT (canonical_url) DO UPDATE SET last_seen = NOW()
             RETURNING id
             """,
-            opp.source_id, canon, opp.title, opp.company, opp.description,
-            opp.comp_min, opp.comp_max, opp.comp_currency, opp.comp_period,
-            opp.location, opp.remote_type.value, opp.category.value,
-            opp.posted_at, opp.expires_at, opp.apply_url,
+            opp.source_id,
+            canon,
+            opp.title,
+            opp.company,
+            opp.description,
+            opp.comp_min,
+            opp.comp_max,
+            opp.comp_currency,
+            opp.comp_period,
+            opp.location,
+            opp.remote_type.value,
+            opp.category.value,
+            opp.posted_at,
+            opp.expires_at,
+            opp.apply_url,
             opp.apply_method.value if opp.apply_method else None,
-            opp.fingerprint_hash, opp.extraction_tier, opp.extraction_confidence,
+            opp.fingerprint_hash,
+            opp.extraction_tier,
+            opp.extraction_confidence,
         )
     if rec is None:
         return None

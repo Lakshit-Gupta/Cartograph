@@ -3,6 +3,7 @@
 ghost-cursor-python provides bezier-path cursor moves; for now we use a
 simple jitter + scroll to mimic page exploration.
 """
+
 from __future__ import annotations
 
 import asyncio

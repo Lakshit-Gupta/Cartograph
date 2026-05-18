@@ -11,6 +11,7 @@ ignore                 → no-op.
 
 All DB writes use src.common.db.execute / fetch_one.
 """
+
 from __future__ import annotations
 
 from email.message import Message
@@ -27,9 +28,9 @@ _log = get_logger(__name__)
 
 # next_action → (response_status text, new opp state)
 _OUTCOME_MAP: dict[str, tuple[str, OppState]] = {
-    "mark_rejected":  ("rejected",  OppState.REJECTED),
+    "mark_rejected": ("rejected", OppState.REJECTED),
     "mark_interview": ("interview", OppState.INTERVIEW),
-    "mark_offer":     ("offer",     OppState.OFFER),
+    "mark_offer": ("offer", OppState.OFFER),
 }
 
 
@@ -90,7 +91,8 @@ async def _find_application(
         ORDER BY a.sent_at DESC
         LIMIT 1
         """,
-        (company or "").strip(), (role or "").strip(),
+        (company or "").strip(),
+        (role or "").strip(),
     )
     if rec:
         return int(rec["id"]), str(rec["opportunity_id"])
@@ -111,19 +113,23 @@ async def _apply_outcome(
          WHERE id = $2
            AND (response_status IS NULL OR response_status <> $1)
         """,
-        response_status, application_id,
+        response_status,
+        application_id,
     )
     # State machine trigger logs the transition row and rejects illegal moves.
     try:
         await execute(
             "UPDATE opportunities SET state = $1 WHERE id = $2::uuid AND state <> $1",
-            new_state.value, opportunity_id,
+            new_state.value,
+            opportunity_id,
         )
     except Exception as e:
         # Illegal transition (e.g. already 'offer' but we got a rejection) — just log.
         _log.info(
             "opp_state_transition_skipped",
-            opp=opportunity_id, target=new_state.value, err=str(e),
+            opp=opportunity_id,
+            target=new_state.value,
+            err=str(e),
         )
 
 
@@ -154,13 +160,17 @@ async def handle_classification(
         if next_action in _OUTCOME_MAP:
             response_status, new_state = _OUTCOME_MAP[next_action]
             found = await _find_application(
-                company=company, role=role,
-                in_reply_to=in_reply, references=refs,
+                company=company,
+                role=role,
+                in_reply_to=in_reply,
+                references=refs,
             )
             if not found:
                 _log.warning(
                     "outcome_no_match",
-                    label=label, company=company, role=role,
+                    label=label,
+                    company=company,
+                    role=role,
                     in_reply_to=in_reply,
                 )
                 # Surface to user so they can manually link / fix.

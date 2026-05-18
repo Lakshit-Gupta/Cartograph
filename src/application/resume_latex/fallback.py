@@ -7,6 +7,7 @@ worst outcome. ``warm_fallback_pdf`` runs once at applier-worker boot to
 compile and cache the untailored tree; ``get_fallback`` returns the
 cached path (or ``None`` if warm-up hasn't run yet).
 """
+
 from __future__ import annotations
 
 import shutil

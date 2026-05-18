@@ -1,4 +1,5 @@
 """`mp sources ...` — list / pause / resume / add."""
+
 from __future__ import annotations
 
 import asyncio

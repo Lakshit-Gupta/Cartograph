@@ -3,6 +3,7 @@
 Phase 1 stub: surfaces an explanatory message. Phase 3 wires this to the
 `candidate_sources` table populated by the discovery worker.
 """
+
 from __future__ import annotations
 
 import discord

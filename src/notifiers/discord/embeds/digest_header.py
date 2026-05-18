@@ -1,4 +1,5 @@
 """Header embed posted at the top of each daily digest run."""
+
 from __future__ import annotations
 
 from datetime import UTC, date, datetime

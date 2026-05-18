@@ -7,6 +7,7 @@ Bot identity: **Hop** (Grace Hopper — first compiler, 1952). Microcopy can
 reference the name lightly via `BOT_NAME`. Don't over-personify; user wants
 information delivery, not a chatty mascot.
 """
+
 from __future__ import annotations
 
 import random

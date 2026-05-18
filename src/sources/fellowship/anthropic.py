@@ -1,4 +1,5 @@
 """Fellowship HTML plugin. ONE generic strategy 'fellowship_html' for all fellowship sites."""
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin

@@ -1,4 +1,5 @@
 """Tests for the keyword-vote block selector."""
+
 from __future__ import annotations
 
 import pytest

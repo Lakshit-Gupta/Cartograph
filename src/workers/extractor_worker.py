@@ -1,4 +1,5 @@
 """Consumes Streams.EXTRACT → runs extractor cascade → writes opportunities → emits Streams.RANK."""
+
 from __future__ import annotations
 
 import asyncio
@@ -42,9 +43,7 @@ async def _cascade(inp: ExtractInput, strategy: str | None) -> list[Opportunity]
 
 async def _resolve_strategy(source_id: int) -> str | None:
     async with acquire() as conn:
-        r = await conn.fetchrow(
-            "SELECT crawler_strategy FROM sources WHERE id = $1", source_id
-        )
+        r = await conn.fetchrow("SELECT crawler_strategy FROM sources WHERE id = $1", source_id)
     return r["crawler_strategy"] if r else None
 
 

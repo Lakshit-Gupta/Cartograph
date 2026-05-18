@@ -9,6 +9,7 @@ macro inside its source file.
 Source-hash drift guard: ``Document.source_hashes`` is recorded at parse
 time. ``render.py`` re-reads the file and aborts if the hash drifted.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -192,7 +193,7 @@ def parse(manifest: ResumeManifest, root: Path) -> Document:
         if fname in seen:
             continue
         seen.add(fname)
-        path = (root / fname)
+        path = root / fname
         if not path.exists():
             continue
         src = path.read_text(encoding="utf-8")
@@ -227,20 +228,21 @@ def _walk_file(
     # (macro_node, kind, title) — we hold onto the macro until we see
     # either (a) its following itemize env or (b) the next macro / EOF.
 
-    def commit_block(macro: LatexMacroNode, kind: str, title: str,
-                     bullets: list[str], end_pos: int) -> None:
+    def commit_block(macro: LatexMacroNode, kind: str, title: str, bullets: list[str], end_pos: int) -> None:
         if current_section_title.strip().lower() in exclude_set:
             return
         block_id_seed = f"{kind}|{title}|" + "|".join(bullets)
         block_id = hashlib.sha256(block_id_seed.encode("utf-8")).hexdigest()[:32]
-        out_blocks.append(Block(
-            id=block_id,
-            kind=kind,
-            title=title,
-            bullets=bullets,
-            file=fname,
-            char_range=(macro.pos, end_pos),
-        ))
+        out_blocks.append(
+            Block(
+                id=block_id,
+                kind=kind,
+                title=title,
+                bullets=bullets,
+                file=fname,
+                char_range=(macro.pos, end_pos),
+            )
+        )
 
     for n in nodes:
         # ----------------- itemize: belongs to pending_macro -----------------

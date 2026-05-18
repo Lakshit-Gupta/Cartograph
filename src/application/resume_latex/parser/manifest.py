@@ -8,6 +8,7 @@ See CLAUDE.md "LaTeX resume subsystem" hard rule #8: the macro vocabulary
 lives in the manifest, never hardcoded. That is what makes a class swap
 (moderncv, Awesome-CV) a config edit rather than a code edit.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

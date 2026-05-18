@@ -1,4 +1,5 @@
 """`mp opps ...` — list / show / requeue."""
+
 from __future__ import annotations
 
 import asyncio
@@ -36,10 +37,7 @@ async def _recent(limit: int) -> None:
             limit,
         )
     for r in rows:
-        click.echo(
-            f"{r['id']}  {r['state']:10s}  {r['score']:.2f}  "
-            f"[{r['slug']:18s}] {r['company'] or '-':25s}  {r['title'][:80]}"
-        )
+        click.echo(f"{r['id']}  {r['state']:10s}  {r['score']:.2f}  [{r['slug']:18s}] {r['company'] or '-':25s}  {r['title'][:80]}")
     await close_pool()
 
 

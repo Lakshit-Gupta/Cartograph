@@ -4,6 +4,7 @@ Strategy: ``rss_generic`` — covers RemoteOK, WeWorkRemotely, and any other
 feed-shaped source seeded in V003. Falls back to tier-2 LLM only if the feed
 fails to parse or yields zero entries.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -79,19 +80,21 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
         category = OppCategory.INTERNSHIP if "intern" in title.lower() else OppCategory.FULLTIME
         remote = RemoteType.REMOTE if "remote" in haystack else RemoteType.UNSPECIFIED
 
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=link,
-            title=title,
-            company=company,
-            description=desc,
-            remote_type=remote,
-            category=category,
-            posted_at=posted,
-            apply_url=link,
-            apply_method=ApplyMethod.EXTERNAL,
-            fingerprint_hash=_fp(company or "", title, "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.82,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=link,
+                title=title,
+                company=company,
+                description=desc,
+                remote_type=remote,
+                category=category,
+                posted_at=posted,
+                apply_url=link,
+                apply_method=ApplyMethod.EXTERNAL,
+                fingerprint_hash=_fp(company or "", title, "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.82,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.82 if opps else 0.0)

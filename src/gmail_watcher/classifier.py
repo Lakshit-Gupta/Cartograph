@@ -3,6 +3,7 @@
 Strips signatures + quoted text, builds a fenced prompt, calls chat_json.
 On any failure returns the 'unrelated/ignore' fallback so callers can keep going.
 """
+
 from __future__ import annotations
 
 import re
@@ -16,10 +17,10 @@ _log = get_logger(__name__)
 
 # Common signature / quoted-reply boundaries.
 _SIG_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^-- ?\s*$", re.MULTILINE),                       # standard sig delim
-    re.compile(r"^_{5,}\s*$", re.MULTILINE),                      # ____ separator
-    re.compile(r"^On .+wrote:\s*$", re.MULTILINE),                # gmail reply chain
-    re.compile(r"^From:\s.+\nSent:\s.+\nTo:", re.MULTILINE),      # outlook reply
+    re.compile(r"^-- ?\s*$", re.MULTILINE),  # standard sig delim
+    re.compile(r"^_{5,}\s*$", re.MULTILINE),  # ____ separator
+    re.compile(r"^On .+wrote:\s*$", re.MULTILINE),  # gmail reply chain
+    re.compile(r"^From:\s.+\nSent:\s.+\nTo:", re.MULTILINE),  # outlook reply
     re.compile(r"^Sent from my (iPhone|Android|Pixel).*$", re.MULTILINE | re.IGNORECASE),
 )
 
@@ -103,11 +104,7 @@ async def classify(msg: Message) -> dict[str, Any]:
         body = body[:4000]
 
         prompt = load_prompt("email_classifier.txt")
-        user_content = (
-            f"From: {fence_untrusted(sender)}\n"
-            f"Subject: {fence_untrusted(subject)}\n"
-            f"Body:\n{fence_untrusted(body)}\n"
-        )
+        user_content = f"From: {fence_untrusted(sender)}\nSubject: {fence_untrusted(subject)}\nBody:\n{fence_untrusted(body)}\n"
         messages = [
             {"role": "system", "content": prompt},
             {"role": "user", "content": user_content},

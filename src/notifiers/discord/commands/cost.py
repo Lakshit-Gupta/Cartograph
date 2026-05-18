@@ -1,4 +1,5 @@
 """/cost today | cap — cost ledger view + cap update."""
+
 from __future__ import annotations
 
 import discord
@@ -31,11 +32,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 await interaction.response.send_message("$0.00 today.", ephemeral=True)
                 return
             total = sum(float(r["usd"]) for r in rows)
-            lines = [
-                f"`{r['kind']}` ({r['model'] or '—'}): ${float(r['usd']):.4f} "
-                f"({r['in_tok']}/{r['out_tok']} tok)"
-                for r in rows
-            ]
+            lines = [f"`{r['kind']}` ({r['model'] or '—'}): ${float(r['usd']):.4f} ({r['in_tok']}/{r['out_tok']} tok)" for r in rows]
             lines.append(f"\n**total ${total:.4f}**")
             await interaction.response.send_message("\n".join(lines), ephemeral=True)
         except Exception as e:
@@ -51,9 +48,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 Streams.APPLY,
                 {"action": "set_cost_cap_daily", "user_id": 1, "usd": float(usd)},
             )
-            await interaction.response.send_message(
-                f"Daily cap → ${usd:.2f}", ephemeral=True
-            )
+            await interaction.response.send_message(f"Daily cap → ${usd:.2f}", ephemeral=True)
         except Exception as e:
             _log.exception("cost_cap_failed", err=str(e))
             await interaction.response.send_message(f"Error: {e}", ephemeral=True)

@@ -1,4 +1,5 @@
 """Contra freelance opportunities."""
+
 from __future__ import annotations
 
 import hashlib
@@ -45,23 +46,25 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
                 posted = None
         slug = o.get("slug") or o.get("id")
         url = f"https://contra.com/opportunity/{slug}" if slug else inp.url
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=url,
-            title=title,
-            company=o.get("client", {}).get("name") if isinstance(o.get("client"), dict) else None,
-            description=(o.get("description") or "")[:1200],
-            comp_min=float(budget_min) if budget_min else None,
-            comp_max=float(budget_max) if budget_max else None,
-            comp_currency=budget_cur,
-            comp_period=str(period).lower() if period else None,
-            remote_type=RemoteType.REMOTE,
-            category=OppCategory.FREELANCE,
-            posted_at=posted,
-            apply_url=url,
-            apply_method=ApplyMethod.IN_PLATFORM,
-            fingerprint_hash=_fp("contra", title, "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.9,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=url,
+                title=title,
+                company=o.get("client", {}).get("name") if isinstance(o.get("client"), dict) else None,
+                description=(o.get("description") or "")[:1200],
+                comp_min=float(budget_min) if budget_min else None,
+                comp_max=float(budget_max) if budget_max else None,
+                comp_currency=budget_cur,
+                comp_period=str(period).lower() if period else None,
+                remote_type=RemoteType.REMOTE,
+                category=OppCategory.FREELANCE,
+                posted_at=posted,
+                apply_url=url,
+                apply_method=ApplyMethod.IN_PLATFORM,
+                fingerprint_hash=_fp("contra", title, "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.9,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.9 if opps else 0.0)

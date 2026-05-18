@@ -1,4 +1,5 @@
 """`mp identity ...` — status / add (encrypts via libsodium vault)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -50,8 +51,12 @@ async def _add(platform: str, label: str, credentials_json: str, cookies_json: s
     cookies = json.loads(cookies_json) if cookies_json else None
     await init_pool()
     ident_id = await store(
-        user_id=1, platform=platform, account_label=label,
-        credentials=creds, cookies=cookies, email_alias=email_alias,
+        user_id=1,
+        platform=platform,
+        account_label=label,
+        credentials=creds,
+        cookies=cookies,
+        email_alias=email_alias,
     )
     await close_pool()
     click.echo(f"identity stored: id={ident_id}")

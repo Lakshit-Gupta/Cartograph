@@ -1,4 +1,5 @@
 """Workable extractor — widget JSON or HTML fallback."""
+
 from __future__ import annotations
 
 import hashlib
@@ -39,20 +40,22 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
                 posted = None
         desc = (j.get("description") or "")[:1200]
 
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=absolute_url,
-            title=title,
-            company=company,
-            description=desc,
-            location=location,
-            remote_type=RemoteType.REMOTE if remote_flag is True or str(remote_flag).lower() == "true" else RemoteType.UNSPECIFIED,
-            category=OppCategory.INTERNSHIP if "intern" in title.lower() else OppCategory.FULLTIME,
-            posted_at=posted,
-            apply_url=absolute_url,
-            apply_method=ApplyMethod.ATS_FORM,
-            fingerprint_hash=_fp(company or "", title, location or "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.88,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=absolute_url,
+                title=title,
+                company=company,
+                description=desc,
+                location=location,
+                remote_type=RemoteType.REMOTE if remote_flag is True or str(remote_flag).lower() == "true" else RemoteType.UNSPECIFIED,
+                category=OppCategory.INTERNSHIP if "intern" in title.lower() else OppCategory.FULLTIME,
+                posted_at=posted,
+                apply_url=absolute_url,
+                apply_method=ApplyMethod.ATS_FORM,
+                fingerprint_hash=_fp(company or "", title, location or "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.88,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.88 if opps else 0.0)

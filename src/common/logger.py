@@ -1,4 +1,5 @@
 """Structured JSON logger. Writes to /app/logs (bind-mounted /var/lib/agent/logs)."""
+
 from __future__ import annotations
 
 import logging

@@ -4,6 +4,7 @@ The fetcher just grabs base_url. A downstream extractor (rss_generic in
 tier1_selectors — not implemented yet; tier-2 LLM is the fallback) parses items.
 For Phase 1 we lean on tier-0 regex + tier-2 LLM.
 """
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin

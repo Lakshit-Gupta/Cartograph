@@ -1,4 +1,5 @@
 """/identity status | update — identity-vault management."""
+
 from __future__ import annotations
 
 import discord
@@ -28,9 +29,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 """
             )
             if not rows:
-                await interaction.response.send_message(
-                    "No identities provisioned yet.", ephemeral=True
-                )
+                await interaction.response.send_message("No identities provisioned yet.", ephemeral=True)
                 return
             lines = [f"`{r['platform']}` [{r['ban_status']}] = {r['n']}" for r in rows]
             await interaction.response.send_message("\n".join(lines), ephemeral=True)
@@ -46,9 +45,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     )
     async def update(interaction: discord.Interaction, account_label: str, field: str, value: str):
         if field not in _VALID_FIELDS:
-            await interaction.response.send_message(
-                f"Field must be one of: {', '.join(sorted(_VALID_FIELDS))}", ephemeral=True
-            )
+            await interaction.response.send_message(f"Field must be one of: {', '.join(sorted(_VALID_FIELDS))}", ephemeral=True)
             return
         try:
             q = await RedisQ.connect()
@@ -62,9 +59,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                     "value": value,
                 },
             )
-            await interaction.response.send_message(
-                f"Update queued: `{account_label}`.{field}={value}", ephemeral=True
-            )
+            await interaction.response.send_message(f"Update queued: `{account_label}`.{field}={value}", ephemeral=True)
         except Exception as e:
             _log.exception("identity_update_failed", err=str(e))
             await interaction.response.send_message(f"Error: {e}", ephemeral=True)

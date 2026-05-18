@@ -3,6 +3,7 @@
 Direct REST call against https://api.resend.com/emails — we avoid the
 `resend` SDK so we keep the dependency surface async-friendly.
 """
+
 from __future__ import annotations
 
 import base64
@@ -76,10 +77,12 @@ async def send_email(
             except OSError as e:
                 _log.warning("attachment_read_failed", path=str(att), err=str(e))
                 continue
-            body["attachments"].append({
-                "filename": att.name,
-                "content": base64.b64encode(data).decode("ascii"),
-            })
+            body["attachments"].append(
+                {
+                    "filename": att.name,
+                    "content": base64.b64encode(data).decode("ascii"),
+                }
+            )
         if not body["attachments"]:
             # All attachments unreadable — drop the field so Resend doesn't
             # reject the message on the empty array.

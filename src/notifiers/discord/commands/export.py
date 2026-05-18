@@ -1,4 +1,5 @@
 """/export <range> — emit a CSV of applied opps + outcomes."""
+
 from __future__ import annotations
 
 import csv
@@ -22,9 +23,7 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     async def export_cmd(interaction: discord.Interaction, range: str = "30d"):
         days = _RANGES.get(range)
         if days is None:
-            await interaction.response.send_message(
-                f"Range must be one of {', '.join(_RANGES)}.", ephemeral=True
-            )
+            await interaction.response.send_message(f"Range must be one of {', '.join(_RANGES)}.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
@@ -46,29 +45,37 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
 
             buf = io.StringIO()
             writer = csv.writer(buf)
-            writer.writerow([
-                "sent_at", "title", "company", "url", "category",
-                "method", "response_status", "response_at",
-            ])
+            writer.writerow(
+                [
+                    "sent_at",
+                    "title",
+                    "company",
+                    "url",
+                    "category",
+                    "method",
+                    "response_status",
+                    "response_at",
+                ]
+            )
             for r in rows:
-                writer.writerow([
-                    r["sent_at"].isoformat() if r["sent_at"] else "",
-                    r["title"] or "",
-                    r["company"] or "",
-                    r["canonical_url"] or "",
-                    r["category"] or "",
-                    r["method"] or "",
-                    r["response_status"] or "",
-                    r["response_at"].isoformat() if r["response_at"] else "",
-                ])
+                writer.writerow(
+                    [
+                        r["sent_at"].isoformat() if r["sent_at"] else "",
+                        r["title"] or "",
+                        r["company"] or "",
+                        r["canonical_url"] or "",
+                        r["category"] or "",
+                        r["method"] or "",
+                        r["response_status"] or "",
+                        r["response_at"].isoformat() if r["response_at"] else "",
+                    ]
+                )
             buf.seek(0)
             file = discord.File(
                 io.BytesIO(buf.getvalue().encode("utf-8")),
                 filename=f"applications_{range}.csv",
             )
-            await interaction.followup.send(
-                f"Exported {len(rows)} rows.", file=file, ephemeral=True
-            )
+            await interaction.followup.send(f"Exported {len(rows)} rows.", file=file, ephemeral=True)
         except Exception as e:
             _log.exception("export_failed", err=str(e))
             await interaction.followup.send(f"Error: {e}", ephemeral=True)

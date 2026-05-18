@@ -1,4 +1,5 @@
 """FastAPI app — wires health, metrics, admin routes."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator

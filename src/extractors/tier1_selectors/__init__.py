@@ -1,4 +1,5 @@
 """Per-source CSS-selector / JSON-shape extractors. Fall back to tier-2 LLM."""
+
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
@@ -13,6 +14,7 @@ def register(slug: str):
     def deco(fn: Callable[[ExtractInput], Awaitable[ExtractOutput]]):
         _REGISTRY[slug] = fn
         return fn
+
     return deco
 
 

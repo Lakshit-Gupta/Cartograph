@@ -1,4 +1,5 @@
 """Greenhouse JSON API extractor."""
+
 from __future__ import annotations
 
 import hashlib
@@ -39,36 +40,40 @@ async def extract(inp: ExtractInput) -> ExtractOutput:
                 posted = None
         desc_html = j.get("content") or ""
         # Naive HTML strip
-        desc = " ".join(
-            chunk for chunk in desc_html.replace("<", " <").split(" ") if not chunk.startswith("<")
-        )[:1200]
+        desc = " ".join(chunk for chunk in desc_html.replace("<", " <").split(" ") if not chunk.startswith("<"))[:1200]
 
         title_lower = title.lower()
         category = (
-            OppCategory.INTERNSHIP if "intern" in title_lower else
-            OppCategory.FELLOWSHIP if "fellow" in title_lower or "residency" in title_lower else
-            OppCategory.FULLTIME
+            OppCategory.INTERNSHIP
+            if "intern" in title_lower
+            else OppCategory.FELLOWSHIP
+            if "fellow" in title_lower or "residency" in title_lower
+            else OppCategory.FULLTIME
         )
         loc_lower = (location or "").lower()
         remote = (
-            RemoteType.REMOTE if "remote" in loc_lower or "anywhere" in loc_lower else
-            RemoteType.HYBRID if "hybrid" in loc_lower else
-            RemoteType.UNSPECIFIED
+            RemoteType.REMOTE
+            if "remote" in loc_lower or "anywhere" in loc_lower
+            else RemoteType.HYBRID
+            if "hybrid" in loc_lower
+            else RemoteType.UNSPECIFIED
         )
-        opps.append(Opportunity(
-            source_id=inp.source_id,
-            canonical_url=absolute_url,
-            title=title,
-            company=company,
-            description=desc,
-            location=location,
-            remote_type=remote,
-            category=category,
-            posted_at=posted,
-            apply_url=absolute_url,
-            apply_method=ApplyMethod.ATS_FORM,
-            fingerprint_hash=_fp(company or "", title, location or "", str(posted)[:10] if posted else ""),
-            extraction_tier=1,
-            extraction_confidence=0.92,
-        ))
+        opps.append(
+            Opportunity(
+                source_id=inp.source_id,
+                canonical_url=absolute_url,
+                title=title,
+                company=company,
+                description=desc,
+                location=location,
+                remote_type=remote,
+                category=category,
+                posted_at=posted,
+                apply_url=absolute_url,
+                apply_method=ApplyMethod.ATS_FORM,
+                fingerprint_hash=_fp(company or "", title, location or "", str(posted)[:10] if posted else ""),
+                extraction_tier=1,
+                extraction_confidence=0.92,
+            )
+        )
     return ExtractOutput(opps=opps, tier_used=1, confidence=0.92 if opps else 0.0)

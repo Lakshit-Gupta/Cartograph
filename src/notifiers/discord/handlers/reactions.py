@@ -2,6 +2,7 @@
 
 Routed identically to clicking the corresponding button.
 """
+
 from __future__ import annotations
 
 import re

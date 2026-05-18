@@ -7,6 +7,7 @@ dedicated worker that publishes Opportunity payloads directly onto stream:rank.
 
 This plugin returns an empty URL list so the regular crawler pool ignores it.
 """
+
 from __future__ import annotations
 
 from src.sources.base import CrawlPlan, SourcePlugin
@@ -19,8 +20,11 @@ class _Telegram:
 
     async def plan(self, *, source_id: int, base_url: str, config: dict) -> CrawlPlan:
         return CrawlPlan(
-            source_id=source_id, source_slug=self.slug, urls=[],
-            tier_chain=[], requires_identity=False,
+            source_id=source_id,
+            source_slug=self.slug,
+            urls=[],
+            tier_chain=[],
+            requires_identity=False,
         )
 
 

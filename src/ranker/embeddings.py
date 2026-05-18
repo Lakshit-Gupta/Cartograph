@@ -1,4 +1,5 @@
 """sentence-transformers MiniLM (~250MB resident, ARM64 friendly)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +20,7 @@ CACHE_DIR = os.environ.get("EMBED_CACHE", "/app/.cache/models")
 @lru_cache(maxsize=1)
 def _model():
     from sentence_transformers import SentenceTransformer
+
     _log.info("loading_embedding_model", name=MODEL_NAME, cache=CACHE_DIR)
     return SentenceTransformer(MODEL_NAME, cache_folder=CACHE_DIR)
 

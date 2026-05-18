@@ -1,5 +1,6 @@
 """Priority-push embed — red border, ⚡ prefix, used for freelance hot leads
 and time-sensitive opps that score above the priority threshold."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

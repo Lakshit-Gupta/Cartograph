@@ -9,6 +9,7 @@ Migration semantics (do NOT skip on failure — there is no need to wipe volumes
   - The wipe-volume-and-retry ritual is a misconception, kept here as a
     docstring breadcrumb so the next debugger does not waste cycles.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -63,11 +64,7 @@ def _format_pg_error(err: asyncpg.PostgresError, sql: str, filename: str) -> str
         line_end = len(sql)
     source_line = sql[line_start:line_end]
     caret = " " * (col_no - 1) + "^"
-    return (
-        f"{filename}:{line_no}:{col_no}: {err.__class__.__name__}: {err}\n"
-        f"    {source_line}\n"
-        f"    {caret}"
-    )
+    return f"{filename}:{line_no}:{col_no}: {err.__class__.__name__}: {err}\n    {source_line}\n    {caret}"
 
 
 async def _migrate() -> None:
@@ -82,13 +79,9 @@ async def _migrate() -> None:
             await conn.execute("SELECT pg_advisory_lock($1)", _MIGRATE_LOCK_ID)
             try:
                 await conn.execute(
-                    "CREATE TABLE IF NOT EXISTS schema_migrations("
-                    "version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())"
+                    "CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())"
                 )
-                applied = {
-                    r["version"]
-                    for r in await conn.fetch("SELECT version FROM schema_migrations")
-                }
+                applied = {r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")}
                 for f in files:
                     version = f.stem.split("__")[0]
                     if version in applied:
@@ -101,8 +94,7 @@ async def _migrate() -> None:
                     except asyncpg.PostgresError as err:
                         click.echo(_format_pg_error(err, sql, f.name), err=True)
                         click.echo(
-                            "[hint] fix the SQL and re-run `mp migrate` — no "
-                            "volume wipe needed; failed file rolled back cleanly.",
+                            "[hint] fix the SQL and re-run `mp migrate` — no volume wipe needed; failed file rolled back cleanly.",
                             err=True,
                         )
                         raise SystemExit(1) from err

@@ -1,6 +1,7 @@
 """Modals — multi-field user input. Used by freelance proposal flow,
 manual source add, and budget edit shortcuts.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -99,9 +100,7 @@ class SourceAddModal(discord.ui.Modal, title="Add a source"):
 class BudgetSetModal(discord.ui.Modal, title="Set comp floor"):
     min_intern = discord.ui.TextInput(label="Intern floor (₹/mo)", required=False, max_length=20)
     min_ft = discord.ui.TextInput(label="Full-time floor (₹/mo)", required=False, max_length=20)
-    min_freelance_usd_hr = discord.ui.TextInput(
-        label="Freelance floor ($/hr)", required=False, max_length=20
-    )
+    min_freelance_usd_hr = discord.ui.TextInput(label="Freelance floor ($/hr)", required=False, max_length=20)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         payload: dict[str, Any] = {}
@@ -121,9 +120,7 @@ class BudgetSetModal(discord.ui.Modal, title="Set comp floor"):
             return
         q = await RedisQ.connect()
         await q.publish(Streams.APPLY, {"action": "budget_set", "user_id": 1, **payload})
-        await interaction.response.send_message(
-            f"Budget updated: `{payload}`", ephemeral=True
-        )
+        await interaction.response.send_message(f"Budget updated: `{payload}`", ephemeral=True)
 
 
 def _slug_from_url(url: str) -> str:
@@ -131,5 +128,5 @@ def _slug_from_url(url: str) -> str:
     s = url.lower()
     for p in ("https://", "http://", "www."):
         if s.startswith(p):
-            s = s[len(p):]
+            s = s[len(p) :]
     return s.split("/", 1)[0].replace(".", "_")[:64] or "manual_source"

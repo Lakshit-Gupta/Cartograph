@@ -1,4 +1,5 @@
 """Source crawler Protocol — every source plugin returns a list of URLs to fetch."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ from typing import Protocol
 @dataclass(slots=True)
 class CrawlPlan:
     """A list of fetch targets a source wants the crawler workers to chew through."""
+
     source_id: int
     source_slug: str
     urls: list[str]

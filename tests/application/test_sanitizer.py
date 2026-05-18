@@ -5,6 +5,7 @@ The sanitizer is the safety boundary between the LLM and tectonic. It must:
 2. Strip any non-allowlisted macro silently (still escape the bullet).
 3. Escape every LaTeX special so the renderer can splice safely.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -12,6 +13,7 @@ import pytest
 from src.application.resume_latex.sanitizer import SanitizerReject, escape_and_check
 
 # --- denylist rejection ------------------------------------------------------
+
 
 @pytest.mark.smoke
 def test_rejects_write18():
@@ -31,8 +33,7 @@ def test_rejects_catcode():
 
 
 def test_rejects_csname_def_let_expandafter():
-    for forbidden in (r"\csname foo \endcsname", r"\def\foo{bar}", r"\let\x=\y",
-                      r"\expandafter\foo"):
+    for forbidden in (r"\csname foo \endcsname", r"\def\foo{bar}", r"\let\x=\y", r"\expandafter\foo"):
         with pytest.raises(SanitizerReject):
             escape_and_check([forbidden])
 
@@ -54,6 +55,7 @@ def test_rejects_immediate_openin_openout_read():
 
 
 # --- escape behavior ---------------------------------------------------------
+
 
 def test_escapes_special_chars():
     out = escape_and_check(["50% improvement & saved $1M"])
@@ -77,6 +79,7 @@ def test_escapes_tilde_caret():
 
 
 # --- allowlist preservation --------------------------------------------------
+
 
 def test_allows_textbf_textit_emph_unchanged():
     out = escape_and_check([r"Used \textbf{tools} and \textit{methods} with \emph{care}"])
@@ -104,6 +107,7 @@ def test_strips_section_href_etc():
 
 # --- edge cases --------------------------------------------------------------
 
+
 def test_empty_input_returns_empty_output():
     assert escape_and_check([]) == []
 
@@ -114,11 +118,13 @@ def test_plain_text_passes_through():
 
 
 def test_multiple_bullets_processed_independently():
-    out = escape_and_check([
-        "Plain bullet",
-        "50% saved",
-        r"Used \textbf{Python}",
-    ])
+    out = escape_and_check(
+        [
+            "Plain bullet",
+            "50% saved",
+            r"Used \textbf{Python}",
+        ]
+    )
     assert len(out) == 3
     assert out[0] == "Plain bullet"
     assert r"\%" in out[1]
@@ -127,8 +133,10 @@ def test_multiple_bullets_processed_independently():
 
 def test_denylist_aborts_before_processing_other_bullets():
     with pytest.raises(SanitizerReject):
-        escape_and_check([
-            "Safe first bullet",
-            r"\write18{evil}",
-            "Safe third bullet",
-        ])
+        escape_and_check(
+            [
+                "Safe first bullet",
+                r"\write18{evil}",
+                "Safe third bullet",
+            ]
+        )
