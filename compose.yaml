@@ -48,7 +48,7 @@ x-jobs-bot-image: &jobs-bot-image
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     <<: *restart-policy
     environment:
       POSTGRES_USER: ${postgres_user}

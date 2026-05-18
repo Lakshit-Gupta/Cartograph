@@ -5,6 +5,13 @@
 BEGIN;
 
 -- =========================================================================
+-- Extensions (must be loaded before any vector(N) column declaration).
+-- pgvector image (pgvector/pgvector:pg16) provides the shared library;
+-- this statement enables the SQL type for this database.
+-- =========================================================================
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- =========================================================================
 -- Migration bookkeeping
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS schema_migrations (
