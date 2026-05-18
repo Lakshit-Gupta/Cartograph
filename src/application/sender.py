@@ -32,6 +32,17 @@ from .resume_tailor import pick_variant, tailor_bullets
 
 _log = get_logger(__name__)
 
+
+def is_latex_enabled() -> bool:
+    """Return True iff the LaTeX resume subsystem feature flag is on.
+
+    Reads ``settings.mp_resume_latex_enabled`` (Pydantic Settings, env-loaded
+    from ``MP_RESUME_LATEX_ENABLED`` or SOPS-decrypted secrets.yaml). Default
+    is False — the legacy JSON-template path remains active until the user
+    explicitly flips the flag and restarts the applier-worker.
+    """
+    return bool(getattr(get_settings(), "mp_resume_latex_enabled", False))
+
 _FOLLOWUPS_DDL = """
 CREATE TABLE IF NOT EXISTS followups (
     id              BIGSERIAL PRIMARY KEY,

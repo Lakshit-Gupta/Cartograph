@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     # Observability
     metrics_bind: str = "0.0.0.0:9090"
 
+    # LaTeX resume subsystem (CLAUDE.md "LaTeX resume subsystem"). When
+    # false, send_application uses the legacy JSON-template tailor path.
+    # When true, the new LaTeX parser → tailor → sanitize → render →
+    # tectonic --untrusted compile flow runs. Staged rollout: ship with
+    # flag off, backfill embeddings, drain Streams.APPLY, then flip on.
+    mp_resume_latex_enabled: bool = False
+
     # Misc
     obsidian_vault_path: str = "/vault"
     config_root: str = Field(default_factory=lambda: str(Path(__file__).resolve().parents[2] / "config"))
