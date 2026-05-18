@@ -172,7 +172,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS opportunities (
-    id                       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     source_id                BIGINT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
     canonical_url            TEXT NOT NULL UNIQUE,
     title                    TEXT NOT NULL,
