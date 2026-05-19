@@ -110,14 +110,30 @@ splice them.
 
 ## Known defects after smoke
 
-1. **Render — Lonely \item**
+1. **Render — Lonely \item** — **FIXED in 2365b03**
    - File: `src/application/resume_latex/render.py:70 _splice_block_region`
-   - Symptom: tailored splice corrupts mmayer.tex around lines containing
-     commented-out itemize blocks; tectonic refuses the compile.
-   - Workaround in production: the warm fallback PDF is attached. User
-     gets an untailored resume — every existing recruiter still receives
-     a PDF, just without LLM-tailored bullets.
-   - Fix priority: medium. Tracked separately.
+   - Was: tailored splice corrupted mmayer.tex around lines containing
+     commented-out itemize blocks; tectonic refused the compile with
+     `mmayer.tex:239: LaTeX Error: Lonely \item—perhaps a missing list
+     environment.`
+   - Fix: `_strip_line_comments` builds a comment-masked view of the
+     block region with byte offsets preserved (commented chars replaced
+     with spaces, newlines kept). `_ITEMIZE_RE` now searches the masked
+     view so a `% \begin{itemize}` no longer claims a match. The original
+     region is what gets returned by the splice — comments are kept
+     verbatim in output, only ignored for boundary matching.
+   - Tests: 20 render tests green (13 pre-existing + 7 new — 4 mandated
+     regression tests plus 3 escape-handling helpers for the masking
+     primitive). See `tests/application/test_render.py`.
+   - Smoke rerun (post-fix): opp `c4b158e2-9016-4adc-a4fd-053a0e6153b8`
+     picked from `state='digested' AND apply_method='ats_form'` not yet
+     applied; XADD `1779186374293-0` published; after 40s wait the
+     verification SELECT returned
+     `resume_compile_status=tailored | has_pdf=t | lonely_item_error=f`.
+     `resume_compile_log` row: `status=tailored, stderr=<null>,
+     compile_duration_ms=4607`. Warm fallback path no longer triggered
+     for resumes whose source contains commented-out `% \item`
+     scaffolding.
 
 2. **Cost-ledger enum**
    - File: `migrations/V001__core_schema.sql` enum `usage_kind_enum`.
@@ -170,6 +186,9 @@ XRANGE stream:notify - + COUNT 10
 
 ## Status
 
-Flag stays **ON**. Tailored compile path is gated by the render defect
-above; the warm fallback path absorbs every failure cleanly. The
-existing legacy JSON path remains available as a one-flag rollback.
+Flag stays **ON**. The Stage-4 render defect (Lonely \item on commented
+itemize scaffolding) is fixed in `2365b03`; tailored compiles now
+succeed against `config/profile/my_resume/mmayer.tex` end-to-end. The
+warm fallback path is still wired and exercised for unrelated compile
+failure modes. The existing legacy JSON path remains available as a
+one-flag rollback.
