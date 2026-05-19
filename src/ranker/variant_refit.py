@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 from src.common.db import acquire
 from src.common.logger import get_logger
@@ -65,6 +66,55 @@ class VariantOutcome:
     responded: int
 
 
+def _row_to_outcome(row: Any) -> VariantOutcome:
+    """Project a raw asyncpg row onto the ``VariantOutcome`` dataclass.
+
+    Pure transformation — extracted so ``_load_outcomes`` stays well
+    below the complexity ceiling. Coerces NULL columns to safe zeros so
+    a variant with no apps in the window still surfaces with
+    ``sent=responded=0``.
+    """
+    return VariantOutcome(
+        variant_id=int(row["variant_id"]),
+        label=str(row["label"]),
+        sent=int(row["sent"] or 0),
+        responded=int(row["responded"] or 0),
+    )
+
+
+_OUTCOMES_SQL = """
+    WITH window_apps AS (
+        SELECT a.id,
+               a.resume_variant_id,
+               a.opportunity_id,
+               a.response_status
+          FROM applications a
+         WHERE a.sent_at >= NOW() - ($1::int || ' days')::interval
+           AND a.resume_variant_id IS NOT NULL
+    ),
+    -- A response counts if EITHER a positive state transition
+    -- fired OR response_status is non-NULL.
+    responses AS (
+        SELECT DISTINCT wa.id
+          FROM window_apps wa
+          LEFT JOIN opportunity_transitions t
+            ON t.opportunity_id = wa.opportunity_id
+           AND t.to_state IN ('interview','offer')
+         WHERE wa.response_status IS NOT NULL OR t.id IS NOT NULL
+    )
+    SELECT v.id   AS variant_id,
+           v.label AS label,
+           COUNT(wa.id)::int                                  AS sent,
+           COUNT(wa.id) FILTER (WHERE wa.id IN
+               (SELECT id FROM responses))::int               AS responded
+      FROM resume_variants v
+      LEFT JOIN window_apps wa ON wa.resume_variant_id = v.id
+     WHERE v.user_id = 1 AND v.active = TRUE
+     GROUP BY v.id, v.label
+     ORDER BY v.id
+"""
+
+
 async def _load_outcomes(window_days: int) -> list[VariantOutcome]:
     """Pull (variant, sent, responded) rollups from the apply ledger.
 
@@ -76,49 +126,8 @@ async def _load_outcomes(window_days: int) -> list[VariantOutcome]:
     state machine transition.
     """
     async with acquire() as conn:
-        rows = await conn.fetch(
-            """
-            WITH window_apps AS (
-                SELECT a.id,
-                       a.resume_variant_id,
-                       a.opportunity_id,
-                       a.response_status
-                  FROM applications a
-                 WHERE a.sent_at >= NOW() - ($1::int || ' days')::interval
-                   AND a.resume_variant_id IS NOT NULL
-            ),
-            -- A response counts if EITHER a positive state transition
-            -- fired OR response_status is non-NULL.
-            responses AS (
-                SELECT DISTINCT wa.id
-                  FROM window_apps wa
-                  LEFT JOIN opportunity_transitions t
-                    ON t.opportunity_id = wa.opportunity_id
-                   AND t.to_state IN ('interview','offer')
-                 WHERE wa.response_status IS NOT NULL OR t.id IS NOT NULL
-            )
-            SELECT v.id   AS variant_id,
-                   v.label AS label,
-                   COUNT(wa.id)::int                                  AS sent,
-                   COUNT(wa.id) FILTER (WHERE wa.id IN
-                       (SELECT id FROM responses))::int               AS responded
-              FROM resume_variants v
-              LEFT JOIN window_apps wa ON wa.resume_variant_id = v.id
-             WHERE v.user_id = 1 AND v.active = TRUE
-             GROUP BY v.id, v.label
-             ORDER BY v.id
-            """,
-            window_days,
-        )
-    return [
-        VariantOutcome(
-            variant_id=int(r["variant_id"]),
-            label=str(r["label"]),
-            sent=int(r["sent"] or 0),
-            responded=int(r["responded"] or 0),
-        )
-        for r in rows
-    ]
+        rows = await conn.fetch(_OUTCOMES_SQL, window_days)
+    return [_row_to_outcome(r) for r in rows]
 
 
 def _clip_weight(raw: float) -> float:

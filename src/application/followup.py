@@ -80,7 +80,7 @@ class ApplicationRow:
     """Minimal projection of an `applications` row + its joined `opportunity`.
 
     Carries everything `draft_followup` / `record_draft` / the cron / the
-    notifier embed need. Keeping it a dataclass means tests can construct
+    notifier embed need. Modelled as a dataclass so tests can construct
     one without a DB hit.
     """
 
@@ -212,49 +212,36 @@ def _row_to_application(row: Any, *, now_ts: datetime) -> ApplicationRow:
     )
 
 
+def _resolve_int(override: int | None, default: int) -> int:
+    """Pick `override` when supplied, fallback to `default`. Coerce to int."""
+    chosen = default if override is None else override
+    return int(chosen)
+
+
+def _resolve_now(now: datetime | None) -> datetime:
+    return now if now is not None else datetime.now(UTC)
+
+
 async def find_eligible_applications(
     *,
     window_days: int | None = None,
     max_count: int | None = None,
     now: datetime | None = None,
 ) -> list[ApplicationRow]:
-    """Return applications that earned a follow-up today.
+    """Thin orchestrator returning today's follow-up candidates.
 
-    Eligibility (all must hold):
-        * applications.sent_at <= NOW() - window_days
-        * applications.method == 'email' (anything else has no thread
-          to reply into; CLAUDE.md spec)
-        * no opportunity_transitions row with to_state IN ('interview',
-          'offer','rejected','withdrawn') for the same opportunity
-          (gmail_watcher records the inbound reply by flipping state)
-        * no existing followups row for the application_id (UNIQUE
-          constraint enforces this at write time, but the SELECT also
-          filters here so the LLM cost is never paid twice)
-
-    Ordering: oldest sent_at first — when the daily cap clips the list
-    we'd rather follow-up on a 7-day-old application than a 4-day-old.
-
-    Args:
-        window_days: gating interval (DEFAULT settings.followup_window_days = 4)
-        max_count:   daily cap (DEFAULT settings.followup_daily_cap = 30).
-                     If more than this many rows match, the overflow is
-                     logged at INFO and clipped — the next cron run picks
-                     up the remainder.
-        now:         injection point for tests; production passes None.
-
-    Returns:
-        [] when the feature flag is off, when nothing matches, or on any
-        unexpected DB error (logged + swallowed — the cron must not block
-        the rest of the scheduler loop).
+    See `_query_candidates` for the gating SQL contract.
+    Defaults resolve from settings; pass `now` for deterministic tests.
+    Returns [] when the feature flag is off.
     """
     settings = get_settings()
     if not settings.mp_followup_enabled:
         _log.debug("followup_flag_off")
         return []
 
-    window = int(window_days if window_days is not None else settings.followup_window_days)
-    cap = int(max_count if max_count is not None else settings.followup_daily_cap)
-    now_ts = now or datetime.now(UTC)
+    window = _resolve_int(window_days, settings.followup_window_days)
+    cap = _resolve_int(max_count, settings.followup_daily_cap)
+    now_ts = _resolve_now(now)
 
     rows = await _query_candidates(now_ts=now_ts, window_days=window, cap=cap)
     rows = _clip_to_cap(rows, cap)

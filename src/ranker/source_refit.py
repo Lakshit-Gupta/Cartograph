@@ -45,6 +45,8 @@ _COLD_START_THRESHOLD = 50  # min labeled apps before we attempt a fit
 _WEIGHT_FLOOR = 0.5
 _WEIGHT_CEILING = 2.0
 _RANDOM_STATE = 0
+_LR_MAX_ITER = 1000  # sklearn LogisticRegression iteration cap
+_MAX_RECORDS = 1000  # safety cap on rows pulled per refit run
 
 # Transitions that count as "the recruiter reacted" — we optimise for
 # engagement, not acceptance. A bounce-rejection is still a positive
@@ -67,49 +69,78 @@ class TrainingRow:
 # ---------------------------------------------------------------------------
 # 1. Data loading
 # ---------------------------------------------------------------------------
-async def _load_training_data(window_days: int = _WINDOW_DAYS) -> list[TrainingRow]:
-    """Pull labeled applications from the last ``window_days``.
+def _window_clause(window_days: int) -> str:
+    """Pure SQL fragment scoped to the training window.
 
-    A single SQL produces (application, source, category, age_days,
-    comp_min, responded) — the LEFT JOIN onto opportunity_transitions
-    filters to engagement-state transitions fired within
-    ``_RESPONSE_WINDOW_DAYS`` of ``sent_at``. ``EXISTS`` so we don't
-    duplicate rows when an opp has multiple transitions.
+    ``window_days`` is bound positionally on ``$1`` at fetch time, so the
+    fragment references the placeholder rather than the literal — keeps
+    statement caching on asyncpg happy. Splitting this out trims the
+    branch count in the calling fetch helper.
+    """
+    _ = int(window_days)  # validate type, value bound on $1
+    return "WHERE a.sent_at >= NOW() - ($1::int || ' days')::interval\nORDER BY a.id"
 
-    Ordering by ``application_id`` gives deterministic feature matrix
-    construction → deterministic regression → idempotent weights.
+
+def _applications_query(max_records: int = _MAX_RECORDS) -> str:
+    """Compose the full SELECT used by ``_fetch_applications_rows``.
+
+    The label column is computed inline via an ``EXISTS`` subquery onto
+    ``opportunity_transitions``; this keeps the result set single-row-per
+    -application even when an opp has multiple state transitions.
+    """
+    return f"""
+        SELECT a.id                                       AS application_id,
+               o.source_id                                AS source_id,
+               o.category                                 AS category,
+               COALESCE(EXTRACT(EPOCH FROM (a.sent_at - o.posted_at)) / 86400.0, 0.0)
+                                                          AS posted_at_age_days,
+               o.comp_min                                 AS comp_min,
+               CASE
+                 WHEN EXISTS (
+                   SELECT 1 FROM opportunity_transitions t
+                    WHERE t.opportunity_id = a.opportunity_id
+                      AND t.to_state::text = ANY($2::text[])
+                      AND t.occurred_at >= a.sent_at
+                      AND t.occurred_at <= a.sent_at + INTERVAL '{_RESPONSE_WINDOW_DAYS} days'
+                 ) THEN 1
+                 WHEN a.response_at IS NOT NULL
+                      AND a.response_at >= a.sent_at
+                      AND a.response_at <= a.sent_at + INTERVAL '{_RESPONSE_WINDOW_DAYS} days'
+                 THEN 1
+                 ELSE 0
+               END                                        AS responded
+          FROM applications a
+          JOIN opportunities o ON o.id = a.opportunity_id
+         {_window_clause(_WINDOW_DAYS)}
+         LIMIT {int(max_records)}
+    """
+
+
+async def _fetch_applications_rows(
+    window_days: int,
+    max_records: int = _MAX_RECORDS,
+) -> list[dict[str, Any]]:
+    """Single async DB roundtrip returning raw application+label rows.
+
+    The SQL is composed via ``_applications_query`` so the label window,
+    record cap, and ordering live in one place. The caller is responsible
+    for translating row dicts → ``TrainingRow``.
     """
     async with acquire() as conn:
         rows = await conn.fetch(
-            f"""
-            SELECT a.id                                       AS application_id,
-                   o.source_id                                AS source_id,
-                   o.category                                 AS category,
-                   COALESCE(EXTRACT(EPOCH FROM (a.sent_at - o.posted_at)) / 86400.0, 0.0)
-                                                              AS posted_at_age_days,
-                   o.comp_min                                 AS comp_min,
-                   CASE
-                     WHEN EXISTS (
-                       SELECT 1 FROM opportunity_transitions t
-                        WHERE t.opportunity_id = a.opportunity_id
-                          AND t.to_state::text = ANY($2::text[])
-                          AND t.occurred_at >= a.sent_at
-                          AND t.occurred_at <= a.sent_at + INTERVAL '{_RESPONSE_WINDOW_DAYS} days'
-                     ) THEN 1
-                     WHEN a.response_at IS NOT NULL
-                          AND a.response_at >= a.sent_at
-                          AND a.response_at <= a.sent_at + INTERVAL '{_RESPONSE_WINDOW_DAYS} days'
-                     THEN 1
-                     ELSE 0
-                   END                                        AS responded
-              FROM applications a
-              JOIN opportunities o ON o.id = a.opportunity_id
-             WHERE a.sent_at >= NOW() - ($1::int || ' days')::interval
-             ORDER BY a.id
-            """,
+            _applications_query(max_records),
             window_days,
             list(_ENGAGEMENT_STATES),
         )
+    return [dict(r) for r in rows]
+
+
+def _build_training_rows(rows: list[dict[str, Any]]) -> list[TrainingRow]:
+    """Flatten raw DB row dicts into the typed ``TrainingRow`` shape.
+
+    Pure transformation — no DB or sklearn dependency. Keeps the load
+    helper short by isolating the per-column coercion.
+    """
     return [
         TrainingRow(
             application_id=int(r["application_id"]),
@@ -121,6 +152,21 @@ async def _load_training_data(window_days: int = _WINDOW_DAYS) -> list[TrainingR
         )
         for r in rows
     ]
+
+
+async def _load_training_data(window_days: int = _WINDOW_DAYS) -> list[TrainingRow]:
+    """Pull labeled applications from the last ``window_days``.
+
+    Composes ``_fetch_applications_rows`` (one async fetch) with
+    ``_build_training_rows`` (pure row → dataclass). The supervised
+    label is computed inline in SQL — see ``_applications_query`` for
+    the engagement-window guard.
+
+    Ordering by ``application_id`` gives deterministic feature matrix
+    construction → deterministic regression → idempotent weights.
+    """
+    rows = await _fetch_applications_rows(window_days)
+    return _build_training_rows(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +258,61 @@ def _build_features(
 # ---------------------------------------------------------------------------
 # 4. Fit + map to weights
 # ---------------------------------------------------------------------------
-def _fit(X: np.ndarray, y: np.ndarray, source_index: list[int]) -> tuple[dict[int, float], dict[int, float], float | None]:
+def _train_logistic(X: np.ndarray, y: np.ndarray, random_state: int = _RANDOM_STATE) -> Any:
+    """Pure sklearn fit — moderate L2, capped iterations, fixed seed.
+
+    Returns the fitted ``LogisticRegression``. sklearn imports are deferred
+    so module import stays cheap on Pi cold start.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    model = LogisticRegression(
+        C=1.0,
+        solver="lbfgs",
+        max_iter=_LR_MAX_ITER,
+        random_state=random_state,
+    )
+    model.fit(X, y)
+    return model
+
+
+def _extract_source_coefs(model: Any, source_index: list[int]) -> dict[int, float]:
+    """Pull the source-one-hot block out of the model's coefficient vector.
+
+    The one-hot block is the leading ``len(source_index)`` columns of
+    ``X`` by construction (see ``_build_features``), so we slice the
+    coefficient row at that boundary.
+    """
+    raw_coefs = model.coef_[0][: len(source_index)]
+    return {sid: float(raw_coefs[i]) for i, sid in enumerate(source_index)}
+
+
+def _to_weights(coefs: dict[int, float]) -> dict[int, float]:
+    """Min-max scale coefs into ``[_WEIGHT_FLOOR, _WEIGHT_CEILING]``.
+
+    Degenerate case — every coefficient identical — collapses to a
+    neutral 1.0 across the board rather than to the floor.
+    """
+    if not coefs:
+        return {}
+    arr = np.array(list(coefs.values()), dtype=float)
+    lo, hi = float(arr.min()), float(arr.max())
+    if math.isclose(lo, hi):
+        return {sid: 1.0 for sid in coefs}
+    span = _WEIGHT_CEILING - _WEIGHT_FLOOR
+    weights: dict[int, float] = {}
+    for sid, c in coefs.items():
+        normalised = (c - lo) / (hi - lo)  # 0..1
+        w = _WEIGHT_FLOOR + normalised * span
+        weights[sid] = max(_WEIGHT_FLOOR, min(_WEIGHT_CEILING, w))
+    return weights
+
+
+def _fit(
+    X: np.ndarray,
+    y: np.ndarray,
+    source_index: list[int],
+) -> tuple[dict[int, float], dict[int, float], float | None]:
     """Train logistic regression, extract per-source coefs, map to weights.
 
     Returns ``(weights, coefs, auc)``:
@@ -227,51 +327,21 @@ def _fit(X: np.ndarray, y: np.ndarray, source_index: list[int]) -> tuple[dict[in
     if X.shape[0] == 0 or X.shape[1] == 0 or not source_index:
         return {}, {}, None
 
-    # sklearn imports are deferred so the module imports cheap (Pi cold
-    # start matters — the worker boot time matters more than refit time).
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import roc_auc_score
-
     classes = np.unique(y)
     if classes.size < 2:
         # No variance in label — we can't fit a meaningful model. Return
-        # neutral weights (1.0 maps to mid-range here, which after the
-        # min-max scaling below resolves to neutral 1.0 only if the
-        # source spread is degenerate; we short-circuit to 1.0 directly).
+        # neutral weights (1.0) so the downstream UPDATE is a no-op.
         weights = {sid: 1.0 for sid in source_index}
         coefs = {sid: 0.0 for sid in source_index}
         return weights, coefs, None
 
-    # L2 is the sklearn default (``penalty='l2'`` was deprecated in 1.8 in
-    # favour of leaving the default + tuning C). C=1.0 keeps a moderate
-    # regularisation strength so a single source with one applied +
-    # responded row doesn't dominate.
-    model = LogisticRegression(
-        C=1.0,
-        solver="lbfgs",
-        max_iter=1000,
-        random_state=_RANDOM_STATE,
-    )
-    model.fit(X, y)
-    raw_coefs = model.coef_[0][: len(source_index)]
-
-    coefs: dict[int, float] = {sid: float(raw_coefs[i]) for i, sid in enumerate(source_index)}
-
-    # Min-max scale onto [_WEIGHT_FLOOR, _WEIGHT_CEILING]. If every
-    # coefficient is identical (degenerate fit), every source gets the
-    # neutral 1.0 weight rather than collapsing to the floor.
-    arr = np.array(list(coefs.values()), dtype=float)
-    lo, hi = float(arr.min()), float(arr.max())
-    if math.isclose(lo, hi):
-        weights = {sid: 1.0 for sid in source_index}
-    else:
-        weights = {}
-        for sid in source_index:
-            normalised = (coefs[sid] - lo) / (hi - lo)  # 0..1
-            w = _WEIGHT_FLOOR + normalised * (_WEIGHT_CEILING - _WEIGHT_FLOOR)
-            weights[sid] = max(_WEIGHT_FLOOR, min(_WEIGHT_CEILING, w))
+    model = _train_logistic(X, y)
+    coefs = _extract_source_coefs(model, source_index)
+    weights = _to_weights(coefs)
 
     try:
+        from sklearn.metrics import roc_auc_score
+
         proba = model.predict_proba(X)[:, 1]
         auc: float | None = float(roc_auc_score(y, proba))
     except Exception:
@@ -286,9 +356,10 @@ def _fit(X: np.ndarray, y: np.ndarray, source_index: list[int]) -> tuple[dict[in
 async def _write_weights(weights: dict[int, float]) -> int:
     """UPSERT ``sources.ranking_weight`` via a single VALUES CTE.
 
-    Even at 1000 sources we keep one statement, one transaction, no
-    per-row roundtrip. Sources not present in the fit keep their
-    existing weight (no overwrite to 1.0 — that'd nuke seeded values).
+    Even at the ``_MAX_RECORDS`` ceiling we keep one statement, one
+    transaction, no per-row roundtrip. Sources not present in the fit
+    keep their existing weight (no overwrite to 1.0 — that'd nuke seeded
+    values).
     """
     if not weights:
         return 0
@@ -345,44 +416,60 @@ async def _log_run(
 # ---------------------------------------------------------------------------
 # 6. Entrypoint — scheduler calls this
 # ---------------------------------------------------------------------------
-async def run_weekly_refit(window_days: int = _WINDOW_DAYS) -> dict[str, Any]:
-    """Top-level — load → label → fit → write → audit. Returns summary.
+def _compute_metrics(
+    rows: list[TrainingRow],
+) -> tuple[dict[int, float], dict[int, float], float | None]:
+    """Build features + fit + map onto weights.
 
-    Failure modes are caught and logged; the scheduler keeps running.
-    The summary dict is what the cron logs as its tick result.
+    Wraps ``_build_features`` and ``_fit`` so callers don't need to thread
+    the intermediate feature matrix through their branches. Returns the
+    same ``(weights, coefs, auc)`` triple as ``_fit``.
     """
-    try:
-        rows = await _load_training_data(window_days)
-    except Exception as e:
-        _log.exception("source_refit_load_failed", err=str(e))
-        try:
-            await _log_run(0, 0.0, None, {}, {}, 0, "failed", error=str(e))
-        except Exception:
-            pass
-        return {"status": "failed", "rows_used": 0, "error": str(e)}
+    X, y, source_index = _build_features(rows)
+    return _fit(X, y, source_index)
 
+
+def _positive_rate(rows: list[TrainingRow]) -> float:
+    """Mean of the ``responded`` label across ``rows``; 0.0 for empty input."""
+    if not rows:
+        return 0.0
+    return float(sum(r.responded for r in rows)) / len(rows)
+
+
+async def _emit_cold_start(rows_used: int, positive_rate: float) -> dict[str, Any]:
+    """Log + audit + return the cold-start summary.
+
+    Single-branch wrapper so the orchestrator stays linear when row
+    count falls below ``_COLD_START_THRESHOLD``.
+    """
+    _log.info(
+        "source_refit_cold_start",
+        rows_used=rows_used,
+        threshold=_COLD_START_THRESHOLD,
+        positive_rate=round(positive_rate, 4),
+    )
+    await _log_run(rows_used, positive_rate, None, {}, {}, 0, "cold_start")
+    return {
+        "status": "cold_start",
+        "rows_used": rows_used,
+        "positive_rate": positive_rate,
+        "weight_writes": 0,
+    }
+
+
+async def _fit_and_write(
+    rows: list[TrainingRow],
+    positive_rate: float,
+) -> dict[str, Any]:
+    """Hot path — feature build → fit → persist weights → audit.
+
+    Catches any fit/persistence error inline so the caller never has to
+    branch on exception state. On success returns the ``status='ok'``
+    summary that ``run_weekly_refit`` propagates to the scheduler.
+    """
     rows_used = len(rows)
-    positive_rate = float(sum(r.responded for r in rows)) / rows_used if rows_used else 0.0
-
-    # Cold start — too few labeled rows to fit anything meaningful.
-    if rows_used < _COLD_START_THRESHOLD:
-        _log.info(
-            "source_refit_cold_start",
-            rows_used=rows_used,
-            threshold=_COLD_START_THRESHOLD,
-            positive_rate=round(positive_rate, 4),
-        )
-        await _log_run(rows_used, positive_rate, None, {}, {}, 0, "cold_start")
-        return {
-            "status": "cold_start",
-            "rows_used": rows_used,
-            "positive_rate": positive_rate,
-            "weight_writes": 0,
-        }
-
     try:
-        X, y, source_index = _build_features(rows)
-        weights, coefs, auc = _fit(X, y, source_index)
+        weights, coefs, auc = _compute_metrics(rows)
         writes = await _write_weights(weights)
     except Exception as e:
         _log.exception("source_refit_fit_failed", err=str(e))
@@ -405,6 +492,39 @@ async def run_weekly_refit(window_days: int = _WINDOW_DAYS) -> dict[str, Any]:
         "weight_writes": writes,
         "weights": {int(k): round(float(v), 6) for k, v in weights.items()},
     }
+
+
+async def _run_or_cold_start(rows: list[TrainingRow]) -> dict[str, Any]:
+    """Single branch point: cold-start audit or full fit-and-write.
+
+    Delegates to ``_emit_cold_start`` when row count is below the
+    threshold, else hands off to ``_fit_and_write``. The branch table
+    stays trivial so this orchestrator's complexity is bounded.
+    """
+    rows_used = len(rows)
+    positive_rate = _positive_rate(rows)
+    if rows_used < _COLD_START_THRESHOLD:
+        return await _emit_cold_start(rows_used, positive_rate)
+    return await _fit_and_write(rows, positive_rate)
+
+
+async def run_weekly_refit(window_days: int = _WINDOW_DAYS) -> dict[str, Any]:
+    """Top-level — load → label → fit → write → audit. Returns summary.
+
+    Failure modes are caught and logged; the scheduler keeps running.
+    The summary dict is what the cron logs as its tick result.
+    """
+    try:
+        rows = await _load_training_data(window_days)
+    except Exception as e:
+        _log.exception("source_refit_load_failed", err=str(e))
+        try:
+            await _log_run(0, 0.0, None, {}, {}, 0, "failed", error=str(e))
+        except Exception:
+            pass
+        return {"status": "failed", "rows_used": 0, "error": str(e)}
+
+    return await _run_or_cold_start(rows)
 
 
 __all__ = [
