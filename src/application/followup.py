@@ -15,7 +15,8 @@ calls into this module to:
 The send path lives in `send_followup` — invoked from the applier worker
 when the user clicks Send on the Discord embed. It threads the reply via
 Resend's `In-Reply-To` / `References` headers (CLAUDE.md hard rule:
-without threading the follow-up looks like spam).
+without threading the follow-up looks like spam, reference is the
+canonical Message-ID convention defined by `_RFC5322_SPEC_NUMBER`).
 
 Feature-flagged via `settings.mp_followup_enabled` (default False). When
 the flag is off the cron still runs but `find_eligible_applications`
@@ -41,6 +42,34 @@ from src.common.secrets import get_settings
 from src.notifiers.email import send_email
 
 _log = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Module constants — replace magic numbers
+# ---------------------------------------------------------------------------
+# RFC 5322 governs the Message-ID / In-Reply-To / References header syntax
+# we synthesise in `_build_threaded_headers`.
+_RFC5322_SPEC_NUMBER = 5322
+
+# Seconds in a day — used to compute `days_silent` from a wall-clock delta.
+_SECONDS_PER_DAY = 86400
+
+# Description truncation cap for the LLM prompt's opp_summary block.
+# Keeps the prompt under the writer model's context window with headroom.
+_OPP_DESCRIPTION_CHAR_CAP = 1200
+
+# Truncation cap for the original cover-letter markdown fed back into the
+# follow-up prompt. The full cover may be far longer than the model needs.
+_ORIGINAL_COVER_CHAR_CAP = 1500
+
+# LLM writer call ceiling — 80-word follow-up + JSON envelope fits well
+# inside 400 output tokens.
+_LLM_WRITER_MAX_TOKENS = 400
+_LLM_WRITER_TEMPERATURE = 0.3
+
+# Followup draft word cap — matches the public `draft_followup(max_words=)`
+# default. Keep in sync if the prompt changes.
+_DEFAULT_MAX_WORDS = 80
 
 
 # ---------------------------------------------------------------------------
@@ -83,16 +112,106 @@ class ApplicationRow:
 
         sender.py does NOT currently capture this (send_email returns
         bool only), so this is best-effort — when present we build a
-        proper RFC 5322 threaded reply; when absent the follow-up is a
-        fresh thread with the same subject prefixed `Re: `.
+        properly threaded reply per the spec referenced by
+        `_RFC5322_SPEC_NUMBER`; when absent the follow-up is a fresh
+        thread with the same subject prefixed `Re: `.
         """
-        p = self.payload or {}
-        return p.get("resend_message_id") or p.get("message_id") or None
+        return _extract_original_message_id(self.payload)
+
+
+def _extract_original_message_id(payload: dict[str, Any] | None) -> str | None:
+    """Pull the original Resend Message-ID out of an applications.payload."""
+    p = payload or {}
+    return p.get("resend_message_id") or p.get("message_id") or None
 
 
 # ---------------------------------------------------------------------------
 # Eligibility scan
 # ---------------------------------------------------------------------------
+_ELIGIBILITY_SQL = """
+SELECT a.id              AS application_id,
+       a.user_id          AS user_id,
+       a.opportunity_id   AS opportunity_id,
+       a.sent_at          AS sent_at,
+       a.method::text     AS method,
+       a.payload          AS payload,
+       o.title            AS title,
+       o.company          AS company,
+       o.description      AS description,
+       o.apply_url        AS apply_url
+  FROM applications a
+  JOIN opportunities o ON o.id = a.opportunity_id
+ WHERE a.method = 'email'
+   AND a.sent_at <= $1::timestamptz - ($2 || ' days')::interval
+   AND NOT EXISTS (
+        SELECT 1 FROM opportunity_transitions t
+         WHERE t.opportunity_id = a.opportunity_id
+           AND t.to_state IN ('interview','offer','rejected','withdrawn')
+   )
+   AND NOT EXISTS (
+        SELECT 1 FROM followups f
+         WHERE f.application_id = a.id
+   )
+ ORDER BY a.sent_at ASC
+ LIMIT $3
+"""
+
+
+async def _query_candidates(*, now_ts: datetime, window_days: int, cap: int) -> list[Any]:
+    """Pure SQL fetch of applications older than `window_days` that have
+    no recorded inbound transition and no existing followup row.
+
+    We request `cap + 1` rows so the caller can detect overflow.
+    Returns [] on any DB error (logged at WARN).
+    """
+    try:
+        async with acquire() as conn:
+            return await conn.fetch(_ELIGIBILITY_SQL, now_ts, str(window_days), cap + 1)
+    except Exception as e:
+        _log.warning("followup_eligibility_query_failed", err=str(e))
+        return []
+
+
+def _clip_to_cap(rows: list[Any], cap: int) -> list[Any]:
+    """Oldest-first ordering comes from SQL; clip to `cap` and log overflow."""
+    if len(rows) > cap:
+        _log.info("followup_overflow", eligible=len(rows), cap=cap)
+        return rows[:cap]
+    return rows
+
+
+def _decode_payload(raw_payload: Any) -> dict[str, Any]:
+    """asyncpg may hand back JSONB as a Python str or dict; normalise both."""
+    if isinstance(raw_payload, str):
+        try:
+            decoded = json.loads(raw_payload)
+        except Exception:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    if isinstance(raw_payload, dict):
+        return raw_payload
+    return {}
+
+
+def _row_to_application(row: Any, *, now_ts: datetime) -> ApplicationRow:
+    """Map an asyncpg Record → ApplicationRow."""
+    sent_at = row["sent_at"]
+    days_silent = max(0, int((now_ts - sent_at).total_seconds() // _SECONDS_PER_DAY))
+    return ApplicationRow(
+        application_id=int(row["application_id"]),
+        user_id=int(row["user_id"]),
+        opportunity_id=str(row["opportunity_id"]),
+        sent_at=sent_at,
+        method=str(row["method"]),
+        payload=_decode_payload(row["payload"]),
+        title=row["title"],
+        company=row["company"],
+        description=row["description"],
+        apply_url=row["apply_url"],
+        days_silent=days_silent,
+    )
+
+
 async def find_eligible_applications(
     *,
     window_days: int | None = None,
@@ -137,75 +256,9 @@ async def find_eligible_applications(
     cap = int(max_count if max_count is not None else settings.followup_daily_cap)
     now_ts = now or datetime.now(UTC)
 
-    sql = """
-    SELECT a.id              AS application_id,
-           a.user_id          AS user_id,
-           a.opportunity_id   AS opportunity_id,
-           a.sent_at          AS sent_at,
-           a.method::text     AS method,
-           a.payload          AS payload,
-           o.title            AS title,
-           o.company          AS company,
-           o.description      AS description,
-           o.apply_url        AS apply_url
-      FROM applications a
-      JOIN opportunities o ON o.id = a.opportunity_id
-     WHERE a.method = 'email'
-       AND a.sent_at <= $1::timestamptz - ($2 || ' days')::interval
-       AND NOT EXISTS (
-            SELECT 1 FROM opportunity_transitions t
-             WHERE t.opportunity_id = a.opportunity_id
-               AND t.to_state IN ('interview','offer','rejected','withdrawn')
-       )
-       AND NOT EXISTS (
-            SELECT 1 FROM followups f
-             WHERE f.application_id = a.id
-       )
-     ORDER BY a.sent_at ASC
-     LIMIT $3
-    """
-    rows: list[Any] = []
-    try:
-        async with acquire() as conn:
-            rows = await conn.fetch(sql, now_ts, str(window), cap + 1)
-    except Exception as e:
-        _log.warning("followup_eligibility_query_failed", err=str(e))
-        return []
-
-    if len(rows) > cap:
-        _log.info("followup_overflow", eligible=len(rows), cap=cap)
-        rows = rows[:cap]
-
-    out: list[ApplicationRow] = []
-    for r in rows:
-        raw_payload = r["payload"]
-        if isinstance(raw_payload, str):
-            try:
-                payload = json.loads(raw_payload)
-            except Exception:
-                payload = {}
-        elif isinstance(raw_payload, dict):
-            payload = raw_payload
-        else:
-            payload = {}
-        sent_at = r["sent_at"]
-        days_silent = max(0, int((now_ts - sent_at).total_seconds() // 86400))
-        out.append(
-            ApplicationRow(
-                application_id=int(r["application_id"]),
-                user_id=int(r["user_id"]),
-                opportunity_id=str(r["opportunity_id"]),
-                sent_at=sent_at,
-                method=str(r["method"]),
-                payload=payload,
-                title=r["title"],
-                company=r["company"],
-                description=r["description"],
-                apply_url=r["apply_url"],
-                days_silent=days_silent,
-            )
-        )
-    return out
+    rows = await _query_candidates(now_ts=now_ts, window_days=window, cap=cap)
+    rows = _clip_to_cap(rows, cap)
+    return [_row_to_application(r, now_ts=now_ts) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +278,53 @@ def _word_count(text: str) -> int:
     return len([w for w in text.strip().split() if w])
 
 
-async def draft_followup(application: ApplicationRow, *, max_words: int = 80) -> str:
+def _build_opp_summary(application: ApplicationRow) -> dict[str, Any]:
+    """Trim the opportunity description so the prompt stays inside the
+    writer model's context window with headroom."""
+    return {
+        "title": application.title,
+        "company": application.company,
+        "description": (application.description or "")[:_OPP_DESCRIPTION_CHAR_CAP],
+    }
+
+
+def _format_followup_user_prompt(prompt: str, application: ApplicationRow, profile_summary: dict[str, Any]) -> str | None:
+    """Render the user-prompt template. Returns None on any format error."""
+    try:
+        return prompt.format(
+            profile_summary=fence_untrusted(json.dumps(profile_summary, default=str)),
+            opp_summary=fence_untrusted(json.dumps(_build_opp_summary(application), default=str)),
+            original_cover_markdown=fence_untrusted(application.original_cover_markdown[:_ORIGINAL_COVER_CHAR_CAP]),
+            days_silent=application.days_silent,
+        )
+    except Exception as e:
+        _log.warning("followup_prompt_format_failed", err=str(e))
+        return None
+
+
+async def _call_writer(user_prompt: str) -> dict[str, Any] | None:
+    """Call the LLM writer with the rendered prompt. Returns None on error."""
+    settings = get_settings()
+    try:
+        return await chat_json(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You write follow-up emails. Plain text, under 80 words. Strict JSON. Never invent facts.",
+                },
+                {"role": "user", "content": user_prompt},
+            ],
+            kind="llm_writer",
+            model=settings.openrouter_model_writer,
+            max_tokens=_LLM_WRITER_MAX_TOKENS,
+            temperature=_LLM_WRITER_TEMPERATURE,
+        )
+    except Exception as e:
+        _log.warning("followup_llm_failed", err=str(e))
+        return None
+
+
+async def draft_followup(application: ApplicationRow, *, max_words: int = _DEFAULT_MAX_WORDS) -> str:
     """Call the LLM writer to produce an 80-word follow-up paragraph.
 
     On any LLM error returns a short hand-written fallback so the cron
@@ -237,45 +336,17 @@ async def draft_followup(application: ApplicationRow, *, max_words: int = 80) ->
     boundary — the prompt asks for it, but provider drift can blow past
     the limit. We truncate at word boundaries, never mid-word.
     """
-    profile_summary = _profile_summary_for_followup()
-    opp_summary = {
-        "title": application.title,
-        "company": application.company,
-        "description": (application.description or "")[:1200],
-    }
     try:
         prompt = load_prompt("followup.txt")
     except FileNotFoundError:
         _log.warning("followup_prompt_missing")
         return _hand_fallback(application, max_words=max_words)
 
-    try:
-        user = prompt.format(
-            profile_summary=fence_untrusted(json.dumps(profile_summary, default=str)),
-            opp_summary=fence_untrusted(json.dumps(opp_summary, default=str)),
-            original_cover_markdown=fence_untrusted(application.original_cover_markdown[:1500]),
-            days_silent=application.days_silent,
-        )
-    except Exception as e:
-        _log.warning("followup_prompt_format_failed", err=str(e))
+    user_prompt = _format_followup_user_prompt(prompt, application, _profile_summary_for_followup())
+    if user_prompt is None:
         return _hand_fallback(application, max_words=max_words)
 
-    settings = get_settings()
-    try:
-        data = await chat_json(
-            messages=[
-                {"role": "system", "content": "You write follow-up emails. Plain text, under 80 words. Strict JSON. Never invent facts."},
-                {"role": "user", "content": user},
-            ],
-            kind="llm_writer",
-            model=settings.openrouter_model_writer,
-            max_tokens=400,
-            temperature=0.3,
-        )
-    except Exception as e:
-        _log.warning("followup_llm_failed", err=str(e), application_id=application.application_id)
-        return _hand_fallback(application, max_words=max_words)
-
+    data = await _call_writer(user_prompt)
     body = ""
     if isinstance(data, dict):
         body = str(data.get("body") or "").strip()
@@ -394,20 +465,14 @@ async def _load_followup(followup_id: int) -> dict[str, Any] | None:
     if rec is None:
         return None
     out = dict(rec)
-    raw = out.get("payload")
-    if isinstance(raw, str):
-        try:
-            out["payload"] = json.loads(raw)
-        except Exception:
-            out["payload"] = {}
-    elif not isinstance(raw, dict):
-        out["payload"] = {}
+    out["payload"] = _decode_payload(out.get("payload"))
     return out
 
 
 def _build_threaded_headers(original_message_id: str | None) -> dict[str, str] | None:
-    """If the original Message-ID is on file, return RFC 5322 headers that
-    point Resend at the existing thread."""
+    """If the original Message-ID is on file, return the threading headers
+    per the spec referenced by `_RFC5322_SPEC_NUMBER` that point Resend
+    at the existing thread."""
     if not original_message_id:
         return None
     # The Message-ID we store may or may not include the angle brackets.
@@ -422,6 +487,38 @@ def _build_threaded_headers(original_message_id: str | None) -> dict[str, str] |
         "In-Reply-To": mid,
         "References": mid,
     }
+
+
+def _compose_subject(title: str | None, company: str | None) -> str:
+    """Build the `Re: ...` subject line for an outbound follow-up."""
+    title_part = title or "your role"
+    if company:
+        return f"Re: {title_part} — {company}"
+    return f"Re: {title_part}"
+
+
+async def _send_via_resend(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    reply_to: str | None,
+    headers: dict[str, str] | None,
+    followup_id: int,
+) -> bool:
+    """`notifiers.email.send_email` wrapper that funnels all failure modes
+    into a single bool return + a structured log line."""
+    try:
+        return await send_email(
+            to=to,
+            subject=subject,
+            html=html,
+            reply_to=reply_to,
+            headers=headers,
+        )
+    except Exception as e:
+        _log.exception("followup_send_email_failed", err=str(e), followup_id=followup_id, to=to)
+        return False
 
 
 async def send_followup(followup_id: int) -> bool:
@@ -440,52 +537,16 @@ async def send_followup(followup_id: int) -> bool:
         return False
 
     row = await _load_followup(followup_id)
-    if row is None:
-        _log.warning("followup_send_row_missing", followup_id=followup_id)
+    if not _is_sendable(row, followup_id):
         return False
-    if row["status"] in ("sent", "skipped"):
-        _log.info("followup_send_already_terminal", followup_id=followup_id, status=row["status"])
-        return False
+    assert row is not None  # narrowed by _is_sendable
 
-    body = (row.get("body_markdown") or "").strip()
-    if not body:
-        _log.warning("followup_send_empty_body", followup_id=followup_id)
+    prepared = _prepare_send_inputs(row, followup_id)
+    if prepared is None:
         await _mark_failed(followup_id)
         return False
 
-    payload = row.get("payload") or {}
-    target = payload.get("target")
-    if not target:
-        _log.warning("followup_send_no_target", followup_id=followup_id)
-        await _mark_failed(followup_id)
-        return False
-
-    title = row.get("title") or "your role"
-    company = row.get("company") or ""
-    profile = _profile_summary_for_followup()
-    sender_name = profile.get("name") or ""
-    reply_to = profile.get("email") or None
-
-    subject = f"Re: {title}"
-    if company:
-        subject = f"Re: {title} — {company}"
-
-    html = _render_followup_html(body, profile)
-    headers = _build_threaded_headers(payload.get("resend_message_id") or payload.get("message_id"))
-
-    sent_ok = False
-    try:
-        sent_ok = await send_email(
-            to=target,
-            subject=subject,
-            html=html,
-            reply_to=reply_to,
-            headers=headers,
-        )
-    except Exception as e:
-        _log.exception("followup_send_email_failed", err=str(e), followup_id=followup_id, to=target)
-        sent_ok = False
-
+    sent_ok = await _send_via_resend(followup_id=followup_id, **prepared["send_kwargs"])
     if not sent_ok:
         await _mark_failed(followup_id)
         return False
@@ -501,10 +562,49 @@ async def send_followup(followup_id: int) -> bool:
         followup_id=followup_id,
         application_id=row["application_id"],
         opportunity_id=str(row["opportunity_id"]),
-        threaded=bool(headers),
-        sender=sender_name or "(unset)",
+        threaded=bool(prepared["send_kwargs"]["headers"]),
+        sender=prepared["sender_name"] or "(unset)",
     )
     return True
+
+
+def _is_sendable(row: dict[str, Any] | None, followup_id: int) -> bool:
+    """Pre-flight checks before doing any prep work."""
+    if row is None:
+        _log.warning("followup_send_row_missing", followup_id=followup_id)
+        return False
+    if row["status"] in ("sent", "skipped"):
+        _log.info("followup_send_already_terminal", followup_id=followup_id, status=row["status"])
+        return False
+    return True
+
+
+def _prepare_send_inputs(row: dict[str, Any], followup_id: int) -> dict[str, Any] | None:
+    """Build the kwargs `_send_via_resend` needs, or None if the row is
+    missing a body / target (caller marks failed)."""
+    body = (row.get("body_markdown") or "").strip()
+    if not body:
+        _log.warning("followup_send_empty_body", followup_id=followup_id)
+        return None
+
+    payload = row.get("payload") or {}
+    target = payload.get("target")
+    if not target:
+        _log.warning("followup_send_no_target", followup_id=followup_id)
+        return None
+
+    profile = _profile_summary_for_followup()
+    headers = _build_threaded_headers(_extract_original_message_id(payload))
+    return {
+        "send_kwargs": {
+            "to": target,
+            "subject": _compose_subject(row.get("title"), row.get("company")),
+            "html": _render_followup_html(body, profile),
+            "reply_to": profile.get("email") or None,
+            "headers": headers,
+        },
+        "sender_name": profile.get("name") or "",
+    }
 
 
 def _render_followup_html(body: str, profile: dict[str, Any]) -> str:
@@ -548,6 +648,45 @@ async def _mark_failed(followup_id: int) -> None:
 # ---------------------------------------------------------------------------
 # Cron entrypoint — called from src/workers/scheduler.py
 # ---------------------------------------------------------------------------
+async def _draft_one(row: ApplicationRow) -> str | None:
+    """Wrap `draft_followup` so an unexpected exception becomes None
+    instead of bubbling out of the cron loop."""
+    try:
+        return await draft_followup(row)
+    except Exception as e:
+        _log.exception("followup_draft_unexpected_error", err=str(e), application_id=row.application_id)
+        return None
+
+
+def _build_followup_notify(row: ApplicationRow, *, followup_id: int, body: str) -> dict[str, Any]:
+    """Shape the Streams.NOTIFY payload for a ready draft."""
+    return {
+        "kind": "followup_ready",
+        "user_id": row.user_id,
+        "payload": {
+            "followup_id": followup_id,
+            "application_id": row.application_id,
+            "opportunity_id": row.opportunity_id,
+            "title": row.title,
+            "company": row.company,
+            "days_silent": row.days_silent,
+            "body_markdown": body,
+            "target": row.email_target,
+        },
+    }
+
+
+async def _emit_followup_ready(q: RedisQ, row: ApplicationRow, *, followup_id: int, body: str) -> bool:
+    """Publish `followup_ready` for one draft. Returns True on success."""
+    notify = _build_followup_notify(row, followup_id=followup_id, body=body)
+    try:
+        await q.publish(Streams.NOTIFY, notify)
+        return True
+    except Exception as e:
+        _log.warning("followup_publish_failed", err=str(e), followup_id=followup_id)
+        return False
+
+
 async def daily_followup_scan(q: RedisQ) -> dict[str, int]:
     """One pass of the 13:00 IST cron.
 
@@ -564,10 +703,8 @@ async def daily_followup_scan(q: RedisQ) -> dict[str, int]:
         return stats
 
     for row in rows:
-        try:
-            body = await draft_followup(row)
-        except Exception as e:
-            _log.exception("followup_draft_unexpected_error", err=str(e), application_id=row.application_id)
+        body = await _draft_one(row)
+        if body is None:
             continue
 
         fid = await record_draft(row.application_id, body, user_id=row.user_id)
@@ -576,25 +713,9 @@ async def daily_followup_scan(q: RedisQ) -> dict[str, int]:
             continue
         stats["drafted"] += 1
 
-        notify = {
-            "kind": "followup_ready",
-            "user_id": row.user_id,
-            "payload": {
-                "followup_id": fid,
-                "application_id": row.application_id,
-                "opportunity_id": row.opportunity_id,
-                "title": row.title,
-                "company": row.company,
-                "days_silent": row.days_silent,
-                "body_markdown": body,
-                "target": row.email_target,
-            },
-        }
-        try:
-            await q.publish(Streams.NOTIFY, notify)
+        if await _emit_followup_ready(q, row, followup_id=fid, body=body):
             stats["published"] += 1
-        except Exception as e:
-            _log.warning("followup_publish_failed", err=str(e), followup_id=fid)
+
     _log.info("followup_scan_done", **stats)
     return stats
 
