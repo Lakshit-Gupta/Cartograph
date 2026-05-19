@@ -425,7 +425,12 @@ services:
       # see V019. PostgREST connects as the same superuser the rest of
       # the stack uses (DSN below) and `SET ROLE pgrst_anon` before every
       # request via PGRST_DB_ANON_ROLE. The role can never escape `dash.`.
-      PGRST_DB_URI: postgres://${postgres_user}:${postgres_password}@postgres:5432/${postgres_db}
+      # Keyword/value DSN form (libpq) — no URL-encoding required, so
+      # passwords with `/`, `+`, `=` (typical base64 output from
+      # `openssl rand -base64 32`) don't get mis-parsed as scheme
+      # separators. URI form previously made libpq fall back to socket
+      # auth → "could not look up local user ID 1000".
+      PGRST_DB_URI: host=postgres port=5432 user=${postgres_user} password=${postgres_password} dbname=${postgres_db}
       PGRST_DB_SCHEMAS: dash
       PGRST_DB_ANON_ROLE: pgrst_anon
       PGRST_SERVER_PORT: "3000"
