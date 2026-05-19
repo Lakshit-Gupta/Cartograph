@@ -31,6 +31,11 @@ from src.common.db import acquire, close_pool, init_pool
 
 _DEFAULT_TTL_HOURS = 24 * 7  # one week — long enough for async coordination
 _REVOKE_SENTINEL_USER_ID = 0
+# Listing cap. Keeps the terminal output scannable + bounds the result set
+# even on long-lived deployments where consumed rows accumulate. Operator
+# can `mp tenant list --no-include-consumed` if they need an unbounded view
+# (which we still cap here defensively).
+_LIST_LIMIT = 100
 
 
 @click.group("tenant")
@@ -98,9 +103,10 @@ async def _list(*, full: bool, include_consumed: bool) -> None:
                   FROM tenant_invites
                  WHERE $1::bool OR consumed_at IS NULL
                  ORDER BY created_at DESC
-                 LIMIT 100
+                 LIMIT $2
                 """,
                 include_consumed,
+                _LIST_LIMIT,
             )
     finally:
         await close_pool()

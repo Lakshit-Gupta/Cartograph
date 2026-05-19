@@ -203,19 +203,40 @@ def _auc(model: Any, X: np.ndarray, y: np.ndarray) -> float | None:
 # ---------------------------------------------------------------------------
 # 3. Persistence
 # ---------------------------------------------------------------------------
-async def _insert_row(
-    *,
-    user_id: int,
-    status: str,
-    rows_used: int,
-    positive_rate: float,
-    weights: dict[str, float] | None,
-    raw_coefs: dict[str, float] | None,
-    auc: float | None,
-    error: str | None = None,
-) -> None:
+@dataclass(frozen=True, slots=True)
+class FitOutcome:
+    """All audit fields persisted to one `ranker_weights_fit` row.
+
+    Bundled as a dataclass so `_insert_row` takes a single argument
+    instead of an 11-tuple — keeps callsites compact and makes future
+    schema additions a single-field change in one place.
+    """
+
+    user_id: int
+    status: str
+    rows_used: int
+    positive_rate: float
+    weights: dict[str, float] | None = None
+    raw_coefs: dict[str, float] | None = None
+    auc: float | None = None
+    error: str | None = None
+
+
+def _weight_or_none(weights: dict[str, float] | None, key: str) -> float | None:
+    """Project one component out of the optional weights dict.
+
+    Returns `None` when `weights` is None or the key is missing, so the
+    INSERT lands NULL on cold-start / failed rows and the DB CHECK
+    constraint stays untriggered.
+    """
+    if weights is None or key not in weights:
+        return None
+    return float(weights[key])
+
+
+async def _insert_row(outcome: FitOutcome) -> None:
     """Single audit row into `ranker_weights_fit`."""
-    w = weights or {}
+    w = outcome.weights
     async with acquire() as conn:
         await conn.execute(
             """
@@ -230,19 +251,19 @@ async def _insert_row(
                 $11, $12::jsonb, $13
             )
             """,
-            int(user_id),
-            status,
-            int(rows_used),
-            float(positive_rate),
-            (float(w["kw_match"]) if "kw_match" in w else None),
-            (float(w["embedding_sim"]) if "embedding_sim" in w else None),
-            (float(w["comp_score"]) if "comp_score" in w else None),
-            (float(w["freshness"]) if "freshness" in w else None),
-            (float(w["source_quality"]) if "source_quality" in w else None),
-            (float(w["response_rate"]) if "response_rate" in w else None),
-            (float(auc) if auc is not None else None),
-            json.dumps(raw_coefs or {}),
-            error,
+            int(outcome.user_id),
+            outcome.status,
+            int(outcome.rows_used),
+            float(outcome.positive_rate),
+            _weight_or_none(w, "kw_match"),
+            _weight_or_none(w, "embedding_sim"),
+            _weight_or_none(w, "comp_score"),
+            _weight_or_none(w, "freshness"),
+            _weight_or_none(w, "source_quality"),
+            _weight_or_none(w, "response_rate"),
+            (float(outcome.auc) if outcome.auc is not None else None),
+            json.dumps(outcome.raw_coefs or {}),
+            outcome.error,
         )
 
 
@@ -300,15 +321,66 @@ async def _emit_cold_start(*, user_id: int, rows_used: int, positive_rate: float
         positive_rate=round(positive_rate, 4),
     )
     await _insert_row(
-        user_id=user_id,
-        status="cold_start",
-        rows_used=rows_used,
-        positive_rate=positive_rate,
-        weights=None,
-        raw_coefs=None,
-        auc=None,
+        FitOutcome(
+            user_id=user_id,
+            status="cold_start",
+            rows_used=rows_used,
+            positive_rate=positive_rate,
+        )
     )
     return {"status": "cold_start", "rows_used": rows_used, "user_id": user_id}
+
+
+@dataclass(frozen=True, slots=True)
+class _FitResult:
+    """Output of `_run_fit`: matrix-derived weights + audit fields."""
+
+    weights: dict[str, float]
+    raw_coefs: dict[str, float]
+    auc: float | None
+
+
+def _run_fit(rows: list[FitRow]) -> _FitResult | None:
+    """Train the LR and project onto the weight vector. Returns None when
+    the label is single-class (caller routes to cold_start).
+    """
+    X, y = _build_matrix(rows)
+    if np.unique(y).size < 2:
+        return None
+    model = _train(X, y)
+    raw_coefs = {k: float(model.coef_[0][i]) for i, k in enumerate(_FEATURE_KEYS)}
+    return _FitResult(
+        weights=_coefs_to_weights(model.coef_[0]),
+        raw_coefs=raw_coefs,
+        auc=_auc(model, X, y),
+    )
+
+
+async def _persist_single_class(*, user_id: int, rows_used: int, positive_rate: float) -> dict[str, Any]:
+    """Single-class label → log a cold-start audit row, return summary."""
+    await _insert_row(
+        FitOutcome(
+            user_id=user_id,
+            status="cold_start",
+            rows_used=rows_used,
+            positive_rate=positive_rate,
+        )
+    )
+    return {"status": "cold_start", "rows_used": rows_used, "reason": "single_class"}
+
+
+async def _persist_failure(*, user_id: int, rows_used: int, positive_rate: float, error: str) -> dict[str, Any]:
+    """Fit raised → log a failed audit row, return summary."""
+    await _insert_row(
+        FitOutcome(
+            user_id=user_id,
+            status="failed",
+            rows_used=rows_used,
+            positive_rate=positive_rate,
+            error=error,
+        )
+    )
+    return {"status": "failed", "rows_used": rows_used, "error": error}
 
 
 async def _fit_and_persist(
@@ -317,64 +389,44 @@ async def _fit_and_persist(
     rows: list[FitRow],
     positive_rate: float,
 ) -> dict[str, Any]:
+    """Hot path: build features, fit, persist, log. Linear flow — branch
+    points delegate to focused helpers so this orchestrator stays
+    readable end-to-end.
+    """
     rows_used = len(rows)
     try:
-        X, y = _build_matrix(rows)
-        if np.unique(y).size < 2:
-            # Single-class label — LR refuses to fit; persist as cold_start
-            # so the ranker falls back to YAML rather than zeroing weights.
-            await _insert_row(
-                user_id=user_id,
-                status="cold_start",
-                rows_used=rows_used,
-                positive_rate=positive_rate,
-                weights=None,
-                raw_coefs=None,
-                auc=None,
-            )
-            return {"status": "cold_start", "rows_used": rows_used, "reason": "single_class"}
-
-        model = _train(X, y)
-        raw_coefs = {k: float(model.coef_[0][i]) for i, k in enumerate(_FEATURE_KEYS)}
-        weights = _coefs_to_weights(model.coef_[0])
-        auc = _auc(model, X, y)
+        fit = _run_fit(rows)
     except Exception as e:
         _log.exception("global_ranker_refit_failed", err=str(e))
-        await _insert_row(
-            user_id=user_id,
-            status="failed",
-            rows_used=rows_used,
-            positive_rate=positive_rate,
-            weights=None,
-            raw_coefs=None,
-            auc=None,
-            error=str(e),
-        )
-        return {"status": "failed", "rows_used": rows_used, "error": str(e)}
+        return await _persist_failure(user_id=user_id, rows_used=rows_used, positive_rate=positive_rate, error=str(e))
+    if fit is None:
+        return await _persist_single_class(user_id=user_id, rows_used=rows_used, positive_rate=positive_rate)
 
     await _insert_row(
-        user_id=user_id,
-        status="ok",
-        rows_used=rows_used,
-        positive_rate=positive_rate,
-        weights=weights,
-        raw_coefs=raw_coefs,
-        auc=auc,
+        FitOutcome(
+            user_id=user_id,
+            status="ok",
+            rows_used=rows_used,
+            positive_rate=positive_rate,
+            weights=fit.weights,
+            raw_coefs=fit.raw_coefs,
+            auc=fit.auc,
+        )
     )
     _log.info(
         "global_ranker_refit_done",
         user_id=user_id,
         rows_used=rows_used,
         positive_rate=round(positive_rate, 4),
-        auc=(round(auc, 4) if auc is not None else None),
-        weights={k: round(v, 4) for k, v in weights.items()},
+        auc=(round(fit.auc, 4) if fit.auc is not None else None),
+        weights={k: round(v, 4) for k, v in fit.weights.items()},
     )
     return {
         "status": "ok",
         "rows_used": rows_used,
         "positive_rate": positive_rate,
-        "auc": auc,
-        "weights": weights,
+        "auc": fit.auc,
+        "weights": fit.weights,
     }
 
 
@@ -394,14 +446,13 @@ async def run_nightly_refit(
         _log.exception("global_ranker_refit_load_failed", err=str(e))
         try:
             await _insert_row(
-                user_id=uid,
-                status="failed",
-                rows_used=0,
-                positive_rate=0.0,
-                weights=None,
-                raw_coefs=None,
-                auc=None,
-                error=str(e),
+                FitOutcome(
+                    user_id=uid,
+                    status="failed",
+                    rows_used=0,
+                    positive_rate=0.0,
+                    error=str(e),
+                )
             )
         except Exception:
             pass

@@ -85,6 +85,63 @@ class _OnboardError(RuntimeError):
     """User-visible refusal (printed ephemerally). Never logged as exception."""
 
 
+async def _assert_not_already_linked(conn, discord_user_id: int) -> None:  # type: ignore[no-untyped-def]
+    """Refuse onboarding when the Discord id already owns a tenant row."""
+    existing = await conn.fetchrow(
+        "SELECT id FROM users WHERE discord_user_id = $1 LIMIT 1",
+        discord_user_id,
+    )
+    if existing is not None:
+        raise _OnboardError(f"This Discord user is already linked to tenant id {existing['id']}.")
+
+
+async def _lock_and_validate_invite(conn, token: str) -> None:  # type: ignore[no-untyped-def]
+    """SELECT FOR UPDATE the invite row + verify it's usable."""
+    invite = await conn.fetchrow(
+        """
+        SELECT token, expires_at, consumed_at
+          FROM tenant_invites
+         WHERE token = $1
+         FOR UPDATE
+        """,
+        token,
+    )
+    if invite is None:
+        raise _OnboardError("Unknown invite token.")
+    if invite["consumed_at"] is not None:
+        raise _OnboardError("That invite token has already been used.")
+    if invite["expires_at"] is not None and await _is_expired(conn, invite["expires_at"]):
+        raise _OnboardError("That invite token has expired. Ask the owner for a fresh one.")
+
+
+async def _insert_user(conn, *, handle: str, display_name: str, discord_user_id: int) -> int:  # type: ignore[no-untyped-def]
+    """Insert the new users row and return its id."""
+    row = await conn.fetchrow(
+        """
+        INSERT INTO users (handle, display_name, discord_user_id, onboarded_via, onboarded_at)
+        VALUES ($1, $2, $3, 'invite_token', NOW())
+        RETURNING id
+        """,
+        handle,
+        display_name,
+        discord_user_id,
+    )
+    return int(row["id"])
+
+
+async def _mark_invite_consumed(conn, *, token: str, user_id: int) -> None:  # type: ignore[no-untyped-def]
+    """Stamp the invite row consumed by the new tenant."""
+    await conn.execute(
+        """
+        UPDATE tenant_invites
+           SET consumed_by_user_id = $1, consumed_at = NOW()
+         WHERE token = $2
+        """,
+        user_id,
+        token,
+    )
+
+
 async def _consume_invite_and_create_user(
     *,
     token: str,
@@ -98,53 +155,21 @@ async def _consume_invite_and_create_user(
     fails to insert (or vice versa), the bot ends up with a half-onboarded
     Discord id — recovery is messy (no clean "retry onboarding" UX). The
     txn rolls back both writes if either step fails.
+
+    The four helpers run in fixed order: linked-check → invite lock +
+    validation → user insert → invite stamp. Each step is one small
+    function so the failure modes are individually unit-testable.
     """
     async with db.acquire() as conn, conn.transaction():
-        # Already linked? Refuse without consuming the token.
-        existing = await conn.fetchrow(
-            "SELECT id FROM users WHERE discord_user_id = $1 LIMIT 1",
-            discord_user_id,
+        await _assert_not_already_linked(conn, discord_user_id)
+        await _lock_and_validate_invite(conn, token)
+        new_user_id = await _insert_user(
+            conn,
+            handle=handle,
+            display_name=display_name,
+            discord_user_id=discord_user_id,
         )
-        if existing is not None:
-            raise _OnboardError(f"This Discord user is already linked to tenant id {existing['id']}.")
-
-        invite = await conn.fetchrow(
-            """
-            SELECT token, expires_at, consumed_at
-              FROM tenant_invites
-             WHERE token = $1
-             FOR UPDATE
-            """,
-            token,
-        )
-        if invite is None:
-            raise _OnboardError("Unknown invite token.")
-        if invite["consumed_at"] is not None:
-            raise _OnboardError("That invite token has already been used.")
-        if invite["expires_at"] is not None and await _is_expired(conn, invite["expires_at"]):
-            raise _OnboardError("That invite token has expired. Ask the owner for a fresh one.")
-
-        new_user = await conn.fetchrow(
-            """
-            INSERT INTO users (handle, display_name, discord_user_id, onboarded_via, onboarded_at)
-            VALUES ($1, $2, $3, 'invite_token', NOW())
-            RETURNING id
-            """,
-            handle,
-            display_name,
-            discord_user_id,
-        )
-        new_user_id = int(new_user["id"])
-
-        await conn.execute(
-            """
-            UPDATE tenant_invites
-               SET consumed_by_user_id = $1, consumed_at = NOW()
-             WHERE token = $2
-            """,
-            new_user_id,
-            token,
-        )
+        await _mark_invite_consumed(conn, token=token, user_id=new_user_id)
         return new_user_id
 
 
