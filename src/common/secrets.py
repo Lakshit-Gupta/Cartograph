@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     # Telegram
     telegram_api_id: int = 0
     telegram_api_hash: str = ""
+    # Session stem (no extension; Telethon appends `.session`). Used by the
+    # scripts/telegram_auth.py one-shot AND the freelance-telegram-fetcher
+    # worker to locate the SQLite session DB.
+    telegram_session_name: str = "Cartograph_freelance"
+    # Full container-side path to the .session file. The freelance worker
+    # mounts ./var/telegram into /var/lib/agent/telegram (read-only). Leave
+    # empty for local dev — the worker logs and idles when missing.
+    telegram_session_path: str = ""
 
     # Reddit
     reddit_client_id: str = ""

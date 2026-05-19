@@ -53,3 +53,10 @@ routing:
   internship_channel_key: internships
   fellowship_channel_key: fellowships
   freelance_channel_key: freelance
+
+freelance:
+  # Public Telegram channels the freelance-telegram-fetcher worker subscribes
+  # to. Accepts `@channelname`, `t.me/channelname`, or the bare slug. Empty
+  # list = worker boots, logs `tg_no_channels_configured`, and idles. Append
+  # entries here as you discover signal-rich freelance channels.
+  telegram_channels: []
