@@ -67,21 +67,89 @@ def _format_bullets(bullets: list[str]) -> str:
     return "\n".join(parts)
 
 
+def _strip_line_comments(region: str) -> str:
+    """Return a comment-masked view of ``region`` for boundary matching.
+
+    Replaces every LaTeX line-comment (``%`` through end-of-line) with the
+    same number of spaces, preserving newlines. This keeps **byte offsets
+    identical** to ``region`` so any regex match position can be reused
+    against the original text without re-mapping.
+
+    Rules:
+        * ``%`` starts a comment unless preceded by an odd number of
+          backslashes (``\\%`` is an escaped literal percent, ``\\\\%``
+          is a backslash followed by a comment, and so on).
+        * Comments terminate at the next ``\\n`` (the newline itself is
+          preserved verbatim).
+
+    Used by ``_splice_block_region`` so a commented-out
+    ``% \\begin{itemize}`` no longer fools ``_ITEMIZE_RE`` into matching
+    inside a comment scope. The original ``region`` is what gets returned
+    by the splice — comments are only ignored for *matching*, never
+    stripped from output.
+    """
+    out: list[str] = []
+    for line in region.splitlines(keepends=True):
+        cut: int | None = None
+        # Walk left→right tracking how many backslashes immediately precede
+        # the current char. A `%` is a comment iff that count is even.
+        bs_run = 0
+        for i, ch in enumerate(line):
+            if ch == "\\":
+                bs_run += 1
+                continue
+            if ch == "%" and bs_run % 2 == 0:
+                cut = i
+                break
+            bs_run = 0
+        if cut is None:
+            out.append(line)
+            continue
+        # Preserve the trailing newline (if any) so line counts stay aligned.
+        if line.endswith("\r\n"):
+            tail = "\r\n"
+            body_len = len(line) - 2
+        elif line.endswith("\n"):
+            tail = "\n"
+            body_len = len(line) - 1
+        else:
+            tail = ""
+            body_len = len(line)
+        out.append(line[:cut] + " " * (body_len - cut) + tail)
+    return "".join(out)
+
+
 def _splice_block_region(region: str, new_bullets: list[str]) -> str:
     """Rewrite the itemize section of one block's char_range region.
 
-    If the region contains exactly one itemize block, it is replaced
-    inline. If it contains none, the new itemize is appended at the end
-    of the region (covers the "orphan macro with no itemize" case the
-    parser emits for cvevent + cvsection with no following items).
+    Strategy (Approach B from the Stage-4 render defect fix):
+      * Build a comment-masked view of the region via
+        ``_strip_line_comments`` whose offsets are byte-identical to the
+        original. Run ``_ITEMIZE_RE`` against the *masked* view so a
+        commented-out ``% \\begin{itemize}`` no longer claims a match.
+      * If a live itemize is found, replace at the exact span in the
+        original region (offsets are preserved by the masking step).
+      * If no live itemize is found (only commented ones, or none at
+        all), append a fresh itemize to the end of the region so the
+        new bullets live in their own clean scope.
+
+    Approach B was chosen over Approach A (parser strips comments before
+    computing char_range) because it is localised to the renderer and
+    doesn't change ``Block.char_range`` semantics that Phase 2.2/2.3
+    consumers already depend on.
+
+    The region itself is **always** returned with comments intact —
+    masking only affects boundary matching, never the output bytes.
     """
     new_block = _format_bullets(new_bullets)
-    if _ITEMIZE_RE.search(region):
-        # Use a lambda replacement so backslashes in ``new_block`` (e.g.
-        # ``\item``) aren't interpreted as regex back-references.
-        return _ITEMIZE_RE.sub(lambda _m: new_block, region, count=1)
-    # No existing itemize → append the new block to the end of the region.
-    return region.rstrip() + "\n" + new_block + "\n"
+    masked = _strip_line_comments(region)
+    m = _ITEMIZE_RE.search(masked)
+    if m is None:
+        # No live itemize in the region (only comments, or none at all).
+        # Append the new block at end so it lives in a clean scope.
+        return region.rstrip() + "\n" + new_block + "\n"
+    start, end = m.span()
+    return region[:start] + new_block + region[end:]
 
 
 def write_partial(
