@@ -18,6 +18,8 @@ x-env-common: &env-common
   DISCORD_GUILD_ID: ${discord_guild_id}
   TELEGRAM_API_ID: ${telegram_api_id}
   TELEGRAM_API_HASH: ${telegram_api_hash}
+  TELEGRAM_SESSION_NAME: ${telegram_session_name:-Cartograph_freelance}
+  TELEGRAM_SESSION_PATH: /var/lib/agent/telegram/${telegram_session_name:-Cartograph_freelance}.session
   REDDIT_CLIENT_ID: ${reddit_client_id}
   REDDIT_CLIENT_SECRET: ${reddit_client_secret}
   REDDIT_USER_AGENT: ${reddit_user_agent}
@@ -284,6 +286,35 @@ services:
       - internal
     depends_on:
       postgres:
+        condition: service_healthy
+
+  freelance-telegram-fetcher:
+    # Long-running Telethon client. Subscribes to public freelance channels
+    # listed in config/profile/prefs.yaml -> freelance.telegram_channels and
+    # publishes parsed messages directly onto stream:rank (no crawler/extractor
+    # round-trip — Telegram posts are already structured enough).
+    #
+    # The .session file is bind-mounted READ-ONLY: Telethon will log warnings
+    # when it tries to write back state; that's acceptable for v1. We'll
+    # relax to RW in Phase 2 if churn warrants it.
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.telegram_fetcher"]
+    environment: *env-common
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+      - ./var/telegram:/var/lib/agent/telegram:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    mem_limit: 256m
+    pids_limit: 64
+    user: "1000"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   api-service:
