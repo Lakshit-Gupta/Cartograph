@@ -20,6 +20,7 @@ import click
 
 from src.cli.identity import identity_group
 from src.cli.opps import opps_group
+from src.cli.routes import routes_group
 from src.cli.sources import sources_group, targets_group
 from src.cli.tenant import tenant_group
 from src.common.db import acquire, close_pool, init_pool
@@ -125,6 +126,7 @@ cli.add_command(identity_group)
 cli.add_command(opps_group)
 cli.add_command(targets_group)
 cli.add_command(tenant_group)
+cli.add_command(routes_group)
 
 
 if __name__ == "__main__":

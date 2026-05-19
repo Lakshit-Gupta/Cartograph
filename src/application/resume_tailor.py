@@ -5,6 +5,21 @@ picks the 3 most relevant experience/project bullets, and asks the LLM-writer
 to rewrite them so that opp-specific tech is surfaced. The original
 profile.json is treated as authoritative — the LLM may emphasize but never
 invent.
+
+The async orchestrator :func:`tailor_bullets` is decomposed into four pure
+stages:
+
+* :func:`_select_blocks_for_opp` — load variant + skills, rank candidate
+  bullets, and keep the top three.
+* :func:`_build_tailor_prompt` — assemble the system + user messages.
+* :func:`_call_tailor_llm` — the cost-gated boundary into
+  :func:`src.common.llm.chat_json`. ``kind="llm_writer"`` is mandatory
+  (V001 ``usage_kind_enum`` value).
+* :func:`_parse_tailor_edits` — defensively pull the ``bullets`` list out of
+  the provider response.
+
+Any failure short-circuits back to the original (unrewritten) bullets, so
+the apply pipeline always has something to attach.
 """
 
 from __future__ import annotations
@@ -25,6 +40,20 @@ _log = get_logger(__name__)
 
 _VARIANT_LABELS = ("backend", "fullstack", "ml")
 _DEFAULT_VARIANT = "backend"
+
+# LLM call tunables — kept in one place so ops can audit them.
+_LLM_KIND = "llm_writer"  # V001 usage_kind_enum value. Do NOT change.
+_LLM_MAX_TOKENS = 900
+_LLM_TEMPERATURE = 0.2
+_LLM_MAX_BULLETS = 5
+_LLM_TOP_K_BLOCKS = 3
+_OPP_DESCRIPTION_BUDGET = 1500
+_SKILL_HINTS_BUDGET = 1200
+
+_SYSTEM_PROMPT = (
+    "You rewrite resume bullets to surface opp-relevant tech without inventing facts. "
+    "Each bullet remains a one-line, action-led achievement. Return JSON only."
+)
 
 # Tokens used by pick_variant to vote
 _BACKEND_BIAS = {
@@ -91,6 +120,9 @@ _ML_BIAS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Filesystem helpers
+# ---------------------------------------------------------------------------
 def _variants_dir() -> Path:
     return Path(get_settings().config_root) / "profile" / "resume_variants"
 
@@ -114,6 +146,9 @@ def _load_skills() -> dict[str, Any]:
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Candidate extraction + ranking
+# ---------------------------------------------------------------------------
 def _collect_candidate_bullets(profile_dict: dict[str, Any]) -> list[dict[str, Any]]:
     """Walk profile experience + projects and yield candidate bullets w/ keywords."""
     out: list[dict[str, Any]] = []
@@ -163,6 +198,29 @@ def _opp_tokens(opp: Opportunity | dict[str, Any]) -> set[str]:
     return set(tokens)
 
 
+def _opp_field(opp: Opportunity | dict[str, Any], field: str) -> str:
+    """Read a string field from an Opportunity dataclass OR plain dict."""
+    if isinstance(opp, dict):
+        return opp.get(field) or ""
+    return getattr(opp, field, None) or ""
+
+
+def _rank_candidates(
+    candidates: list[dict[str, Any]],
+    opp_tokens: set[str],
+    variant_kws: set[str],
+) -> list[dict[str, Any]]:
+    """Sort candidates by overlap with (opp tokens) + (variant lean keywords)."""
+
+    def score(c: dict[str, Any]) -> int:
+        kw_hits = sum(1 for k in c["keywords"] if k in opp_tokens)
+        text_hits = sum(1 for t in opp_tokens if t in c["bullet"].lower())
+        lean_hits = sum(1 for k in c["keywords"] if k in variant_kws)
+        return kw_hits * 3 + text_hits + lean_hits
+
+    return sorted(candidates, key=score, reverse=True)
+
+
 def pick_variant(opp: Opportunity | dict[str, Any]) -> str:
     """Pick the best-fit resume variant by keyword vote against lean_keywords + bias."""
     tokens = _opp_tokens(opp)
@@ -198,20 +256,96 @@ def _is_profile_template_placeholder(profile_dict: dict[str, Any]) -> bool:
     return edu.get("school") == "REPLACE" or edu.get("degree") == "REPLACE"
 
 
-def _rank_candidates(
-    candidates: list[dict[str, Any]],
-    opp_tokens: set[str],
-    variant_kws: set[str],
-) -> list[dict[str, Any]]:
-    """Sort candidates by overlap with (opp tokens) + (variant lean keywords)."""
+# ---------------------------------------------------------------------------
+# Orchestrator stages
+# ---------------------------------------------------------------------------
+def _select_blocks_for_opp(
+    profile_dict: dict[str, Any],
+    opp: Opportunity | dict[str, Any],
+    variant_label: str,
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+    """Load variant + skills and pick the top-K candidate bullets for ``opp``.
 
-    def score(c: dict[str, Any]) -> int:
-        kw_hits = sum(1 for k in c["keywords"] if k in opp_tokens)
-        text_hits = sum(1 for t in opp_tokens if t in c["bullet"].lower())
-        lean_hits = sum(1 for k in c["keywords"] if k in variant_kws)
-        return kw_hits * 3 + text_hits + lean_hits
+    Returns ``(top_blocks, variant, skills)``. ``top_blocks`` may be empty when
+    the profile has no experience/project bullets — caller must short-circuit.
+    """
+    variant = _load_variant(variant_label)
+    skills = _load_skills()
+    variant_kws = {k.lower() for k in variant.get("lean_keywords", [])}
 
-    return sorted(candidates, key=score, reverse=True)
+    candidates = _collect_candidate_bullets(profile_dict)
+    if not candidates:
+        return [], variant, skills
+
+    top_blocks = _rank_candidates(candidates, _opp_tokens(opp), variant_kws)[:_LLM_TOP_K_BLOCKS]
+    return top_blocks, variant, skills
+
+
+def _build_tailor_prompt(
+    *,
+    top_blocks: list[dict[str, Any]],
+    variant: dict[str, Any],
+    skills: dict[str, Any],
+    opp: Opportunity | dict[str, Any],
+) -> list[dict[str, str]]:
+    """Assemble the system + user messages for the tailor LLM call."""
+    variant_kws = {k.lower() for k in variant.get("lean_keywords", [])}
+
+    opp_summary = {
+        "title": _opp_field(opp, "title"),
+        "company": _opp_field(opp, "company"),
+        "description": _opp_field(opp, "description")[:_OPP_DESCRIPTION_BUDGET],
+    }
+
+    skill_hints = json.dumps({k: list(v.keys()) for k, v in skills.items() if isinstance(v, dict)})[:_SKILL_HINTS_BUDGET]
+
+    user = (
+        "Rewrite the candidate bullets to emphasize tech mentioned in <OPP>. "
+        "Preserve all numbers, employers, project names. Never invent new claims. "
+        f'Output JSON: {{"bullets": ["...", "...", "..."]}} with at most {_LLM_MAX_BULLETS} entries.\n\n'
+        f"<VARIANT>{variant.get('label')} — {variant.get('headline', '')}</VARIANT>\n"
+        f"<LEAN_KEYWORDS>{', '.join(sorted(variant_kws))}</LEAN_KEYWORDS>\n"
+        f"<SKILL_HINTS>{skill_hints}</SKILL_HINTS>\n"
+        f"<OPP>{fence_untrusted(json.dumps(opp_summary))}</OPP>\n"
+        f"<CANDIDATES>{json.dumps(top_blocks)}</CANDIDATES>\n"
+    )
+
+    return [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user},
+    ]
+
+
+async def _call_tailor_llm(messages: list[dict[str, str]]) -> Any:
+    """Cost-gated LLM call. Delegates to :func:`src.common.llm.chat_json`.
+
+    ``kind=_LLM_KIND`` is the V001 ``usage_kind_enum`` value — do NOT change.
+    Raises whatever ``chat_json`` raises; the caller decides whether to fall
+    back to the originals.
+    """
+    return await chat_json(
+        messages=messages,
+        kind=_LLM_KIND,
+        model=get_settings().openrouter_model_writer,
+        max_tokens=_LLM_MAX_TOKENS,
+        temperature=_LLM_TEMPERATURE,
+    )
+
+
+def _parse_tailor_edits(data: Any) -> list[str] | None:
+    """Pull the rewritten bullets out of the provider response.
+
+    Returns ``None`` when the shape is not ``{"bullets": [...]}`` — the caller
+    treats that as "use originals". Empty entries are dropped, the list is
+    truncated to ``_LLM_MAX_BULLETS``.
+    """
+    if not isinstance(data, dict):
+        return None
+    bullets = data.get("bullets")
+    if not isinstance(bullets, list):
+        return None
+    cleaned = [str(b).strip() for b in bullets if str(b).strip()]
+    return cleaned[:_LLM_MAX_BULLETS]
 
 
 async def tailor_bullets(
@@ -223,55 +357,28 @@ async def tailor_bullets(
     if _is_profile_template_placeholder(profile_dict):
         _log.warning("profile_is_template_placeholder")
 
-    variant = _load_variant(variant_label)
-    skills = _load_skills()
-    variant_kws = {k.lower() for k in variant.get("lean_keywords", [])}
-
-    candidates = _collect_candidate_bullets(profile_dict)
-    if not candidates:
+    top_blocks, variant, skills = _select_blocks_for_opp(profile_dict, opp, variant_label)
+    if not top_blocks:
         _log.warning("no_candidate_bullets", variant=variant_label)
         return []
 
-    top_three = _rank_candidates(candidates, _opp_tokens(opp), variant_kws)[:3]
+    fallback = [c["bullet"] for c in top_blocks][:_LLM_MAX_BULLETS]
 
-    opp_summary = {
-        "title": getattr(opp, "title", None) or (opp.get("title") if isinstance(opp, dict) else ""),
-        "company": getattr(opp, "company", None) or (opp.get("company") if isinstance(opp, dict) else ""),
-        "description": (getattr(opp, "description", None) or (opp.get("description") if isinstance(opp, dict) else "") or "")[:1500],
-    }
-
-    system = (
-        "You rewrite resume bullets to surface opp-relevant tech without inventing facts. "
-        "Each bullet remains a one-line, action-led achievement. Return JSON only."
-    )
-    user = (
-        "Rewrite the candidate bullets to emphasize tech mentioned in <OPP>. "
-        "Preserve all numbers, employers, project names. Never invent new claims. "
-        'Output JSON: {"bullets": ["...", "...", "..."]} with at most 5 entries.\n\n'
-        f"<VARIANT>{variant.get('label')} — {variant.get('headline', '')}</VARIANT>\n"
-        f"<LEAN_KEYWORDS>{', '.join(sorted(variant_kws))}</LEAN_KEYWORDS>\n"
-        f"<SKILL_HINTS>{json.dumps({k: list(v.keys()) for k, v in skills.items() if isinstance(v, dict)})[:1200]}</SKILL_HINTS>\n"
-        f"<OPP>{fence_untrusted(json.dumps(opp_summary))}</OPP>\n"
-        f"<CANDIDATES>{json.dumps(top_three)}</CANDIDATES>\n"
+    messages = _build_tailor_prompt(
+        top_blocks=top_blocks,
+        variant=variant,
+        skills=skills,
+        opp=opp,
     )
 
     try:
-        data = await chat_json(
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            kind="llm_writer",
-            model=get_settings().openrouter_model_writer,
-            max_tokens=900,
-            temperature=0.2,
-        )
+        data = await _call_tailor_llm(messages)
     except Exception as e:
         _log.warning("tailor_bullets_llm_failed", err=str(e))
-        # Graceful fallback — return the originals
-        return [c["bullet"] for c in top_three][:5]
+        return fallback
 
-    bullets = data.get("bullets") if isinstance(data, dict) else None
-    if not isinstance(bullets, list):
+    cleaned = _parse_tailor_edits(data)
+    if cleaned is None:
         _log.warning("tailor_bullets_bad_shape", got=type(data).__name__)
-        return [c["bullet"] for c in top_three][:5]
-
-    cleaned = [str(b).strip() for b in bullets if str(b).strip()]
-    return cleaned[:5]
+        return fallback
+    return cleaned

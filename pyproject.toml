@@ -153,8 +153,11 @@ ignore = [
 "tests/ranker/test_global_refit.py" = ["N806"]
 # Telethon's TelegramClient / FloodWaitError are PascalCase classes;
 # rebinding them from a tuple-unpacked import wrapper trips N806 even
-# though we're naming classes, not variables.
+# though we're naming classes, not variables. The listener loop accepts
+# them as keyword-only parameters, which trips N803 on the param name
+# (same PascalCase class-as-callable handoff).
 "src/sources/freelance/telegram_fetcher.py" = ["N806"]
+"src/sources/freelance/telegram/loop.py" = ["N803"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -172,9 +175,16 @@ check_untyped_defs = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-# `-m "not integration"` is the default lane: it deselects the LaTeX
-# compile integration tests (they need tectonic/qpdf/exiftool from the
-# applier image). Run those explicitly with `pytest -m integration`.
+# `-m "not integration"` is the default lane: it deselects every test
+# tagged `@pytest.mark.integration` from the standard `uv run pytest`
+# invocation. Two test trees use this marker today:
+#   - tests/application/test_compile.py — LaTeX compile pipeline
+#     (needs tectonic/qpdf/exiftool from the applier image)
+#   - tests/integration/ — V019 dashboard views + PostgREST e2e
+#     (needs a reachable Docker daemon + Python `docker` SDK)
+# Run either lane explicitly:
+#   uv run pytest -m integration tests/integration/ -q --no-header
+#   uv run pytest -m integration tests/application/test_compile.py
 addopts = "-ra --strict-markers -m 'not integration'"
 markers = [
     "smoke: fast hermetic tests run by the pre-commit pytest-smoke hook",

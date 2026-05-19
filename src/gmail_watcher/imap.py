@@ -42,6 +42,30 @@ INBOX_NAME = "INBOX"
 # tokens (empty, unset, todo, xxxxx, etc.) which we can't exhaustively guess.
 _APP_PASSWORD_MIN_LEN = 16
 
+# IDLE window. Gmail recommends < 29 min; we use 25 to leave headroom.
+_IDLE_TIMEOUT_S = 25 * 60
+
+# Tenacity reconnect backoff (exponential, capped). Values preserved verbatim
+# from the original wait_exponential(multiplier=2, min=2, max=300) call.
+_RECONNECT_BACKOFF_MULTIPLIER = 2
+_RECONNECT_BACKOFF_MIN_S = 2
+_RECONNECT_BACKOFF_MAX_S = 300
+# Effectively-forever attempts cap (kept identical to original).
+_RECONNECT_MAX_ATTEMPTS = 2**31 - 1
+
+# Body-size floor used to discard truncated FETCH frames. Anything smaller is
+# almost certainly a status/header echo rather than the RFC822 payload.
+_MIN_RFC822_BYTES = 32
+
+# Body cap forwarded to the classifier prompt is handled there; this constant
+# bounds how many bytes the IDLE drain reads per UID frame iteration.
+_BATCH_SIZE = 0  # reserved — no batch boundary in current single-UID drain.
+
+# SASL XOAUTH2 string per RFC 7628 §3.1: `user=<user>\x01auth=Bearer <tok>\x01\x01`.
+# Spec calls this the literal-prefix constant; kept here for grep-ability and to
+# make the format string adjacent to its sole construction site.
+_XOAUTH2_LITERAL_PREFIX = "user="
+
 
 def _is_unset_user(value: str | None) -> bool:
     """True if `value` is not a plausible Gmail address.
@@ -71,6 +95,17 @@ def _is_unset_app_password(value: str | None) -> bool:
     # strip *all* whitespace before length check, not just edges.
     compact = "".join(value.split())
     return len(compact) < _APP_PASSWORD_MIN_LEN
+
+
+def _worker_creds_unset(settings: Any) -> bool:
+    """True iff worker mailbox should be skipped silently (empty-pw semantic).
+
+    Centralises the empty-worker-password skip rule so both the pre-flight in
+    `watch_mailbox` and `connect_worker` agree on the predicate byte-for-byte.
+    """
+    return _is_unset_user(settings.gmail_worker_user) or _is_unset_app_password(
+        settings.gmail_worker_app_password,
+    )
 
 
 class _WorkerMailboxDisabled(RuntimeError):
@@ -154,13 +189,22 @@ async def _refresh_access_token() -> str:
     token = body["access_token"]
     expires_in = int(body.get("expires_in", 3600))
     _TOKEN_CACHE[user] = {"token": token, "expires_at": now + expires_in}
+    # NB: never log `token` — only the user + lifetime are safe to emit.
     _log.info("gmail_oauth_token_refreshed", user=user, expires_in=expires_in)
     return str(token)
 
 
-def _xoauth2_string(user: str, access_token: str) -> str:
-    """RFC-2595/4616-style SASL XOAUTH2 string."""
-    return f"user={user}\x01auth=Bearer {access_token}\x01\x01"
+def _build_xoauth2_authstring(user: str, access_token: str) -> str:
+    """RFC-7628 §3.1 SASL XOAUTH2 string.
+
+    Format: ``user=<user>\\x01auth=Bearer <token>\\x01\\x01``.
+    Output MUST NOT be logged — it embeds the bearer token verbatim.
+    """
+    return f"{_XOAUTH2_LITERAL_PREFIX}{user}\x01auth=Bearer {access_token}\x01\x01"
+
+
+# Back-compat alias for any in-tree caller still using the historical name.
+_xoauth2_string = _build_xoauth2_authstring
 
 
 # ---------------------------------------------------------------------------
@@ -174,44 +218,55 @@ async def _new_imap_client() -> Any:
     return imap
 
 
-async def connect_personal() -> Any:
-    """Connect to personal Gmail via OAuth (XOAUTH2 SASL)."""
+async def _authenticate_xoauth2(imap: Any, user: str, token: str) -> Any:
+    """Submit an XOAUTH2 SASL bind to an open IMAP client.
+
+    Prefers the aioimaplib `xoauth2` helper when available; otherwise falls
+    back to a manual `AUTHENTICATE XOAUTH2 <base64>` exchange. Neither the
+    raw authstring nor the token is logged.
+    """
+    if hasattr(imap, "xoauth2"):
+        return await imap.xoauth2(user, token)
+    # Manual AUTHENTICATE XOAUTH2 with base64-encoded payload.
+    import base64
+
+    auth = _build_xoauth2_authstring(user, token)
+    b64 = base64.b64encode(auth.encode()).decode()
+    return await imap.protocol.send(f"AUTHENTICATE XOAUTH2 {b64}")
+
+
+async def _connect_personal_mailbox() -> Any:
+    """Connect to personal Gmail via OAuth (XOAUTH2 SASL).
+
+    Internal helper — public surface is :func:`connect_personal`.
+    """
     settings = get_settings()
     user = settings.gmail_user
     if not user:
         raise RuntimeError("gmail_user not configured")
     token = await _refresh_access_token()
-    auth = _xoauth2_string(user, token)
     imap = await _new_imap_client()
-    # aioimaplib exposes xoauth2 helper if present; fall back to authenticate.
-    if hasattr(imap, "xoauth2"):
-        resp = await imap.xoauth2(user, token)
-    else:
-        # Manual AUTHENTICATE XOAUTH2 with base64-encoded payload.
-        import base64
-
-        b64 = base64.b64encode(auth.encode()).decode()
-        resp = await imap.protocol.send(f"AUTHENTICATE XOAUTH2 {b64}")
+    resp = await _authenticate_xoauth2(imap, user, token)
     _log.info("imap_connected_personal", user=user, status=getattr(resp, "result", "?"))
     await imap.select(INBOX_NAME)
     return imap
 
 
-async def connect_worker() -> Any:
-    """Connect to worker Gmail via app password (Upwork digest inbox).
+async def _connect_worker_mailbox() -> Any:
+    """Connect to worker Gmail via app password.
 
-    Raises `_WorkerMailboxDisabled` when either `gmail_worker_user` or
-    `gmail_worker_app_password` is unset / placeholder. `watch_mailbox`
-    catches that sentinel and exits silently after one info log, so the
-    watcher container stays healthy until the user populates the value.
+    Raises :class:`_WorkerMailboxDisabled` when either ``gmail_worker_user`` or
+    ``gmail_worker_app_password`` is unset / placeholder. :func:`watch_mailbox`
+    catches the sentinel and exits silently after one info log, so the watcher
+    container stays healthy until the user populates the value.
     """
     settings = get_settings()
-    user = settings.gmail_worker_user
-    pw = settings.gmail_worker_app_password
-    if _is_unset_user(user) or _is_unset_app_password(pw):
+    if _worker_creds_unset(settings):
         raise _WorkerMailboxDisabled(
             "gmail_worker_app_password unset; worker mailbox monitoring disabled",
         )
+    user = settings.gmail_worker_user
+    pw = settings.gmail_worker_app_password
     imap = await _new_imap_client()
     resp = await imap.login(user, pw)
     _log.info("imap_connected_worker", user=user, status=getattr(resp, "result", "?"))
@@ -219,8 +274,13 @@ async def connect_worker() -> Any:
     return imap
 
 
+# Public API — kept stable for `src/workers/gmail_worker.py`.
+connect_personal = _connect_personal_mailbox
+connect_worker = _connect_worker_mailbox
+
+
 # ---------------------------------------------------------------------------
-# IDLE loop
+# Message fetch + UID scan
 # ---------------------------------------------------------------------------
 async def _fetch_message(imap: Any, uid: int) -> Message | None:
     try:
@@ -238,7 +298,7 @@ async def _fetch_message(imap: Any, uid: int) -> Message | None:
         if isinstance(line, (bytes, bytearray)) and len(line) > best_len:
             raw = bytes(line)
             best_len = len(line)
-    if not raw or best_len < 32:
+    if not raw or best_len < _MIN_RFC822_BYTES:
         return None
     try:
         return email.message_from_bytes(raw)
@@ -267,6 +327,159 @@ async def _scan_new(imap: Any, last_uid: int) -> list[int]:
     return sorted(set(uids))
 
 
+# ---------------------------------------------------------------------------
+# Per-message and per-cycle helpers
+# ---------------------------------------------------------------------------
+async def _handle_message(
+    imap: Any,
+    uid: int,
+    callback: Callable[[Message], Awaitable[None]],
+    label: str,
+) -> None:
+    """Fetch + dispatch + persist for a single UID.
+
+    Preserves the original ordering: callback runs FIRST (classifier in the
+    gmail-worker wires into state_writer inside the callback), and the UID is
+    persisted to `imap_state` ONLY after the callback returns — even on
+    callback error, so a poison message can't wedge the watcher forever.
+    """
+    msg = await _fetch_message(imap, uid)
+    if msg is not None:
+        try:
+            await callback(msg)
+        except Exception as e:
+            _log.exception("imap_callback_error", uid=uid, err=str(e))
+    await _save_last_uid(label, uid)
+
+
+async def _resync_unread_since(
+    imap: Any,
+    last_uid: int,
+    callback: Callable[[Message], Awaitable[None]],
+    label: str,
+) -> int:
+    """Drain everything that arrived while we were offline.
+
+    Walks every UID strictly greater than `last_uid` in ascending order,
+    invoking `_handle_message` on each. Returns the highest UID processed
+    (or `last_uid` when nothing was pending).
+    """
+    pending = await _scan_new(imap, last_uid)
+    for uid in pending:
+        await _handle_message(imap, uid, callback, label)
+        last_uid = uid
+    return last_uid
+
+
+async def _idle_one_cycle(imap: Any, label: str, idle_timeout: int) -> None:
+    """Issue one IDLE → server-push → DONE round-trip.
+
+    Swallows `TimeoutError` (the IDLE just expired uneventfully) and re-raises
+    anything else so the outer tenacity wrapper can reconnect.
+    """
+    idle_task: Any = None
+    try:
+        idle_task = await imap.idle_start(timeout=idle_timeout)
+        # wait_server_push returns when EXISTS/EXPUNGE/etc. fire.
+        await asyncio.wait_for(imap.wait_server_push(), timeout=idle_timeout)
+    except TimeoutError:
+        pass
+    except Exception as e:
+        _log.warning("imap_idle_error", mailbox=label, err=str(e))
+        raise  # reconnect via outer tenacity wrapper
+    finally:
+        try:
+            imap.idle_done()
+        except Exception:
+            pass
+        if idle_task is not None:
+            try:
+                await asyncio.wait_for(idle_task, timeout=30)
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# IDLE loop + public watch_mailbox orchestrator
+# ---------------------------------------------------------------------------
+async def _idle_loop(
+    imap: Any,
+    callback: Callable[[Message], Awaitable[None]],
+    label: str,
+) -> None:
+    last_uid = await _load_last_uid(label)
+    _log.info("imap_idle_start", mailbox=label, last_uid=last_uid)
+
+    # Drain anything that arrived while we were offline.
+    last_uid = await _resync_unread_since(imap, last_uid, callback, label)
+
+    while True:
+        await _idle_one_cycle(imap, label, _IDLE_TIMEOUT_S)
+        # Drain whatever the server pushed.
+        last_uid = await _resync_unread_since(imap, last_uid, callback, label)
+
+
+def _is_worker_connector(connect_fn: Callable[[], Awaitable[Any]]) -> bool:
+    """Identify whether `connect_fn` is the worker connector (any alias)."""
+    return connect_fn in (connect_worker, _connect_worker_mailbox)
+
+
+def _worker_preflight_should_skip(connect_fn: Callable[[], Awaitable[Any]]) -> bool:
+    """Empty-password skip predicate, byte-identical to original.
+
+    Mirrors the legacy try/except: any error during settings probe degrades to
+    "do not skip" so the loop can still attempt to connect (and log a warning).
+    """
+    if not _is_worker_connector(connect_fn):
+        return False
+    try:
+        return _worker_creds_unset(get_settings())
+    except Exception as e:
+        _log.warning("imap_worker_preflight_failed", err=str(e))
+        return False
+
+
+def _reconnect_retrying() -> AsyncRetrying:
+    """Tenacity policy mirroring the original exponential backoff verbatim."""
+    return AsyncRetrying(
+        stop=stop_after_attempt(_RECONNECT_MAX_ATTEMPTS),
+        wait=wait_exponential(
+            multiplier=_RECONNECT_BACKOFF_MULTIPLIER,
+            min=_RECONNECT_BACKOFF_MIN_S,
+            max=_RECONNECT_BACKOFF_MAX_S,
+        ),
+        retry=retry_if_exception_type(Exception),
+        reraise=False,
+    )
+
+
+async def _connect_and_idle(
+    connect_fn: Callable[[], Awaitable[Any]],
+    callback: Callable[[Message], Awaitable[None]],
+    label: str,
+) -> bool:
+    """One connect → IDLE-forever attempt. Returns True to keep retrying.
+
+    Returns False ONLY when the worker sentinel is raised — the caller treats
+    that as "stop retrying, exit silently".
+    """
+    try:
+        imap = await connect_fn()
+    except _WorkerMailboxDisabled as e:
+        # Sentinel raised after watcher started but before connect — e.g.
+        # settings reloaded mid-run. Stop the retry loop cleanly.
+        _log.info("imap_worker_password_empty", mailbox=label, note=str(e))
+        return False
+    try:
+        await _idle_loop(imap, callback, label)
+    finally:
+        try:
+            await imap.logout()
+        except Exception:
+            pass
+    return True
+
+
 async def watch_mailbox(
     connect_fn: Callable[[], Awaitable[Any]],
     callback: Callable[[Message], Awaitable[None]],
@@ -278,100 +491,14 @@ async def watch_mailbox(
     Reconnects with exponential backoff on any failure. Never crashes the worker.
     """
     label = mailbox_label or connect_fn.__name__
-
-    # Pre-flight: if the connect function is the worker variant and its
-    # credentials are placeholder, log once and return — never enter the
-    # retry loop (which would re-raise NO from Gmail forever and spam logs).
-    try:
-        if connect_fn is connect_worker:
-            settings = get_settings()
-            if _is_unset_user(settings.gmail_worker_user) or _is_unset_app_password(settings.gmail_worker_app_password):
-                _log.info(
-                    "imap_worker_password_empty",
-                    mailbox=label,
-                    note="gmail_worker_app_password unset; worker mailbox monitoring disabled",
-                )
-                return
-    except Exception as e:
-        _log.warning("imap_worker_preflight_failed", err=str(e))
-
-    async for attempt in AsyncRetrying(
-        stop=stop_after_attempt(2**31 - 1),  # effectively forever
-        wait=wait_exponential(multiplier=2, min=2, max=300),
-        retry=retry_if_exception_type(Exception),
-        reraise=False,
-    ):
+    if _worker_preflight_should_skip(connect_fn):
+        _log.info(
+            "imap_worker_password_empty",
+            mailbox=label,
+            note="gmail_worker_app_password unset; worker mailbox monitoring disabled",
+        )
+        return
+    async for attempt in _reconnect_retrying():
         with attempt:
-            try:
-                imap = await connect_fn()
-            except _WorkerMailboxDisabled as e:
-                # Sentinel raised after watcher started but before connect —
-                # e.g. settings reloaded mid-run. Stop the retry loop cleanly.
-                _log.info(
-                    "imap_worker_password_empty",
-                    mailbox=label,
-                    note=str(e),
-                )
+            if not await _connect_and_idle(connect_fn, callback, label):
                 return
-            try:
-                await _idle_loop(imap, callback, label)
-            finally:
-                try:
-                    await imap.logout()
-                except Exception:
-                    pass
-
-
-async def _idle_loop(
-    imap: Any,
-    callback: Callable[[Message], Awaitable[None]],
-    label: str,
-) -> None:
-    last_uid = await _load_last_uid(label)
-    _log.info("imap_idle_start", mailbox=label, last_uid=last_uid)
-
-    # Drain anything that arrived while we were offline.
-    pending = await _scan_new(imap, last_uid)
-    for uid in pending:
-        msg = await _fetch_message(imap, uid)
-        if msg is not None:
-            try:
-                await callback(msg)
-            except Exception as e:
-                _log.exception("imap_callback_error", uid=uid, err=str(e))
-        await _save_last_uid(label, uid)
-        last_uid = uid
-
-    while True:
-        # IDLE for up to ~25 minutes (Gmail recommends < 29).
-        idle_task: Any = None
-        try:
-            idle_task = await imap.idle_start(timeout=25 * 60)
-            # wait_server_push returns when EXISTS/EXPUNGE/etc. fire.
-            await asyncio.wait_for(imap.wait_server_push(), timeout=25 * 60)
-        except TimeoutError:
-            pass
-        except Exception as e:
-            _log.warning("imap_idle_error", mailbox=label, err=str(e))
-            raise  # reconnect via outer tenacity wrapper
-        finally:
-            try:
-                imap.idle_done()
-            except Exception:
-                pass
-            if idle_task is not None:
-                try:
-                    await asyncio.wait_for(idle_task, timeout=30)
-                except Exception:
-                    pass
-
-        new_uids = await _scan_new(imap, last_uid)
-        for uid in new_uids:
-            msg = await _fetch_message(imap, uid)
-            if msg is not None:
-                try:
-                    await callback(msg)
-                except Exception as e:
-                    _log.exception("imap_callback_error", uid=uid, err=str(e))
-            await _save_last_uid(label, uid)
-            last_uid = uid

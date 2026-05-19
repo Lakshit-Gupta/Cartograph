@@ -2,6 +2,19 @@
 
 Every LLM call in the codebase goes through this module. Refuses when
 daily_spend exceeds `cost_cap_daily_kill_usd`. Warns past `cost_cap_daily_usd`.
+
+The orchestration `chat()` is intentionally split into small private helpers so
+the cost-gate, the HTTP retry policy, and the bookkeeping (cost metric +
+usage_ledger + daily_spend) can each be reasoned about and tested in isolation.
+
+Invariants — all enforced below:
+
+* Cost-gate refusal fires BEFORE the LLM HTTP request (see ``_assert_under_cap``).
+* ``daily_spend`` UPDATE + ``usage_ledger`` INSERT share the same connection so
+  they stay co-located (see ``_record_usage_ledger``).
+* ``kind`` is opaque to this module — callers MUST pass one of the
+  ``usage_kind_enum`` values declared in V001:
+  ``llm_extract | llm_rerank | llm_writer | llm_classifier``.
 """
 
 from __future__ import annotations
@@ -33,6 +46,17 @@ from src.common.secrets import get_settings
 _log = get_logger(__name__)
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Tunables — module constants so ops can audit them in one place.
+_HTTP_TIMEOUT_SECONDS = 60.0  # floor; OpenRouter sometimes streams long.
+_RETRY_MAX_ATTEMPTS = 3  # transient-only; HTTPError class below.
+_RETRY_WAIT_MIN = 1
+_RETRY_WAIT_MAX = 10
+
+# Cost-cap field names on the Settings object. Centralised so a rename in
+# `secrets.py` is a one-line edit here.
+_CAP_FIELD_HARD = "cost_cap_daily_kill_usd"
+_CAP_FIELD_SOFT = "cost_cap_daily_usd"
 
 # Approx per-1M-token pricing in USD. Refresh periodically. Conservative ceilings.
 # Unknown slug falls back to (1.0, 5.0) — costs over-report, not under-report.
@@ -81,6 +105,9 @@ class LLMInvalidJSON(RuntimeError):
     """Provider returned content but it failed json.loads."""
 
 
+# ---------------------------------------------------------------------------
+# Prompt loading
+# ---------------------------------------------------------------------------
 def _prompt_path(filename: str) -> Path:
     settings = get_settings()
     return Path(settings.config_root) / "prompts" / filename
@@ -90,6 +117,9 @@ def load_prompt(filename: str) -> str:
     return _prompt_path(filename).read_text(encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Cost gate
+# ---------------------------------------------------------------------------
 async def _today_spend_usd() -> float:
     async with acquire() as conn:
         rec = await conn.fetchrow(
@@ -102,7 +132,46 @@ async def _today_spend_usd() -> float:
     return float(rec["m"]) / 1_000_000.0
 
 
-async def _record_usage(*, kind: str, model: str, in_tok: int, out_tok: int, cost_usd: float, correlation_id: str) -> None:
+async def _assert_under_cap() -> None:
+    """Raise ``CostCapReached`` (and bump refusal metric) when at/over hard cap.
+
+    Soft-cap breach logs a warning but lets the call proceed. This MUST run
+    before the HTTP request — never trust the provider to enforce our budget.
+    """
+    settings = get_settings()
+    hard_cap = getattr(settings, _CAP_FIELD_HARD)
+    soft_cap = getattr(settings, _CAP_FIELD_SOFT)
+
+    spent = await _today_spend_usd()
+    if spent >= hard_cap:
+        llm_refusals_total.inc()
+        raise CostCapReached(f"daily kill cap reached: ${spent:.2f}")
+    if spent >= soft_cap:
+        _log.warning("llm_cost_soft_cap_hit", spent=spent)
+
+
+# ---------------------------------------------------------------------------
+# Cost calculation + bookkeeping
+# ---------------------------------------------------------------------------
+def _calc_cost(model: str, in_tok: int, out_tok: int) -> float:
+    in_price, out_price = _PRICING.get(model, (1.0, 5.0))
+    return (in_tok / 1_000_000) * in_price + (out_tok / 1_000_000) * out_price
+
+
+async def _record_usage_ledger(
+    *,
+    kind: str,
+    model: str,
+    in_tok: int,
+    out_tok: int,
+    cost_usd: float,
+    correlation_id: str,
+) -> None:
+    """Insert into ``usage_ledger`` and upsert today's row in ``daily_spend``.
+
+    Both writes share one connection so they remain co-located. ``kind`` MUST
+    be a value from the ``usage_kind_enum`` (V001).
+    """
     async with acquire() as conn:
         await conn.execute(
             """
@@ -131,34 +200,33 @@ async def _record_usage(*, kind: str, model: str, in_tok: int, out_tok: int, cos
         )
 
 
-def _calc_cost(model: str, in_tok: int, out_tok: int) -> float:
-    in_price, out_price = _PRICING.get(model, (1.0, 5.0))
-    return (in_tok / 1_000_000) * in_price + (out_tok / 1_000_000) * out_price
+# Back-compat alias — older import sites (and tests, scripts) may still reach
+# for ``_record_usage``. The new canonical name is ``_record_usage_ledger``.
+_record_usage = _record_usage_ledger
 
 
-async def chat(
+# ---------------------------------------------------------------------------
+# HTTP transport + retry policy
+# ---------------------------------------------------------------------------
+def _retry_policy() -> AsyncRetrying:
+    """Tenacity retry config — transient HTTP only, exponential backoff."""
+    return AsyncRetrying(
+        stop=stop_after_attempt(_RETRY_MAX_ATTEMPTS),
+        wait=wait_exponential(multiplier=1, min=_RETRY_WAIT_MIN, max=_RETRY_WAIT_MAX),
+        retry=retry_if_exception_type((httpx.HTTPError,)),
+        reraise=True,
+    )
+
+
+def _build_payload(
     *,
+    model: str,
     messages: list[dict[str, str]],
-    model: str | None = None,
-    kind: str = "other",
-    response_format: dict[str, Any] | None = None,
-    temperature: float = 0.0,
-    max_tokens: int = 1024,
-    reasoning_effort: str | None = None,
-    correlation_id: str | None = None,
-    extra_headers: dict[str, str] | None = None,
+    temperature: float,
+    max_tokens: int,
+    response_format: dict[str, Any] | None,
+    reasoning_effort: str | None,
 ) -> dict[str, Any]:
-    settings = get_settings()
-    model = model or settings.openrouter_model_classifier
-    correlation_id = correlation_id or uuid.uuid4().hex
-
-    spent = await _today_spend_usd()
-    if spent >= settings.cost_cap_daily_kill_usd:
-        llm_refusals_total.inc()
-        raise CostCapReached(f"daily kill cap reached: ${spent:.2f}")
-    if spent >= settings.cost_cap_daily_usd:
-        _log.warning("llm_cost_soft_cap_hit", spent=spent)
-
     payload: dict[str, Any] = {
         "model": model,
         "messages": messages,
@@ -171,26 +239,36 @@ async def chat(
         # OpenRouter pass-through for reasoning-capable models (Gemini 3 thinking,
         # DeepSeek V4 high/xhigh, Grok 4.x). Ignored by non-reasoning models.
         payload["reasoning"] = {"effort": reasoning_effort}
+    return payload
 
+
+def _build_headers(
+    *,
+    api_key: str,
+    extra_headers: dict[str, str] | None,
+) -> dict[str, str]:
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": os.environ.get("OPENROUTER_REFERER", "https://github.com/cartograph"),
         "X-Title": "cartograph",
     }
     if extra_headers:
         headers.update(extra_headers)
+    return headers
 
+
+async def _call_openrouter(
+    *,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+) -> dict[str, Any]:
+    """POST to OpenRouter, retrying transient HTTP errors. Returns parsed JSON."""
     data: dict[str, Any] = {}
     try:
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=1, max=10),
-            retry=retry_if_exception_type((httpx.HTTPError,)),
-            reraise=True,
-        ):
+        async for attempt in _retry_policy():
             with attempt:
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT_SECONDS) as client:
                     resp = await client.post(OPENROUTER_URL, json=payload, headers=headers)
                     resp.raise_for_status()
                     data = resp.json()
@@ -199,13 +277,61 @@ async def chat(
         raise
     if not data:
         raise RuntimeError("llm_call_empty_response")
+    return data
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+async def chat(
+    *,
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    kind: str = "other",
+    response_format: dict[str, Any] | None = None,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    reasoning_effort: str | None = None,
+    correlation_id: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Orchestrator: cost-gate → HTTP → cost metric + ledger.
+
+    All public LLM call sites flow through here. The function is intentionally
+    thin — each step delegates to a private helper that can be unit-tested in
+    isolation.
+    """
+    settings = get_settings()
+    model = model or settings.openrouter_model_classifier
+    correlation_id = correlation_id or uuid.uuid4().hex
+
+    # 1. Cost gate — MUST precede the HTTP request.
+    await _assert_under_cap()
+
+    # 2. Build the wire payload + headers.
+    payload = _build_payload(
+        model=model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        response_format=response_format,
+        reasoning_effort=reasoning_effort,
+    )
+    headers = _build_headers(
+        api_key=settings.openrouter_api_key,
+        extra_headers=extra_headers,
+    )
+
+    # 3. HTTP call with retry on transient failures.
+    data = await _call_openrouter(payload=payload, headers=headers)
+
+    # 4. Cost metric + ledger row.
     usage = data.get("usage") or {}
     in_tok = int(usage.get("prompt_tokens", 0))
     out_tok = int(usage.get("completion_tokens", 0))
     cost = _calc_cost(model, in_tok, out_tok)
     llm_cost_usd_total.labels(kind=kind, model=model).inc(cost)
-    await _record_usage(
+    await _record_usage_ledger(
         kind=kind,
         model=model,
         in_tok=in_tok,
@@ -216,7 +342,10 @@ async def chat(
     return data
 
 
-def _extract_content(data: dict[str, Any]) -> str:
+# ---------------------------------------------------------------------------
+# Response validation
+# ---------------------------------------------------------------------------
+def _validate_response_shape(data: dict[str, Any]) -> str:
     """Safely pull content out of an OpenRouter response, raising typed errors.
 
     Handles: missing choices, empty list, null/missing message, null/empty content,
@@ -240,6 +369,10 @@ def _extract_content(data: dict[str, Any]) -> str:
     return content
 
 
+# Back-compat alias for the previous internal name.
+_extract_content = _validate_response_shape
+
+
 async def chat_json(
     *,
     messages: list[dict[str, str]],
@@ -258,7 +391,7 @@ async def chat_json(
         response_format={"type": "json_object"} if schema_hint == "object" else None,
         **kwargs,
     )
-    content = _extract_content(data)
+    content = _validate_response_shape(data)
     try:
         return json.loads(content)
     except json.JSONDecodeError as e:
@@ -266,6 +399,9 @@ async def chat_json(
         raise LLMInvalidJSON(f"json_decode_failed at pos {e.pos}: {snippet!r}") from e
 
 
+# ---------------------------------------------------------------------------
+# Misc helpers
+# ---------------------------------------------------------------------------
 def fence_untrusted(text: str) -> str:
     """Wrap untrusted user-generated content in <IGNORE>...</IGNORE> sentinels."""
     return f"<IGNORE>\n{text}\n</IGNORE>"
