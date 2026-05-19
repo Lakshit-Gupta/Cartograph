@@ -6,7 +6,9 @@ import asyncio
 import json
 import signal
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -24,7 +26,41 @@ configure_logging("ranker")
 _log = get_logger(__name__)
 
 
+# --- Tunables ---------------------------------------------------------------
+# Description prefix length fed into the lazy opp-embedding computation.
+# Mirrors the cap used by the extractor when it normally seeds the embedding,
+# so cold-path re-computes stay consistent with the steady-state shape.
+_OPP_EMBED_DESCRIPTION_CHARS = 400
+# Cap on profile-summary skill keywords — keeps the embedding input bounded
+# even when skills.yaml grows. 80 words easily fits MiniLM's context window.
+_PROFILE_SKILL_WORDS_LIMIT = 80
+# How often the cached `source_response_rates()` snapshot is refreshed inside
+# the consume loop. 30 min is the floor that keeps the ranker hot without
+# pounding Postgres.
+_RESPONSE_RATE_REFRESH_SECONDS = 1800
+# Freelance opps with a final score at or above this threshold get an
+# additional priority_push onto stream:notify (see end of `_score_one`).
+_PRIORITY_PUSH_SCORE_THRESHOLD = 0.75
+# Source quality multiplier — kept as a constant so future per-source
+# overrides have a single point to plumb through.
+_DEFAULT_SOURCE_QUALITY = 1.0
+
+
 _profile_cache: dict | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ScoreContext:
+    """Static-per-tick context for `_score_one`.
+
+    Bundled so the scoring callsite stays under the 5-param cap. The
+    response-rate snapshot is mutated by the refresh task; we pass the dict
+    by reference and reads pick up the latest map.
+    """
+
+    profile_emb: list[float]
+    raw: dict
+    resp_rates: dict[int, float]
 
 
 async def _ensure_profile_embedding() -> tuple[list[float], dict]:
@@ -45,7 +81,7 @@ async def _ensure_profile_embedding() -> tuple[list[float], dict]:
         if isinstance(group, dict):
             skill_words.extend(group.keys())
     headline = (resume.get("basics") or {}).get("summary", "")
-    summary_text = f"{headline} | skills: {', '.join(skill_words[:80])}"
+    summary_text = f"{headline} | skills: {', '.join(skill_words[:_PROFILE_SKILL_WORDS_LIMIT])}"
     emb = await embed_one(summary_text)
 
     raw = {
@@ -96,37 +132,29 @@ def _comp_floor(prefs_comp: dict, cat: str) -> float:
     )
 
 
-async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], raw: dict, resp_rates: dict[int, float]) -> None:
-    t0 = time.perf_counter()
-    async with acquire() as conn:
-        rec = await conn.fetchrow(
-            """
-            SELECT id, source_id, title, company, description, location, remote_type, category,
-                   comp_min, comp_max, comp_currency, comp_period, posted_at, embedding, fingerprint_hash,
-                   apply_url, apply_method, extraction_tier, extraction_confidence
-            FROM opportunities WHERE id = $1
-            """,
-            opportunity_id,
-        )
-    if rec is None:
-        return
+def _floors_from_prefs(comp_floors_raw: dict) -> dict[str, float]:
+    """Project the comp_floors YAML onto the `category -> floor` map that
+    `formula.score` consumes. Contract-frozen key set (used by the formula
+    side as well — every supported `OppCategory` value must appear)."""
+    return {
+        "internship": _comp_floor(comp_floors_raw, "internship"),
+        "fulltime": _comp_floor(comp_floors_raw, "fulltime"),
+        "freelance": _comp_floor(comp_floors_raw, "freelance"),
+        "fellowship": _comp_floor(comp_floors_raw, "fellowship"),
+        # `contract` shares the freelance floor — kept as an explicit alias so
+        # the scorer never falls through to 0.0 silently when sources tag
+        # opps as `contract`.
+        "contract": _comp_floor(comp_floors_raw, "freelance"),
+        "unknown": 0.0,
+    }
 
-    # Ensure embedding exists; compute if missing
-    if rec["embedding"] is None:
-        text = f"{rec['title']} | {(rec['company'] or '')} | {(rec['description'] or '')[:400]}"
-        opp_emb = await embed_one(text)
-        async with acquire() as conn:
-            await conn.execute(
-                "UPDATE opportunities SET embedding = $1::vector WHERE id = $2",
-                opp_emb,
-                opportunity_id,
-            )
-    else:
-        opp_emb = list(rec["embedding"])
 
-    emb_sim = cosine(profile_emb, opp_emb)
-
-    opp = Opportunity(
+def _extract_opportunity_record(rec: Any) -> Opportunity:
+    """Project an asyncpg row from `opportunities` onto the `Opportunity`
+    dataclass that `formula.score` expects. `canonical_url` is unused by the
+    scorer, so we pass an empty placeholder to avoid an extra SELECT column.
+    """
+    return Opportunity(
         source_id=int(rec["source_id"]),
         canonical_url="",  # unused for scoring
         title=rec["title"],
@@ -145,26 +173,35 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
         extraction_confidence=float(rec["extraction_confidence"] or 0),
     )
 
-    weights = await load_weights_async()
-    floors_table = raw["comp_floors"]
-    floors = {
-        "internship": _comp_floor(floors_table, "internship"),
-        "fulltime": _comp_floor(floors_table, "fulltime"),
-        "freelance": _comp_floor(floors_table, "freelance"),
-        "fellowship": _comp_floor(floors_table, "fellowship"),
-        "contract": _comp_floor(floors_table, "freelance"),
-        "unknown": 0.0,
-    }
-    out = score(
-        opp,
-        profile_keywords=set(raw["keywords"]),
-        embedding_sim=emb_sim,
-        source_quality=1.0,
-        response_rate=float(resp_rates.get(int(rec["source_id"]), 0.0)),
-        comp_floors=floors,
-        weights=weights,
-    )
 
+async def _ensure_embedding(rec: Any, opportunity_id: str) -> list[float]:
+    """Return the opp's embedding vector, computing+persisting on cold path.
+
+    Cold path: the extractor failed to seed `embedding` (or this row predates
+    the embedding column being populated). We compute on the spot, write it
+    back so the next score is hot, and return the freshly-computed vector.
+
+    Hot path: `rec['embedding']` is already a pgvector — coerce to list.
+    """
+    if rec["embedding"] is None:
+        text = f"{rec['title']} | {(rec['company'] or '')} | {(rec['description'] or '')[:_OPP_EMBED_DESCRIPTION_CHARS]}"
+        opp_emb = await embed_one(text)
+        async with acquire() as conn:
+            await conn.execute(
+                "UPDATE opportunities SET embedding = $1::vector WHERE id = $2",
+                opp_emb,
+                opportunity_id,
+            )
+        return opp_emb
+    return list(rec["embedding"])
+
+
+async def _persist_score(opportunity_id: str, out: Any) -> None:
+    """UPSERT the (user, opp) row in `opportunity_scores`.
+
+    SQL kept verbatim — Phase 4.2 cutover relies on the
+    `VALUES ($4, $1, $2, $3::jsonb, 'v1')` parameter shape (user_id last).
+    """
     async with acquire() as conn:
         await conn.execute(
             """
@@ -180,15 +217,29 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
             json.dumps(out.components),
             current_tenant(),
         )
+
+
+async def _transition_to_ranked(opportunity_id: str) -> None:
+    """Move an opp out of `new`/`queued` into `ranked` after scoring.
+
+    Predicate kept identical to the pre-refactor version — Phase 1 state
+    machine treats any other source state (e.g. `applied`, `archived`) as a
+    no-op.
+    """
+    async with acquire() as conn:
         await conn.execute(
             "UPDATE opportunities SET state = 'ranked' WHERE id = $1 AND state IN ('new','queued')",
             opportunity_id,
         )
 
-    score_latency_seconds.observe(time.perf_counter() - t0)
 
-    # Priority push if freelance + high score
-    if rec["category"] == "freelance" and out.score >= 0.75:
+async def _maybe_priority_push(q: RedisQ, opportunity_id: str, category: Any, final_score: float) -> None:
+    """Freelance + high score → publish a priority_push to stream:notify.
+
+    Threshold lives in `_PRIORITY_PUSH_SCORE_THRESHOLD` so the digest
+    notifier and this worker can be retuned from one place.
+    """
+    if category == "freelance" and final_score >= _PRIORITY_PUSH_SCORE_THRESHOLD:
         await q.publish(
             Streams.NOTIFY,
             {
@@ -199,6 +250,45 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
         )
 
 
+async def _score_one(q: RedisQ, opportunity_id: str, ctx: _ScoreContext) -> None:
+    t0 = time.perf_counter()
+    async with acquire() as conn:
+        rec = await conn.fetchrow(
+            """
+            SELECT id, source_id, title, company, description, location, remote_type, category,
+                   comp_min, comp_max, comp_currency, comp_period, posted_at, embedding, fingerprint_hash,
+                   apply_url, apply_method, extraction_tier, extraction_confidence
+            FROM opportunities WHERE id = $1
+            """,
+            opportunity_id,
+        )
+    if rec is None:
+        return
+
+    opp_emb = await _ensure_embedding(rec, opportunity_id)
+    emb_sim = cosine(ctx.profile_emb, opp_emb)
+    opp = _extract_opportunity_record(rec)
+
+    weights = await load_weights_async()
+    floors = _floors_from_prefs(ctx.raw["comp_floors"])
+    out = score(
+        opp,
+        profile_keywords=set(ctx.raw["keywords"]),
+        embedding_sim=emb_sim,
+        source_quality=_DEFAULT_SOURCE_QUALITY,
+        response_rate=float(ctx.resp_rates.get(int(rec["source_id"]), 0.0)),
+        comp_floors=floors,
+        weights=weights,
+    )
+
+    await _persist_score(opportunity_id, out)
+    await _transition_to_ranked(opportunity_id)
+
+    score_latency_seconds.observe(time.perf_counter() - t0)
+
+    await _maybe_priority_push(q, opportunity_id, rec["category"], out.score)
+
+
 async def main() -> None:
     await init_pool()
     q = await RedisQ.connect()
@@ -206,14 +296,16 @@ async def main() -> None:
 
     # Refresh response rates every 30 min
     resp_rates: dict[int, float] = await source_response_rates()
+    ctx = _ScoreContext(profile_emb=profile_emb, raw=raw, resp_rates=resp_rates)
 
     async def refresh_rates() -> None:
-        nonlocal resp_rates
+        nonlocal ctx
         while not stop.is_set():
             try:
-                await asyncio.wait_for(stop.wait(), timeout=1800)
+                await asyncio.wait_for(stop.wait(), timeout=_RESPONSE_RATE_REFRESH_SECONDS)
             except TimeoutError:
-                resp_rates = await source_response_rates()
+                new_rates = await source_response_rates()
+                ctx = _ScoreContext(profile_emb=ctx.profile_emb, raw=ctx.raw, resp_rates=new_rates)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -240,7 +332,7 @@ async def main() -> None:
                 )
                 _log.error("rank_contract_violation", payload=msg.fields)
             else:
-                await _score_one(q, opp_id, profile_emb, raw, resp_rates)
+                await _score_one(q, opp_id, ctx)
         except Exception as e:
             _log.exception("ranker_failed", err=str(e))
             await q.dlq(Streams.RANK, msg.msg_id, msg.fields, str(e))

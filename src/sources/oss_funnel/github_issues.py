@@ -1,31 +1,22 @@
 """GitHub Search API client for the OSS contribution funnel.
 
-The funnel hits the public `/search/issues` endpoint with a constant
-query template:
+The funnel hits `/search/issues` with a constant query:
 
     is:open is:issue label:"good first issue" org:<org>
 
-then filters the returned issues against:
+then filters returned issues against:
+  * `updated_at >= NOW() - _STALE_THRESHOLD_DAYS`
+  * `assignees == []`
+  * cap of `limit` issues per company (default 5)
 
-  * `updated_at >= NOW() - 30 days`  (drops likely-abandoned issues)
-  * `assignees == []`                 (someone is already on it)
-  * cap of `limit` issues per company (default 5, prevents one massive
-    monorepo from drowning the digest)
+Each survivor maps to an `Opportunity` via `parse_issue_to_opportunity`;
+the caller pushes it through `extractors.persist.persist_and_publish`.
 
-Each surviving issue is mapped to a canonical `Opportunity` row via
-`parse_issue_to_opportunity` and the caller is expected to push the
-row through `extractors.persist.persist_and_publish` (the same write
-path the freelance Telegram fetcher uses) — that handles dedup,
-opportunities-table upsert, and the Streams.RANK publish.
+Rate-limit handling: authenticated requests get 30 req/min, unauth 10
+req/min. On a rate-limit status (see `_RATE_LIMIT_HTTP_STATUSES`) we
+wait >=`_RETRY_AFTER_FLOOR_S` and retry up to `_RATELIMIT_MAX_RETRIES`.
 
-Rate-limit handling:
-  * Authenticated requests get 30 req/min for /search/issues; unauth
-    gets 10 req/min. Either way we wait ≥`_RETRY_AFTER_FLOOR_S` on a
-    403/429 and retry up to `_RATELIMIT_MAX_RETRIES` times.
-  * We read `X-RateLimit-Remaining` / `X-RateLimit-Reset` headers and
-    refuse subsequent calls early if remaining drops to 0.
-
-Reference: https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests
+Ref: https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests
 """
 
 from __future__ import annotations
@@ -47,52 +38,98 @@ _log = get_logger(__name__)
 
 _GITHUB_SEARCH_URL = "https://api.github.com/search/issues"
 
-# Tunables — kept at module scope so the linter doesn't flag them as
-# inline magic numbers and so retuning is a one-line edit.
+# Tunables — module-scope so they aren't flagged as inline magic
+# numbers and so retuning is a one-line edit.
+
+# Per-request HTTP timeout in seconds. GitHub Search responses are
+# typically <1s; we set a generous ceiling for tail-latency events.
 _HTTP_TIMEOUT_S = 15.0
+
+# Hard floor for retry sleep duration. Even when GitHub asks for less
+# we honour the floor — under aggressive rate-limits the floor
+# guarantees forward progress.
 _RETRY_AFTER_FLOOR_S = 30.0
+
+# Maximum retry attempts after a rate-limit response.
 _RATELIMIT_MAX_RETRIES = 3
-_DEFAULT_PER_PAGE = 30  # GitHub Search returns up to 100/page; 30 covers our limit=5 with headroom.
+
+# GitHub Search returns at most this many items per page.
+_GITHUB_PER_PAGE_CAP = 100
+
+# Our default per_page — well below the cap; covers the default
+# limit=5 with comfortable headroom for client-side filtering.
+_DEFAULT_PER_PAGE = 30
+
+# Issues with `updated_at` older than this many days are considered
+# stale / abandoned and dropped client-side.
 _STALE_THRESHOLD_DAYS = 30
+
+# Opportunity body max chars — prevents pathologically long issue
+# descriptions from blowing up the opportunities table.
 _DESCRIPTION_MAX_CHARS = 1500
+
+# Opportunity title max chars — matches the DB column width.
+_TITLE_MAX_CHARS = 500
+
+# Per-company daily emit cap. Prevents one big monorepo from drowning
+# the digest. Persists across pages via the V016 fingerprint dedupe.
 _DEFAULT_LIMIT = 5
+
+# Rate-limit statuses GitHub uses. 403 is the primary rate-limit
+# signal, 429 is the secondary rate-limit signal.
+_PRIMARY_RATE_LIMIT_STATUS = 403
+_SECONDARY_RATE_LIMIT_STATUS = 429
+_RATE_LIMIT_HTTP_STATUSES = frozenset({_PRIMARY_RATE_LIMIT_STATUS, _SECONDARY_RATE_LIMIT_STATUS})
+
+# Status floor for treating a response as a non-success bail.
+_CLIENT_ERROR_FLOOR = 400
+
+# Cap on how much of an error response body we include in logs.
+_ERROR_BODY_LOG_CHARS = 200
+
+# OppCategory has no OSS_CONTRIBUTION; the V001 CHECK constraint on
+# opportunities.category is locked to {fulltime,internship,fellowship,
+# freelance,contract,unknown}. FREELANCE is the closest semantic fit.
+_OSS_OPP_CATEGORY = OppCategory.FREELANCE
+# Structured API output → high confidence baseline for the ranker.
+_OSS_EXTRACTION_CONFIDENCE = 0.9
 
 
 def fingerprint_for(org: str, repo: str, issue_number: int) -> str:
-    """Deterministic dedup key. Stable across restarts and rate-limit retries.
-
-    The Opportunity write path keys dedup off this hash + canonical_url;
-    `oss:` namespace prefix keeps OSS-funnel emissions from colliding
-    with any other source that might one day hash repo names.
-    """
+    """Deterministic dedup key, `oss:` namespaced."""
     return hashlib.sha256(f"oss:{org}:{repo}:{issue_number}".encode()).hexdigest()
 
 
-def _is_stale(updated_at_iso: str, *, threshold_days: int = _STALE_THRESHOLD_DAYS) -> bool:
-    """True when an issue's `updated_at` is older than `threshold_days`.
+def _parse_iso_timestamp(raw: str) -> datetime | None:
+    """Parse a GitHub `updated_at` stamp, returning None on failure.
 
-    GitHub returns ISO-8601 with a trailing `Z`; we parse with a UTC
-    fallback. Malformed dates are treated as fresh (False) so the
-    funnel never silently drops a parseable issue.
+    Normalises trailing `Z` to `+00:00` for `fromisoformat`
+    compatibility on older Python and attaches UTC if naive.
     """
-    if not updated_at_iso:
-        return False
+    if not raw:
+        return None
     try:
-        # Python's fromisoformat() handles `+00:00` but pre-3.11 chokes on
-        # the trailing `Z`. We normalise once to be Python-version-safe.
-        dt = datetime.fromisoformat(updated_at_iso.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
-        return False
+        return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
+    return dt
+
+
+def _is_stale(updated_at_iso: str, *, threshold_days: int = _STALE_THRESHOLD_DAYS) -> bool:
+    """True when `updated_at` is older than `threshold_days`. Malformed
+    / empty stamps are treated as fresh (False)."""
+    dt = _parse_iso_timestamp(updated_at_iso)
+    if dt is None:
+        return False
     return dt < datetime.now(UTC) - timedelta(days=threshold_days)
 
 
 def _split_repo_url(repo_url: str) -> tuple[str, str]:
-    """('https://api.github.com/repos/vercel/next.js') -> ('vercel', 'next.js').
+    """`...github.com/repos/vercel/next.js` -> `('vercel', 'next.js')`.
 
-    Returns ('', '') for any URL that isn't a github.com repos endpoint
-    (e.g. example.com, malformed URLs, empty strings).
+    Returns `('', '')` for any non-github URL or malformed string.
     """
     if not repo_url or "github.com/repos/" not in repo_url:
         return "", ""
@@ -103,18 +140,10 @@ def _split_repo_url(repo_url: str) -> tuple[str, str]:
     return parts[0], parts[1]
 
 
-def parse_issue_to_opportunity(
+def _extract_issue_identity(
     issue: dict[str, Any],
-    *,
-    source_id: int,
-    company_name: str,
-) -> Opportunity | None:
-    """Map a GitHub Search API issue object to a canonical Opportunity.
-
-    Returns None for malformed payloads (missing url, missing number).
-    The caller is responsible for upstream filtering (stale, assigned,
-    per-company cap).
-    """
+) -> tuple[int, str, str, str] | None:
+    """`(issue_number, html_url, org, repo)` or None for malformed payloads."""
     issue_number = issue.get("number")
     html_url = issue.get("html_url") or ""
     repo_url = issue.get("repository_url") or ""
@@ -123,63 +152,144 @@ def parse_issue_to_opportunity(
     org, repo = _split_repo_url(repo_url)
     if not org or not repo:
         return None
-    title = (issue.get("title") or "").strip() or f"{repo}#{issue_number}"
-    body = (issue.get("body") or "").strip()[:_DESCRIPTION_MAX_CHARS]
+    return issue_number, html_url, org, repo
+
+
+def _build_opp_title(repo: str, issue_number: int, raw_title: str) -> str:
+    """`[OSS] <repo>: <title>`, clipped to `_TITLE_MAX_CHARS`."""
+    title = (raw_title or "").strip() or f"{repo}#{issue_number}"
+    return f"[OSS] {repo}: {title}"[:_TITLE_MAX_CHARS]
+
+
+def _build_opp_description(raw_body: str) -> str | None:
+    """Trim body to `_DESCRIPTION_MAX_CHARS`; None when empty."""
+    body = (raw_body or "").strip()[:_DESCRIPTION_MAX_CHARS]
+    return body or None
+
+
+def _opportunity_from_parts(
+    *,
+    source_id: int,
+    company_name: str,
+    issue_number: int,
+    html_url: str,
+    org: str,
+    repo: str,
+    title: str,
+    description: str | None,
+) -> Opportunity:
+    """Build the canonical Opportunity row. All comp fields stay None
+    (OSS is unpaid); apply_method is EXTERNAL (GitHub web flow)."""
     return Opportunity(
         source_id=source_id,
         canonical_url=html_url,
-        # Title format makes the source obvious in the digest.
-        title=f"[OSS] {repo}: {title}"[:500],
+        title=title,
         company=company_name,
-        description=body or None,
+        description=description,
         comp_min=None,
         comp_max=None,
         comp_currency=None,
         comp_period=None,
         location=None,
         remote_type=RemoteType.REMOTE,
-        # OppCategory has no OSS_CONTRIBUTION value and the V001 CHECK
-        # constraint on opportunities.category is locked to
-        # {fulltime,internship,fellowship,freelance,contract,unknown}.
-        # FREELANCE is the closest semantic fit (unpaid contribution
-        # work, async, contract-like) and the existing ranker already
-        # weights freelance opps differently from full-time roles.
-        # Documenting the choice here so the next reviewer doesn't try
-        # to "fix" it without realising the schema gate.
-        category=OppCategory.FREELANCE,
+        category=_OSS_OPP_CATEGORY,
         posted_at=None,
         apply_url=html_url,
         apply_method=ApplyMethod.EXTERNAL,
         fingerprint_hash=fingerprint_for(org, repo, issue_number),
         extraction_tier=0,
-        extraction_confidence=0.9,  # structured API output, high confidence
+        extraction_confidence=_OSS_EXTRACTION_CONFIDENCE,
+    )
+
+
+def parse_issue_to_opportunity(
+    issue: dict[str, Any],
+    *,
+    source_id: int,
+    company_name: str,
+) -> Opportunity | None:
+    """Map a GitHub Search API issue to a canonical Opportunity.
+
+    Returns None for malformed payloads (missing url/number, non-github
+    `repository_url`). The caller handles upstream filtering (stale,
+    assigned, per-company cap).
+    """
+    identity = _extract_issue_identity(issue)
+    if identity is None:
+        return None
+    issue_number, html_url, org, repo = identity
+    return _opportunity_from_parts(
+        source_id=source_id,
+        company_name=company_name,
+        issue_number=issue_number,
+        html_url=html_url,
+        org=org,
+        repo=repo,
+        title=_build_opp_title(repo, issue_number, issue.get("title") or ""),
+        description=_build_opp_description(issue.get("body") or ""),
     )
 
 
 @dataclass(frozen=True, slots=True)
 class FetchResult:
-    """Result of a single org fetch. `rate_limited=True` means we hit a
-    403 and exhausted retries — caller should NOT count this as an
-    empty result; it should propagate as a soft skip."""
+    """One org fetch. `rate_limited=True` = retries exhausted on a
+    rate-limit; caller should soft-skip, NOT treat as empty result."""
 
     issues: list[dict[str, Any]]
     rate_limited: bool = False
     error: str | None = None
 
 
-class GitHubIssueScanner:
-    """Async client that hits `/search/issues` and filters the result.
+@dataclass(frozen=True, slots=True)
+class _FilterCtx:
+    """Per-call filter parameters. Bundled to keep helper signatures
+    tight (the previous flat-args version pushed `_try_one_attempt`
+    past the 5-param threshold)."""
 
-    Concurrency model: a single shared `httpx.AsyncClient` per scanner
-    instance, opened lazily on first request. The daily cron creates
-    ONE scanner, scans every active target_company sequentially (we
-    deliberately do NOT fan out — the per-minute search rate-limit
-    would torch a parallel batch), and closes the client at the end.
+    org: str
+    limit: int
+    stale_threshold_days: int
+
+
+def _should_keep_issue(item: dict[str, Any], *, stale_threshold_days: int) -> bool:
+    """Drop PRs (Search returns them as 'issues' with a `pull_request`
+    sub-object), already-assigned items, and stale items."""
+    if item.get("pull_request"):
+        return False
+    if item.get("assignees"):
+        return False
+    return not _is_stale(item.get("updated_at") or "", threshold_days=stale_threshold_days)
+
+
+def _filter_issues(
+    items: list[dict[str, Any]],
+    *,
+    limit: int,
+    stale_threshold_days: int,
+) -> list[dict[str, Any]]:
+    """Apply PR / assignee / stale filters and truncate to `limit`."""
+    kept: list[dict[str, Any]] = []
+    for it in items:
+        if not _should_keep_issue(it, stale_threshold_days=stale_threshold_days):
+            continue
+        kept.append(it)
+        if len(kept) >= limit:
+            break
+    return kept
+
+
+class GitHubIssueScanner:
+    """Async client for `/search/issues` with client-side filtering.
+
+    Concurrency: one shared `httpx.AsyncClient` per scanner, opened
+    lazily. The daily cron creates ONE scanner and scans every active
+    target_company SEQUENTIALLY — the per-minute search rate-limit
+    would torch a parallel batch.
     """
 
     def __init__(self, *, token: str | None = None, per_page: int = _DEFAULT_PER_PAGE) -> None:
         self._token = (token or "").strip() or None
-        self._per_page = max(1, min(100, per_page))
+        self._per_page = max(1, min(_GITHUB_PER_PAGE_CAP, per_page))
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> GitHubIssueScanner:
@@ -208,6 +318,87 @@ class GitHubIssueScanner:
             self._client = httpx.AsyncClient(timeout=_HTTP_TIMEOUT_S, headers=headers)
         return self._client
 
+    def _build_search_params(self, org: str) -> dict[str, Any]:
+        """Query string is BYTE-IDENTICAL to the pre-refactor build."""
+        return {
+            "q": f'is:open is:issue label:"good first issue" org:{org}',
+            "sort": "created",
+            "order": "desc",
+            "per_page": self._per_page,
+        }
+
+    async def _request_once(self, params: dict[str, Any]) -> httpx.Response | str:
+        """One GET. Response on success, exception class name on transport failure."""
+        client = await self._ensure_client()
+        try:
+            return await client.get(_GITHUB_SEARCH_URL, params=params)
+        except httpx.HTTPError as e:
+            return e.__class__.__name__
+
+    async def _wait_for_rate_limit(self, resp: httpx.Response, *, org: str, attempt: int) -> None:
+        """Log + sleep `_retry_after_seconds(resp)` on a rate-limit response."""
+        reset = self._retry_after_seconds(resp)
+        _log.warning(
+            "oss_funnel_rate_limited",
+            org=org,
+            status=resp.status_code,
+            retry_after_s=reset,
+            attempt=attempt + 1,
+        )
+        await asyncio.sleep(reset)
+
+    @staticmethod
+    def _parse_json_payload(resp: httpx.Response, *, org: str) -> list[dict[str, Any]] | str:
+        """Decode items array; returns 'bad_json' string on decode failure."""
+        try:
+            payload = resp.json()
+        except ValueError as e:
+            _log.warning("oss_funnel_bad_json", org=org, err=str(e))
+            return "bad_json"
+        return payload.get("items") or []
+
+    def _classify_response(self, resp: httpx.Response, ctx: _FilterCtx) -> FetchResult:
+        """Map a non-rate-limit response to a terminal `FetchResult`."""
+        if resp.status_code >= _CLIENT_ERROR_FLOOR:
+            _log.warning(
+                "oss_funnel_bad_status",
+                org=ctx.org,
+                status=resp.status_code,
+                body=resp.text[:_ERROR_BODY_LOG_CHARS],
+            )
+            return FetchResult(issues=[], error=f"status:{resp.status_code}")
+        items = self._parse_json_payload(resp, org=ctx.org)
+        if isinstance(items, str):
+            return FetchResult(issues=[], error=items)
+        kept = _filter_issues(
+            items,
+            limit=ctx.limit,
+            stale_threshold_days=ctx.stale_threshold_days,
+        )
+        return FetchResult(issues=kept)
+
+    async def _try_one_attempt(
+        self,
+        params: dict[str, Any],
+        ctx: _FilterCtx,
+        attempt: int,
+    ) -> FetchResult | None:
+        """One GET + classify. Returns terminal `FetchResult` or None
+        to signal 'rate-limited, please retry'. Mirrors pre-refactor
+        flow: on the FINAL attempt we surface `rate_limited=True`
+        immediately without sleeping."""
+        outcome = await self._request_once(params)
+        if isinstance(outcome, str):
+            _log.warning("oss_funnel_http_error", org=ctx.org, err=outcome)
+            return FetchResult(issues=[], error=f"http:{outcome}")
+        resp = outcome
+        if resp.status_code in _RATE_LIMIT_HTTP_STATUSES:
+            if attempt >= _RATELIMIT_MAX_RETRIES:
+                return FetchResult(issues=[], rate_limited=True)
+            await self._wait_for_rate_limit(resp, org=ctx.org, attempt=attempt)
+            return None
+        return self._classify_response(resp, ctx)
+
     async def fetch_company_issues(
         self,
         org: str,
@@ -215,113 +406,58 @@ class GitHubIssueScanner:
         limit: int = _DEFAULT_LIMIT,
         stale_threshold_days: int = _STALE_THRESHOLD_DAYS,
     ) -> FetchResult:
-        """Return up to `limit` non-stale, unassigned issues for `org`.
+        """Up to `limit` non-stale, unassigned issues for `org`.
 
-        Filtering happens client-side (the GitHub Search query
-        already enforces `is:open is:issue label:"good first issue"`
-        but does NOT filter on assignee or staleness).
+        Server-side filters: `is:open is:issue label:"good first issue"`.
+        Client-side filters: PR/assignee/stale (in `_filter_issues`).
         """
         if not org or not org.strip():
             return FetchResult(issues=[], error="empty_org")
-        q = f'is:open is:issue label:"good first issue" org:{org}'
-        params = {
-            "q": q,
-            "sort": "created",
-            "order": "desc",
-            "per_page": self._per_page,
-        }
-
-        client = await self._ensure_client()
-
+        params = self._build_search_params(org)
+        ctx = _FilterCtx(org=org, limit=limit, stale_threshold_days=stale_threshold_days)
         for attempt in range(_RATELIMIT_MAX_RETRIES + 1):
-            try:
-                resp = await client.get(_GITHUB_SEARCH_URL, params=params)
-            except httpx.HTTPError as e:
-                _log.warning("oss_funnel_http_error", org=org, err=str(e))
-                return FetchResult(issues=[], error=f"http:{e.__class__.__name__}")
-
-            # 403 here is overwhelmingly rate-limit. GitHub also returns
-            # 429 for secondary rate-limits — handle both.
-            if resp.status_code in {403, 429}:
-                reset = self._retry_after_seconds(resp)
-                _log.warning(
-                    "oss_funnel_rate_limited",
-                    org=org,
-                    status=resp.status_code,
-                    retry_after_s=reset,
-                    attempt=attempt + 1,
-                )
-                if attempt >= _RATELIMIT_MAX_RETRIES:
-                    return FetchResult(issues=[], rate_limited=True)
-                await asyncio.sleep(reset)
-                continue
-
-            if resp.status_code >= 400:
-                _log.warning(
-                    "oss_funnel_bad_status",
-                    org=org,
-                    status=resp.status_code,
-                    body=resp.text[:200],
-                )
-                return FetchResult(issues=[], error=f"status:{resp.status_code}")
-
-            try:
-                payload = resp.json()
-            except ValueError as e:
-                _log.warning("oss_funnel_bad_json", org=org, err=str(e))
-                return FetchResult(issues=[], error="bad_json")
-
-            items = payload.get("items") or []
-            kept: list[dict[str, Any]] = []
-            for it in items:
-                # GitHub Search returns PRs as "issues" too; filter them out.
-                if it.get("pull_request"):
-                    continue
-                if it.get("assignees"):
-                    continue
-                if _is_stale(it.get("updated_at") or "", threshold_days=stale_threshold_days):
-                    continue
-                kept.append(it)
-                if len(kept) >= limit:
-                    break
-            return FetchResult(issues=kept)
-
-        # Unreachable: the for-loop either returns or breaks via the
-        # retry-cap branch above. Belt-and-suspenders for the type-checker.
+            result = await self._try_one_attempt(params, ctx, attempt)
+            if result is not None:
+                return result
+        # Retry budget exhausted on rate-limit retries.
         return FetchResult(issues=[], rate_limited=True)
 
     @staticmethod
-    def _retry_after_seconds(resp: httpx.Response) -> float:
-        """Resolve the wait interval from GitHub's headers.
+    def _retry_after_from_header(value: str | None) -> float | None:
+        """Parse `Retry-After`. None if absent/unparseable."""
+        if not value:
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
 
-        Preference order: explicit `Retry-After` > `X-RateLimit-Reset`
-        delta > a conservative floor. Never returns 0 — the floor
-        guarantees forward progress under aggressive limits.
-        """
-        retry_after = resp.headers.get("Retry-After")
-        if retry_after:
-            try:
-                return max(_RETRY_AFTER_FLOOR_S, float(retry_after))
-            except ValueError:
-                pass
-        reset = resp.headers.get("X-RateLimit-Reset")
-        if reset:
-            try:
-                # X-RateLimit-Reset is a UTC epoch second
-                wait = float(reset) - datetime.now(UTC).timestamp()
-                if wait > 0:
-                    return max(_RETRY_AFTER_FLOOR_S, wait)
-            except ValueError:
-                pass
+    @staticmethod
+    def _retry_after_from_reset(value: str | None) -> float | None:
+        """Parse `X-RateLimit-Reset` (UTC epoch second) → delta from now.
+        None if absent, unparseable, or in the past."""
+        if not value:
+            return None
+        try:
+            wait = float(value) - datetime.now(UTC).timestamp()
+        except ValueError:
+            return None
+        return wait if wait > 0 else None
+
+    @classmethod
+    def _retry_after_seconds(cls, resp: httpx.Response) -> float:
+        """Wait interval: `Retry-After` > `X-RateLimit-Reset` > floor.
+        Never returns 0 — the floor guarantees forward progress."""
+        explicit = cls._retry_after_from_header(resp.headers.get("Retry-After"))
+        if explicit is not None:
+            return max(_RETRY_AFTER_FLOOR_S, explicit)
+        reset = cls._retry_after_from_reset(resp.headers.get("X-RateLimit-Reset"))
+        if reset is not None:
+            return max(_RETRY_AFTER_FLOOR_S, reset)
         return _RETRY_AFTER_FLOOR_S
 
 
 async def open_scanner() -> GitHubIssueScanner:
-    """Helper for callers — wire up token from settings + open client.
-
-    Callers should `await open_scanner()` then `async with` the result
-    (or remember to `await scanner.aclose()`). Kept as a separate
-    factory so tests can pass `token=""` without touching settings.
-    """
+    """Wire up token from settings; tests pass `token=""` directly."""
     settings = get_settings()
     return GitHubIssueScanner(token=settings.github_token)
