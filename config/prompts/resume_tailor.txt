@@ -22,4 +22,4 @@ Rules:
 - No commentary, no apologies, no preface. JSON output only.
 
 Output STRICT JSON, no markdown fences:
-{"edits": [{"id": "<block_id>", "bullets": ["<rewritten bullet 1>", "<rewritten bullet 2>", "..."]}, ...]}
+{{"edits": [{{"id": "<block_id>", "bullets": ["<rewritten bullet 1>", "<rewritten bullet 2>", "..."]}}, ...]}}

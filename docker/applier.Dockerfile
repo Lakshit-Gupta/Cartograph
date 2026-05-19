@@ -77,4 +77,13 @@ RUN mkdir -p /var/lib/tectonic /tmp/warm \
 
 ENV XDG_CACHE_HOME=/var/lib/tectonic
 
+# Pre-create the resume_artifacts directory with chown 1000:1000 so the
+# named volume (see compose.yaml `resume_artifacts:`) inherits the right
+# perms on first docker-volume init. Without this, the volume mount lands
+# as root:root and the read_only-rootfs + user:1000 sandbox can't write
+# to it. compose.yaml MUST mount this path as a named volume, not a host
+# bind, or the chown is invisible.
+RUN mkdir -p /var/lib/agent/resume_artifacts \
+    && chown -R 1000:1000 /var/lib/agent
+
 USER 1000

@@ -201,7 +201,12 @@ services:
       MP_RESUME_LATEX_ENABLED: ${mp_resume_latex_enabled:-false}
     volumes:
       - /var/lib/agent/logs:/app/logs
-      - /var/lib/agent/resume_artifacts:/var/lib/agent/resume_artifacts
+      # Named volume (not host bind) so docker initialises perms from the
+      # image's /var/lib/agent/resume_artifacts directory which we create
+      # with chown 1000:1000 in docker/applier.Dockerfile. A host bind
+      # would inherit /var/lib/agent/resume_artifacts root:root perms and
+      # break the read_only-rootfs + user 1000 sandbox.
+      - resume_artifacts:/var/lib/agent/resume_artifacts
       - tectonic_cache:/var/lib/tectonic
     read_only: true
     tmpfs:
@@ -312,6 +317,10 @@ volumes:
   # tectonic font + package bundle. Pre-warmed inside applier.Dockerfile so
   # cold compiles stay under ~2s. Volume survives image rebuilds.
   tectonic_cache:
+  # Tailored / fallback resume PDFs. Named volume (not host bind) so docker
+  # inherits the image's chown-1000:1000 perms on /var/lib/agent/resume_artifacts
+  # — works under the applier-worker's cap_drop:ALL + read_only-rootfs sandbox.
+  resume_artifacts:
 
 networks:
   internal:

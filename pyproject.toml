@@ -51,6 +51,7 @@ dependencies = [
     "structlog>=24.4.0",
     "tzdata>=2024.1",
     "pylatexenc>=2.10",
+    "telethon>=1.43.2",
 ]
 
 [project.optional-dependencies]
@@ -133,6 +134,12 @@ ignore = [
 # one-off verification (the tests are async only because asyncio_mode=auto,
 # not because they need an event loop for the body).
 "tests/application/test_compile.py" = ["ASYNC240", "ASYNC221"]
+# One-shot Telethon CLI prompts for phone + OTP. Synchronous input() inside
+# an async function is the only practical option — there's no aio-stdin in
+# the stdlib and pulling aioconsole for a single auth flow is overkill.
+# SIM112: SOPS-decrypted env keys are lowercase by project convention
+# (secrets.yaml keys map verbatim to env names); don't uppercase here.
+"scripts/telegram_auth.py" = ["ASYNC250", "SIM112"]
 
 [tool.mypy]
 python_version = "3.11"

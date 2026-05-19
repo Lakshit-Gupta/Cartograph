@@ -149,8 +149,10 @@ async def write_cover(
     template_md = _read_template(template_name)
 
     prompt_template = load_prompt("cover_letter.txt")
-    profile_json = profile_summary if isinstance(profile_summary, str) else json.dumps(profile_summary)[:3000]
-    opp_json = json.dumps(_opp_summary_for_prompt(opp))
+    profile_json = profile_summary if isinstance(profile_summary, str) else json.dumps(profile_summary, default=str)[:3000]
+    # `default=str` so Decimal columns (comp_min / comp_max) round-trip as strings
+    # instead of raising "Object of type Decimal is not JSON serializable".
+    opp_json = json.dumps(_opp_summary_for_prompt(opp), default=str)
 
     system = prompt_template.format(
         profile_summary="<see PROFILE block>",
