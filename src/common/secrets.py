@@ -199,6 +199,14 @@ class Settings(BaseSettings):
     mp_cdp_sidecar_enabled: bool = False
     cdp_sidecar_endpoint: str = ""
 
+    # Phase 5.2 — PostgREST JWT secret. Empty string disables JWT (current
+    # state: solo Tailscale-only deployment, views hardcode user_id=1).
+    # Phase 4.2 sequel will populate this so multi-tenant JWTs minted by
+    # api-service can claim `user_id` and the views can re-read it via
+    # `current_setting('request.jwt.claims', true)::json ->> 'user_id'`.
+    # See V019 + src/api/dashboard.py for the current contract.
+    postgrest_jwt_secret: str = ""
+
     # Misc
     obsidian_vault_path: str = "/vault"
     config_root: str = Field(default_factory=lambda: str(Path(__file__).resolve().parents[2] / "config"))

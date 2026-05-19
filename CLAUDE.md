@@ -806,8 +806,12 @@ Scope-cut 2026-05-19 (user directive). Free-only; paid items behind flag/addon.
 
 Scope-cut 2026-05-19. Only 5.2 + 5.3 are worthy. Free-only.
 
-- **5.2 Web dashboard** (Next.js + PostgREST views over Postgres). Free
-  hosting target (Vercel free tier + PostgREST in compose).
+- **5.2 Web dashboard** (SHIPPED 2026-05-19). Read-only PostgREST over
+  `dash.v_*` views (V019), reverse-proxied by the existing FastAPI
+  api-service so the browser makes same-origin requests. Static
+  vanilla-JS frontend at `dashboard/` — no Node, no build step, no
+  Vercel. Tailscale-only ingress: no host port mapping on PostgREST.
+  See `docs/runbooks/dashboard.md`.
 - **5.3 Advanced ranker** (SHIPPED 2026-05-19). Nightly L2 logistic
   regression over the six ranker components (kw_match, embedding_sim,
   comp_score, freshness, source_quality, response_rate) using the last

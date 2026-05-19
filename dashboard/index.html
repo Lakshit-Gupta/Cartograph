@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Cartograph</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar" role="banner">
+    <div class="brand">
+      <span class="status-dot" id="status-dot" data-state="boot" title="boot"></span>
+      <span class="brand-name">cartograph</span>
+      <span class="brand-sub" id="last-fetch" aria-live="polite">--:--:--</span>
+    </div>
+    <nav class="tabs" id="tabs" role="navigation" aria-label="Primary">
+      <a href="#overview"     data-tab="overview">overview</a>
+      <a href="#opps"         data-tab="opps">opps</a>
+      <a href="#applications" data-tab="applications">apps</a>
+      <a href="#costs"        data-tab="costs">cost</a>
+      <a href="#sources"      data-tab="sources">sources</a>
+      <a href="#refits"       data-tab="refits">refits</a>
+    </nav>
+    <div class="topbar-actions">
+      <label class="toggle" title="auto-refresh every 60s">
+        <input type="checkbox" id="auto-refresh" checked>
+        <span>auto</span>
+      </label>
+      <button id="refresh-btn" class="btn-icon" title="refresh now" aria-label="refresh">&#x21bb;</button>
+      <button id="theme-btn"   class="btn-icon" title="toggle theme" aria-label="theme">&#x25D1;</button>
+    </div>
+  </header>
+
+  <div id="error-banner" class="error-banner" hidden role="alert"></div>
+
+  <main id="view" class="view" aria-live="polite">
+    <div class="placeholder">loading&hellip;</div>
+  </main>
+
+  <footer class="footer">
+    <span>read-only &middot; tailscale-only &middot; internal</span>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
