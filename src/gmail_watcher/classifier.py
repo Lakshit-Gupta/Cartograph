@@ -2,18 +2,46 @@
 
 Strips signatures + quoted text, builds a fenced prompt, calls chat_json.
 On any failure returns the 'unrelated/ignore' fallback so callers can keep going.
+
+Phase 2.1 addition (cold-outreach lane):
+    `resolve_lane(msg)` probes the In-Reply-To / References headers against
+    `outbound_messages.thread_id` and returns "outbound_messages" when the
+    incoming reply chains back to a cold email we sent. Returns "applications"
+    when the message-id matches a tracked application, or "unknown" when
+    neither is found. Used by the gmail watcher to route mark_rejected /
+    mark_replied verdicts into the correct table without breaking the
+    existing applications path.
+
+    `apply_outbound_outcome(...)` updates outbound_messages.response_status
+    + response_at when a cold-outreach reply is matched. Called by the
+    watcher AFTER `classify()` returns a verdict.
 """
 
 from __future__ import annotations
 
 import re
 from email.message import Message
-from typing import Any
+from typing import Any, Literal
 
+from src.common.db import execute, fetch_one
 from src.common.llm import chat_json, fence_untrusted, load_prompt
 from src.common.logger import get_logger
 
 _log = get_logger(__name__)
+
+# Mapping from classifier `next_action` to outbound_messages.response_status.
+# The set is intentionally narrower than _OUTCOME_MAP in state_writer.py
+# because cold-outreach has no "interview" / "offer" semantics — the
+# recipient either replied (positive or negative) or didn't.
+_OUTBOUND_STATUS_MAP: dict[str, str] = {
+    "mark_rejected": "rejected",
+    "mark_interview": "replied",  # any positive reply counts as a hit
+    "mark_offer": "replied",
+    "create_thread_response": "replied",
+    "surface_to_user": "replied",
+}
+
+LaneResult = Literal["applications", "outbound_messages", "unknown"]
 
 # Common signature / quoted-reply boundaries.
 _SIG_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -130,3 +158,96 @@ async def classify(msg: Message) -> dict[str, Any]:
     except Exception as e:
         _log.warning("classifier_failed", err=str(e))
         return dict(_FALLBACK)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.1 — cold-outreach lane resolution.
+# ---------------------------------------------------------------------------
+
+
+def _message_id_candidates(msg: Message) -> list[str]:
+    """Pull every Message-ID this reply chains back to."""
+    in_reply = (msg.get("In-Reply-To") or "").strip() or None
+    refs_raw = msg.get("References") or ""
+    refs = [r.strip() for r in refs_raw.split() if r.strip()]
+    return [m for m in [in_reply, *refs] if m]
+
+
+async def resolve_lane(msg: Message) -> tuple[LaneResult, int | None]:
+    """Identify which outbound lane (if any) the reply belongs to.
+
+    Returns:
+        ("outbound_messages", outbound_id) when the In-Reply-To / References
+            chain matches an `outbound_messages.thread_id`.
+        ("applications", application_id) when the chain matches an
+            `applications.payload->>'message_id'`.
+        ("unknown", None) otherwise.
+
+    Probes outbound_messages FIRST because:
+      (a) cold-outreach is the newer lane and we want to be sure replies
+          land in the right table;
+      (b) the index `idx_outbound_thread_id` is partial and tiny.
+
+    Never raises. On DB error returns ("unknown", None) so the caller can
+    still apply the applications fallback path.
+    """
+    candidates = _message_id_candidates(msg)
+    if not candidates:
+        return "unknown", None
+    try:
+        rec = await fetch_one(
+            """
+            SELECT id
+            FROM outbound_messages
+            WHERE thread_id = ANY($1::text[])
+            ORDER BY sent_at DESC
+            LIMIT 1
+            """,
+            candidates,
+        )
+        if rec is not None:
+            return "outbound_messages", int(rec["id"])
+
+        rec = await fetch_one(
+            """
+            SELECT id
+            FROM applications
+            WHERE payload ? 'message_id'
+              AND payload->>'message_id' = ANY($1::text[])
+            ORDER BY sent_at DESC
+            LIMIT 1
+            """,
+            candidates,
+        )
+        if rec is not None:
+            return "applications", int(rec["id"])
+    except Exception as e:
+        _log.warning("resolve_lane_db_failed", err=str(e))
+    return "unknown", None
+
+
+async def apply_outbound_outcome(outbound_id: int, classification: dict[str, Any]) -> bool:
+    """Update outbound_messages.response_status from a classifier verdict.
+
+    Returns True when a row was updated. Never raises.
+    """
+    next_action = str(classification.get("next_action") or "ignore")
+    status = _OUTBOUND_STATUS_MAP.get(next_action)
+    if status is None:
+        return False
+    try:
+        await execute(
+            """
+            UPDATE outbound_messages
+               SET response_status = $1,
+                   response_at     = NOW()
+             WHERE id = $2
+               AND (response_status IS NULL OR response_status = 'pending')
+            """,
+            status,
+            outbound_id,
+        )
+        return True
+    except Exception as e:
+        _log.warning("apply_outbound_outcome_failed", outbound_id=outbound_id, err=str(e))
+        return False
