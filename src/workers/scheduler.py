@@ -116,6 +116,31 @@ async def emit_apply_rate_nudge(q: RedisQ) -> None:
         )
 
 
+async def emit_daily_followup_scan(q: RedisQ) -> None:
+    """Phase 2.3 — 13:00 IST follow-up scan.
+
+    Calls ``daily_followup_scan`` which scans applications older than
+    the configured window, drafts follow-ups via LLM, persists draft
+    rows, and publishes ``kind=followup_ready`` onto Streams.NOTIFY so
+    the Discord notifier surfaces them with Send / Edit / Skip buttons.
+
+    Idempotent: the UNIQUE(application_id) constraint on followups means
+    running this twice in the same day is a no-op for already-drafted
+    rows. The feature flag (settings.mp_followup_enabled) gates the
+    entire scan inside find_eligible_applications.
+    """
+    try:
+        from src.application.followup import daily_followup_scan
+    except Exception as e:
+        _log.warning("followup_module_import_failed", err=str(e))
+        return
+    try:
+        stats = await daily_followup_scan(q)
+        _log.info("followup_cron_tick", **stats)
+    except Exception as e:
+        _log.exception("followup_cron_failed", err=str(e))
+
+
 async def main() -> None:
     await init_pool()
     q = await RedisQ.connect()
@@ -133,6 +158,16 @@ async def main() -> None:
         minutes=1,
         args=[scheduler],
         id="reload_digest_schedule",
+    )
+    # Phase 2.3 — daily follow-up scan at 13:00 Asia/Kolkata. CronTrigger
+    # carries an explicit timezone so the scheduler's UTC default doesn't
+    # drift the send window after DST changes (India doesn't observe DST,
+    # but the explicit binding keeps the contract clear).
+    scheduler.add_job(
+        emit_daily_followup_scan,
+        CronTrigger(hour=13, minute=0, timezone="Asia/Kolkata"),
+        args=[q],
+        id="daily_followup_scan",
     )
     scheduler.start()
     _log.info("scheduler_started", now=datetime.now(UTC).isoformat())

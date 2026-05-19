@@ -37,6 +37,11 @@ x-env-common: &env-common
   COST_CAP_DAILY_USD: ${cost_cap_daily_usd}
   COST_CAP_DAILY_KILL_USD: ${cost_cap_daily_kill_usd}
   FLARESOLVERR_URL: ${flaresolverr_url}
+  # Phase 2.3 follow-up automation — flag-gated rollout. When false the
+  # daily 13:00 IST cron drafts nothing and the Send button refuses.
+  MP_FOLLOWUP_ENABLED: ${mp_followup_enabled:-false}
+  FOLLOWUP_WINDOW_DAYS: ${followup_window_days:-4}
+  FOLLOWUP_DAILY_CAP: ${followup_daily_cap:-30}
   PYTHONUNBUFFERED: "1"
   TZ: ${TZ:-Asia/Kolkata}
 
