@@ -55,17 +55,46 @@ if [[ "$SKIP_BROWSER" != "1" ]]; then
   OWNED_IMAGES+=( "marked_path-camoufox-worker:latest|docker/camoufox.Dockerfile|." )
 fi
 
-# Buildx + binfmt-misc setup (idempotent). We need a builder that can target
-# linux/arm64 from this x86_64 host. The default `docker` driver doesn't
-# support multi-platform; we make a dedicated `docker-container` builder.
-BUILDER_NAME="cartograph-cross"
+# Buildx setup (idempotent). Two paths:
+#   * If the host's Docker daemon runs with the containerd snapshotter
+#     (modern Docker Desktop / Docker CE with `features.containerd-snapshotter`
+#     enabled), the DEFAULT `docker` driver supports multi-platform builds
+#     directly via the host's image store. This is faster + reuses the host's
+#     network/DNS + the local image cache, so we prefer it.
+#   * Otherwise we fall back to a dedicated `docker-container` driver builder.
+#     The docker-container builder has its own isolated cache + network — slower
+#     to warm + occasionally flaky DNS — but works on stock daemons.
+#
+# Override the auto-detect via `BUILDER_NAME=foo BUILDER_DRIVER=docker-container`.
+BUILDER_NAME="${BUILDER_NAME:-}"
+BUILDER_DRIVER="${BUILDER_DRIVER:-}"
 
 ensure_buildx() {
   echo "==> ensuring buildx + qemu emulators"
   # Install qemu-user-static binfmt entries. Idempotent.
   docker run --privileged --rm tonistiigi/binfmt --install arm64 >/dev/null 2>&1 || true
-  if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
-    docker buildx create --name "$BUILDER_NAME" --driver docker-container --use >/dev/null
+
+  if [[ -z "$BUILDER_NAME" ]]; then
+    # Auto-detect: containerd snapshotter -> use default builder.
+    if docker info --format '{{.DriverStatus}}' 2>/dev/null | grep -q "io.containerd.snapshotter.v1"; then
+      BUILDER_NAME="default"
+      echo "==>   containerd snapshotter detected, using default docker driver"
+    else
+      BUILDER_NAME="cartograph-cross"
+      BUILDER_DRIVER="docker-container"
+    fi
+  fi
+
+  if [[ "$BUILDER_NAME" != "default" ]]; then
+    if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
+      # `network=host` so the builder uses the host's DNS — otherwise the
+      # docker-container builder's isolated resolver can EAI_AGAIN on
+      # files.pythonhosted.org / ghcr.io.
+      docker buildx create --name "$BUILDER_NAME" \
+        --driver "${BUILDER_DRIVER:-docker-container}" \
+        --driver-opt network=host \
+        --use >/dev/null
+    fi
   fi
   docker buildx use "$BUILDER_NAME" >/dev/null
   docker buildx inspect --bootstrap >/dev/null
