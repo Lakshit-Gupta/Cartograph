@@ -69,11 +69,72 @@ class RedisQ:
         return self._r
 
     async def ensure_group(self, stream: str, group: str) -> None:
+        """Idempotent consumer-group bootstrap.
+
+        WHY THE PROBE: `XGROUP CREATE ... MKSTREAM` is a WRITE command even
+        when the group already exists — Redis rejects it under `noeviction`
+        when `used_memory >= maxmemory` with `OutOfMemoryError`, *before*
+        evaluating whether BUSYGROUP would have applied. That bug caused
+        the entire crawler / camoufox-worker tier to restart-loop forever:
+        every boot called `consume()` → `ensure_group()` → OOM → process
+        exit → docker restart → same OOM. Symptom was indistinguishable
+        from a "real" crash because the OOM trace landed inside the redis
+        retry layer, not at the BUSYGROUP branch.
+
+        FIX: probe with the read-only `XINFO GROUPS` first. The probe
+        never writes, so it succeeds even when Redis is OOM. We only
+        attempt the (write) `XGROUP CREATE` when the group is genuinely
+        absent. If the write still fails with OOM (e.g. the stream itself
+        does not exist yet so MKSTREAM is required), we tolerate it with
+        bounded backoff so that as soon as another producer XADDs and
+        Redis frees a slot we can advance — instead of restart-spinning.
+        """
+        # Fast path: probe with the read-only XINFO GROUPS. Works at OOM.
         try:
-            await self._r.xgroup_create(stream, group, id="$", mkstream=True)
+            groups = await self._r.xinfo_groups(stream)
+            if any(g.get("name") == group for g in groups):
+                return
         except Exception as e:
-            if "BUSYGROUP" not in str(e):
+            # Stream missing → XINFO returns `no such key`. Fall through to
+            # the create path; MKSTREAM will materialise the stream itself.
+            if "no such key" not in str(e).lower():
+                _log.warning("xinfo_groups_failed", stream=stream, err=str(e))
+
+        # Group is absent (or stream is absent). Now we actually need a
+        # write. Tolerate OOM with bounded backoff so the worker doesn't
+        # die on cold-start memory pressure — once Redis frees a byte the
+        # next attempt will succeed. Total bounded wait: ~7s (0.5+1+2+4).
+        for attempt in range(4):
+            try:
+                await self._r.xgroup_create(stream, group, id="$", mkstream=True)
+                return
+            except Exception as e:
+                msg = str(e)
+                if "BUSYGROUP" in msg:
+                    return
+                if "OOM" in msg or "used memory" in msg.lower():
+                    _log.warning(
+                        "xgroup_create_oom_retry",
+                        stream=stream,
+                        group=group,
+                        attempt=attempt,
+                    )
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    # Re-probe — a sibling worker may have created the
+                    # group in the meantime, in which case we're done.
+                    try:
+                        groups = await self._r.xinfo_groups(stream)
+                        if any(g.get("name") == group for g in groups):
+                            return
+                    except Exception:
+                        pass
+                    continue
                 raise
+        # Out of retries. Re-raise the last OOM so the supervisor can alert,
+        # but only after we've spent ~7s — not the ~10ms previous behaviour.
+        raise RuntimeError(
+            f"ensure_group({stream=}, {group=}) failed after 4 OOM retries; Redis is at maxmemory cap. XTRIM streams or raise maxmemory."
+        )
 
     # Per-stream MAXLEN caps. Redis is configured with maxmemory=200mb and
     # maxmemory-policy=noeviction (CLAUDE.md durability spec — under
@@ -155,12 +216,35 @@ class RedisQ:
         await self._r.xack(stream, group, msg_id)
 
     async def dlq(self, src_stream: str, msg_id: str, payload: dict[str, Any], err: str) -> None:
-        await self._r.xadd(
-            Streams.DLQ,
-            {"data": json.dumps({"src": src_stream, "msg_id": msg_id, "payload": payload, "err": err}, default=str)},
-            maxlen=self._MAXLEN.get(Streams.DLQ, self._DEFAULT_MAXLEN),
-            approximate=True,
-        )
+        """Best-effort dead-letter sink.
+
+        Callers reach this from an `except` branch — if dlq itself raises,
+        the worker dies and docker restarts it, which is exactly the loop
+        we are trying to avoid. Under Redis OOM (`maxmemory` cap +
+        `noeviction`) XADD is rejected, so we MUST swallow OutOfMemoryError
+        here and merely log it. The original message stays unacked in the
+        source stream and will be re-delivered to a sibling consumer via
+        `XAUTOCLAIM` once memory frees. Worst case: a buggy message gets
+        re-tried until DLQ is writable again — but the worker stays alive.
+        """
+        try:
+            await self._r.xadd(
+                Streams.DLQ,
+                {"data": json.dumps({"src": src_stream, "msg_id": msg_id, "payload": payload, "err": err}, default=str)},
+                maxlen=self._MAXLEN.get(Streams.DLQ, self._DEFAULT_MAXLEN),
+                approximate=True,
+            )
+        except Exception as e:
+            # OOM is the expected failure under maxmemory pressure; anything
+            # else is also non-fatal at this layer — the source message is
+            # still in-flight on `src_stream` and will be reclaimed.
+            _log.error(
+                "dlq_write_failed",
+                src_stream=src_stream,
+                msg_id=msg_id,
+                err=str(e),
+                original_err=err,
+            )
 
 
 def _decode(fields: dict[str, Any]) -> dict[str, Any]:

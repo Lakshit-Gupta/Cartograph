@@ -759,6 +759,7 @@ Full review records: ephemeral specialist agents; key amendments folded above.
 | Migration runner aborts mid-chain (e.g. file N fails) | `_format_pg_error` prints `file:line:col` + caret + class name | Fix SQL, re-run `make migrate` — no volume wipe, picks up at file N | 0 (file N's BEGIN/COMMIT rolled back, V1..V(N-1) intact) |
 | Concurrent `migrate` runners race | `pg_advisory_lock(727274)` held for full loop | Second runner blocks until first releases (or first conn drops → auto-release) | 0 |
 | Redis at maxmemory cap (200MB) → `noeviction` blocks all `XADD` | `OutOfMemoryError` in `RedisQ.publish` | Per-stream MAXLEN caps in `src/common/queue.py` keep streams bounded; manual `XTRIM stream:<name> MAXLEN <n>` recovers headroom if slow consumer (e.g. ranker on cold start) lets cap drift. | 0 |
+| Worker restart loop on cold start under Redis OOM (`crawler-worker` + `camoufox-worker` were the canaries) | All N replicas Restarting (1) → `redis.exceptions.OutOfMemoryError` traces inside `RedisQ.ensure_group` / `RedisQ.dlq` on every boot | `ensure_group` probes via read-only `XINFO GROUPS` first and only issues the write (`XGROUP CREATE MKSTREAM`) when the group is genuinely absent; falls back to bounded OOM retry (~7s) for true cold-start. `dlq` is best-effort under OOM (logs `dlq_write_failed`, lets the message stay in-flight for `XAUTOCLAIM`). Rebuild the affected service against the patched image — DO NOT skip the `--build` flag, the patch lives in `src/common/queue.py`. | 0 |
 
 ---
 
