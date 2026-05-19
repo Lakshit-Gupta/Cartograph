@@ -327,6 +327,35 @@ async def _process(q: RedisQ, payload: dict[str, Any]) -> None:
     _log.info("applier_action_done", action=action, opp_id=payload.get("opp_id"))
 
 
+async def _warm_fallback_pdf_if_enabled() -> None:
+    """Pre-compile the untailored resume PDF at worker boot.
+
+    Without this, `_send_with_latex` has no fallback to attach when a
+    tailored compile fails (sanitizer reject, render bug, source drift,
+    package fetch timeout). The compile takes ~5 s on cold cache and is
+    cached on disk afterward; subsequent appliers reuse the cached PDF.
+
+    Skipped silently when MP_RESUME_LATEX_ENABLED is false.
+    """
+    from src.application.sender import _manifest_path, _resume_root, is_latex_enabled
+
+    if not is_latex_enabled():
+        return
+    try:
+        from src.application.resume_latex.fallback import warm_fallback_pdf
+        from src.application.resume_latex.parser.manifest import load as load_manifest
+
+        manifest = load_manifest(_manifest_path())
+        path = await warm_fallback_pdf(user_id=1, resume_root=_resume_root(), main_file=manifest.main_file)
+    except Exception as e:
+        _log.warning("fallback_warmup_failed", err=str(e))
+        return
+    if path is None:
+        _log.warning("fallback_warmup_returned_none")
+    else:
+        _log.info("fallback_warmup_ok", path=str(path))
+
+
 async def main() -> None:
     await init_pool()
     await _ensure_schema()
@@ -337,6 +366,7 @@ async def main() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
 
+    await _warm_fallback_pdf_if_enabled()
     _log.info("applier_started")
     async for msg in q.consume(Streams.APPLY, Groups.APPLIERS):
         if stop.is_set():

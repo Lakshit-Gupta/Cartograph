@@ -168,7 +168,12 @@ async def _llm_tailor_blocks(
                 {"role": "system", "content": "You rewrite resume bullets. Plain text only. Strict JSON. Never invent facts."},
                 {"role": "user", "content": user},
             ],
-            kind="resume_tailor",
+            # usage_kind_enum doesn't have a dedicated "resume_tailor" value
+            # (V001 schema predates Stage 4). The resume tailor uses the
+            # openrouter_model_writer model anyway, so log against llm_writer.
+            # Add a dedicated enum value in a follow-up migration if cost
+            # attribution to the tailor lane becomes important.
+            kind="llm_writer",
             model=get_settings().openrouter_model_writer,
             max_tokens=1200,
             temperature=0.2,
