@@ -80,8 +80,8 @@ class ApplicationRow:
     """Minimal projection of an `applications` row + its joined `opportunity`.
 
     Carries everything `draft_followup` / `record_draft` / the cron / the
-    notifier embed need. Modelled as a dataclass so tests can construct
-    one without a DB hit.
+    notifier embed need. A frozen dataclass; tests construct instances
+    directly without a DB hit.
     """
 
     application_id: int
@@ -484,27 +484,22 @@ def _compose_subject(title: str | None, company: str | None) -> str:
     return f"Re: {title_part}"
 
 
-async def _send_via_resend(
-    *,
-    to: str,
-    subject: str,
-    html: str,
-    reply_to: str | None,
-    headers: dict[str, str] | None,
-    followup_id: int,
-) -> bool:
+async def _send_via_resend(send_kwargs: dict[str, Any], followup_id: int) -> bool:
     """`notifiers.email.send_email` wrapper that funnels all failure modes
-    into a single bool return + a structured log line."""
+    into a single bool return + a structured log line.
+
+    `send_kwargs` carries `to / subject / html / reply_to / headers` —
+    everything `notifiers.email.send_email` accepts on its email-path.
+    """
     try:
-        return await send_email(
-            to=to,
-            subject=subject,
-            html=html,
-            reply_to=reply_to,
-            headers=headers,
-        )
+        return await send_email(**send_kwargs)
     except Exception as e:
-        _log.exception("followup_send_email_failed", err=str(e), followup_id=followup_id, to=to)
+        _log.exception(
+            "followup_send_email_failed",
+            err=str(e),
+            followup_id=followup_id,
+            to=send_kwargs.get("to"),
+        )
         return False
 
 
@@ -533,7 +528,7 @@ async def send_followup(followup_id: int) -> bool:
         await _mark_failed(followup_id)
         return False
 
-    sent_ok = await _send_via_resend(followup_id=followup_id, **prepared["send_kwargs"])
+    sent_ok = await _send_via_resend(prepared["send_kwargs"], followup_id=followup_id)
     if not sent_ok:
         await _mark_failed(followup_id)
         return False
