@@ -31,6 +31,9 @@ from src.notifiers.email import send_email
 from .cover_letter import pick_template, write_cover
 from .resume_tailor import pick_variant, tailor_bullets
 
+# Phase 2.2 — bandit variant picker. Imported lazily inside _send_with_latex
+# to keep the legacy import surface unchanged for the JSON path.
+
 _log = get_logger(__name__)
 
 
@@ -300,7 +303,7 @@ async def _send_with_latex(
     # future; today this is purely organisational).
     from src.application.resume_latex.compile import CompileError
     from src.application.resume_latex.compile import run as compile_run
-    from src.application.resume_latex.fallback import get_fallback
+    from src.application.resume_latex.fallback import get_fallback, resolve_variant_main
     from src.application.resume_latex.parser.blocks import parse as parse_resume
     from src.application.resume_latex.parser.manifest import load as load_manifest
     from src.application.resume_latex.render import (
@@ -310,6 +313,10 @@ async def _send_with_latex(
     )
     from src.application.resume_latex.sanitizer import SanitizerReject, escape_and_check
     from src.application.resume_latex.selector import rank as select_rank
+    from src.application.resume_latex.variant_picker import (
+        pick_variant_async,
+        variant_id_for_label,
+    )
 
     await _ensure_followups_table()
 
@@ -322,8 +329,26 @@ async def _send_with_latex(
     prefs = _load_prefs()
     user_id = 1  # Phase 1 — single tenant; multi-tenant lands in Phase 4.
 
-    variant_label = pick_variant(opp) or ((prefs.get("apply") or {}).get("resume_variant_default") or "backend")
+    # Phase 2.2 — bandit-picked variant. Falls through to the legacy
+    # keyword-vote picker when no active variants exist in the DB (V011
+    # not yet run, table empty, or single-variant config). The legacy
+    # picker is also the floor for the prefs-driven default.
+    try:
+        bandit_label = await pick_variant_async(opp)
+    except Exception as e:
+        _log.warning("variant_picker_failed_falling_back_to_keyword_vote", err=str(e), opp_id=str(opp_id))
+        bandit_label = ""
+    variant_label = bandit_label or pick_variant(opp) or ((prefs.get("apply") or {}).get("resume_variant_default") or "backend")
     template_name = pick_template(opp, variant_label=variant_label)
+
+    # Look up the DB id so we can record it on the applications row.
+    # None when V011 isn't applied or the label is missing from the seed —
+    # the apply still proceeds; we just log it as legacy.
+    try:
+        resume_variant_id_db = await variant_id_for_label(variant_label)
+    except Exception as e:
+        _log.warning("variant_id_lookup_failed", err=str(e), label=variant_label)
+        resume_variant_id_db = None
 
     # 1. Parse the resume tree.
     manifest = load_manifest(_manifest_path())
@@ -379,6 +404,35 @@ async def _send_with_latex(
             artifact_dir,
             source_root=_resume_root(),
         )
+
+        # Phase 2.2 — variant overlay. The base render produced
+        # partial/<main_file> from the unmodified base tree (mmayer.tex
+        # plus its sidebars + tailored bullet splices). When the picker
+        # chose a non-base variant whose stub lives at
+        # `variants/<label>/main.tex`, we flatten that stub's
+        # `\input{../../mmayer.tex}` reference and overwrite the base
+        # main file in `partial/` with the resolved variant source.
+        # Tectonic still compiles `partial/<main_file>` so the existing
+        # asset layout (altacv.cls, page1sidebar.tex etc.) keeps working.
+        #
+        # Important: the variant overlay loses the tailored splice
+        # because the stubs reference mmayer.tex verbatim. Phase 2.2
+        # accepts this — the user-edited variant `.tex` is the source
+        # of truth for that lane. Once a variant has hand-tuned bullets,
+        # rerunning the tailorer per-variant becomes Phase 2.3 work.
+        variant_main_rel = manifest.variants.get(variant_label) if manifest.variants else None
+        if variant_main_rel:
+            variant_path = _resume_root() / variant_main_rel
+            if variant_path.is_file():
+                flat_source = resolve_variant_main(variant_path, _resume_root())
+                (partial / manifest.main_file).write_text(flat_source, encoding="utf-8")
+                _log.info(
+                    "resume_variant_overlay_applied",
+                    label=variant_label,
+                    variant_main=str(variant_path),
+                    opp_id=str(opp_id),
+                )
+
         # 6. Compile.
         result = await compile_run(partial / manifest.main_file)
         compile_duration_ms = result.duration_ms
@@ -401,13 +455,16 @@ async def _send_with_latex(
         _log.exception("resume_render_unexpected_error", err=str(e), opp_id=str(opp_id))
 
     # Compile fallback: untailored PDF pre-warmed at applier boot.
+    # Prefer the per-variant cached PDF (Phase 2.2) when available;
+    # ``get_fallback`` automatically degrades to the unlabelled base
+    # PDF if the variant warmup hadn't completed yet.
     if pdf_path is None:
-        fb = get_fallback(user_id)
+        fb = get_fallback(user_id, variant_label=variant_label)
         if fb is not None:
             pdf_path = fb
             compile_status = "fallback"
         else:
-            _log.warning("resume_no_fallback_available", opp_id=str(opp_id), user_id=user_id)
+            _log.warning("resume_no_fallback_available", opp_id=str(opp_id), user_id=user_id, variant=variant_label)
 
     artifact_sha256 = _pdf_sha256(pdf_path) if pdf_path else None
 
@@ -472,6 +529,7 @@ async def _send_with_latex(
 
     payload = {
         "variant": variant_label,
+        "variant_id": resume_variant_id_db,
         "template": template_name,
         "cover_letter_markdown": cover_md,
         "tailored_bullets": tailored_bullets,
@@ -482,7 +540,12 @@ async def _send_with_latex(
         "resume_artifact_sha256": artifact_sha256,
     }
 
-    application_id = await _upsert_application(opp_id, method, payload)
+    application_id = await _upsert_application(
+        opp_id,
+        method,
+        payload,
+        resume_variant_id=resume_variant_id_db,
+    )
     await _transition_to_applied(opp_id, application_id, method)
     await _attach_resume_audit_to_application(
         application_id,
@@ -700,20 +763,36 @@ async def send_application(
     }
 
 
-async def _upsert_application(opp_id: UUID, method: ApplyMethod, payload: dict[str, Any]) -> int:
+async def _upsert_application(
+    opp_id: UUID,
+    method: ApplyMethod,
+    payload: dict[str, Any],
+    *,
+    resume_variant_id: int | None = None,
+) -> int:
+    """Insert or update the applications row.
+
+    ``resume_variant_id`` (Phase 2.2) is the FK into ``resume_variants``.
+    Stays ``None`` for the legacy JSON path and for any LaTeX apply that
+    runs before V011 is applied — the column is nullable + FK ON DELETE
+    SET NULL, so a NULL is always a safe value. The COALESCE on UPDATE
+    preserves a previously-set variant id when a later send omits it.
+    """
     rec = await fetch_one(
         """
-        INSERT INTO applications (user_id, opportunity_id, method, payload)
-        VALUES (1, $1, $2::apply_method_enum, $3::jsonb)
+        INSERT INTO applications (user_id, opportunity_id, method, payload, resume_variant_id)
+        VALUES (1, $1, $2::apply_method_enum, $3::jsonb, $4)
         ON CONFLICT (user_id, opportunity_id) DO UPDATE
-            SET sent_at = NOW(),
-                method  = $2::apply_method_enum,
-                payload = $3::jsonb
+            SET sent_at           = NOW(),
+                method            = $2::apply_method_enum,
+                payload           = $3::jsonb,
+                resume_variant_id = COALESCE($4, applications.resume_variant_id)
         RETURNING id
         """,
         opp_id,
         method.value,
         json.dumps(payload, default=str),
+        resume_variant_id,
     )
     if rec is None:
         raise RuntimeError("applications insert returned no row")
