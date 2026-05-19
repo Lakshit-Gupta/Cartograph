@@ -32,7 +32,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from src.common.db import acquire
+from src.common.db import acquire, current_tenant
 from src.common.logger import get_logger
 
 _log = get_logger(__name__)
@@ -109,7 +109,7 @@ _OUTCOMES_SQL = """
                (SELECT id FROM responses))::int               AS responded
       FROM resume_variants v
       LEFT JOIN window_apps wa ON wa.resume_variant_id = v.id
-     WHERE v.user_id = 1 AND v.active = TRUE
+     WHERE v.user_id = $2 AND v.active = TRUE
      GROUP BY v.id, v.label
      ORDER BY v.id
 """
@@ -126,7 +126,7 @@ async def _load_outcomes(window_days: int) -> list[VariantOutcome]:
     state machine transition.
     """
     async with acquire() as conn:
-        rows = await conn.fetch(_OUTCOMES_SQL, window_days)
+        rows = await conn.fetch(_OUTCOMES_SQL, window_days, current_tenant())
     return [_row_to_outcome(r) for r in rows]
 
 

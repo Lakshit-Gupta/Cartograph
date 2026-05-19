@@ -7,7 +7,7 @@ from uuid import UUID
 
 import click
 
-from src.common.db import acquire, close_pool, init_pool
+from src.common.db import acquire, close_pool, current_tenant, init_pool
 
 
 @click.group("opps")
@@ -30,11 +30,12 @@ async def _recent(limit: int) -> None:
                    COALESCE(os.score, 0) AS score
             FROM opportunities o
             JOIN sources s ON s.id = o.source_id
-            LEFT JOIN opportunity_scores os ON os.opportunity_id = o.id AND os.user_id = 1
+            LEFT JOIN opportunity_scores os ON os.opportunity_id = o.id AND os.user_id = $2
             ORDER BY o.first_seen DESC
             LIMIT $1
             """,
             limit,
+            current_tenant(),
         )
     for r in rows:
         click.echo(f"{r['id']}  {r['state']:10s}  {r['score']:.2f}  [{r['slug']:18s}] {r['company'] or '-':25s}  {r['title'][:80]}")
@@ -56,10 +57,11 @@ async def _show(opp_id: UUID) -> None:
                    COALESCE(os.score, 0) AS score, os.score_components
             FROM opportunities o
             JOIN sources s ON s.id = o.source_id
-            LEFT JOIN opportunity_scores os ON os.opportunity_id = o.id AND os.user_id = 1
+            LEFT JOIN opportunity_scores os ON os.opportunity_id = o.id AND os.user_id = $2
             WHERE o.id = $1
             """,
             opp_id,
+            current_tenant(),
         )
     if not rec:
         click.echo("not found")

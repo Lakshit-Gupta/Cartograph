@@ -788,19 +788,29 @@ Covered above. Ships daily digest, apply/skip flow, Gmail outcome tracking, free
 
 ### Phase 4 — Multi-user v2.0 (Weeks 8–10)
 
-- Identity vault hardening (libsodium per-row encryption).
-- Multi-tenant cutover (drop `user_id DEFAULT 1`, add tenant resolver middleware, `/jobs-onboard <token>`).
-- Residential proxy pool (only if home ISP banned — Smartproxy / IPRoyal).
-- CDP sidecar (only if T2 camoufox fails sustained — used ThinkCentre M720q ~₹12–15K).
-- PiClaw migration Pi 3 → Pi 5 (rsync vault, redeploy container).
+Scope-cut 2026-05-19 (user directive). Free-only; paid items behind flag/addon.
+
+- **4.2 Multi-tenant cutover** (KEEP — in progress). Drop `user_id DEFAULT 1`
+  (V017 landed), add `current_tenant()` contextvar resolver, Discord
+  `/jobs-onboard <token>` slash, `mp tenant invite` CLI, replace remaining
+  hardcoded `user_id=1` with resolver calls.
+- **4.4 CDP sidecar** — DOWNGRADED to deferred addon/extension. Only build
+  if sustained T2 (camoufox) failures appear. Flag-gated; docs only for now.
+- **4.1 Identity vault hardening** — DROPPED. Solo owner; even shared creds
+  reach me raw, so per-tenant sodium keys add zero security.
+- **4.3 Residential proxy pool** — DROPPED. Not banned; paid service.
+- **4.5 PiClaw Pi 3 → Pi 5 migration** — DROPPED. Belonged to a different
+  project; never existed in this repo.
 
 ### Phase 5 — Polish v2.1+
 
-- NVMe HAT + SSD migration (~$60, removes SD card durability concern).
-- Web dashboard (Next.js + PostgREST views over Postgres).
-- Advanced ranker (response-rate-weighted ML refit nightly).
-- Cost optimization (local Llama for cheap LLM tasks).
-- Multi-region cloud VPS backup (if Pi reliability insufficient).
+Scope-cut 2026-05-19. Only 5.2 + 5.3 are worthy. Free-only.
+
+- **5.2 Web dashboard** (Next.js + PostgREST views over Postgres). Free
+  hosting target (Vercel free tier + PostgREST in compose).
+- **5.3 Advanced ranker** (response-rate-weighted ML refit nightly,
+  sklearn local — free).
+- 5.1 NVMe HAT, 5.4 local Llama (unless free), 5.5 multi-region VPS — DROPPED.
 
 ---
 

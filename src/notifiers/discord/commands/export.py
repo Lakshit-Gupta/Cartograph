@@ -11,6 +11,7 @@ from discord import app_commands
 
 from src.common import db
 from src.common.logger import get_logger
+from src.notifiers.discord.tenant import refuse_unonboarded, resolve_tenant
 
 _log = get_logger(__name__)
 
@@ -21,6 +22,10 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     @bot.tree.command(name="export", description="Export applications as CSV.")
     @app_commands.describe(range="Range: 7d | 30d | 90d | all")
     async def export_cmd(interaction: discord.Interaction, range: str = "30d"):
+        tenant = await resolve_tenant(interaction)
+        if tenant is None:
+            await refuse_unonboarded(interaction)
+            return
         days = _RANGES.get(range)
         if days is None:
             await interaction.response.send_message(f"Range must be one of {', '.join(_RANGES)}.", ephemeral=True)
@@ -34,9 +39,10 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                        a.method, a.response_status, a.response_at
                 FROM applications a
                 JOIN opportunities o ON o.id = a.opportunity_id
-                WHERE a.user_id = 1 AND a.sent_at >= $1
+                WHERE a.user_id = $1 AND a.sent_at >= $2
                 ORDER BY a.sent_at DESC
                 """,
+                tenant.user_id,
                 since,
             )
             if not rows:

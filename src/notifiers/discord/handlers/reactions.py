@@ -11,6 +11,7 @@ from uuid import UUID
 
 import discord
 
+from src.common import db
 from src.common.logger import get_logger
 from src.common.queue import RedisQ, Streams
 from src.notifiers.discord.handlers.buttons import _enqueue, _transition_state
@@ -57,7 +58,15 @@ async def handle_raw_reaction_add(
     if not opp_id:
         return
 
-    user_id = 1  # solo phase
+    # Reactions arrive without an `Interaction`, so we can't use
+    # `resolve_tenant` here. Look up the tenant by Discord user id; refuse
+    # silently (no DM reply, no log spam) if the reactor isn't onboarded —
+    # otherwise random server members reacting to public opp embeds would
+    # spam alerts.
+    user_id = await _tenant_for_reaction(int(payload.user_id))
+    if user_id is None:
+        return
+    db.set_tenant(user_id)
     try:
         if action == "apply":
             await _transition_state(opp_id, "applied")
@@ -84,6 +93,20 @@ async def handle_raw_reaction_add(
             )
     except Exception as e:
         _log.exception("reaction_dispatch_failed", err=str(e), action=action, opp_id=opp_id)
+
+
+async def _tenant_for_reaction(discord_user_id: int) -> int | None:
+    """Map a Discord user id to `users.id`. Returns None if unknown.
+
+    Reactions hit every onboarded tenant — not just the founding owner —
+    so we explicitly look up the row instead of falling back to id=1.
+    Mismatched reactions (random server members) silently no-op.
+    """
+    row = await db.fetch_one(
+        "SELECT id FROM users WHERE discord_user_id = $1 LIMIT 1",
+        discord_user_id,
+    )
+    return int(row["id"]) if row else None
 
 
 def _extract_opp_id(message: discord.Message) -> str | None:

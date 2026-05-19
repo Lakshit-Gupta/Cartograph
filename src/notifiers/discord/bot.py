@@ -170,6 +170,14 @@ class Bot(discord.Client):
             _log.warning("digest_channel_missing")
             return
 
+        # Tenant for this digest. Scheduler enqueues with `user_id` since
+        # Phase 4.2; fall back to `db.current_tenant()` (default 1) for
+        # backwards compat with older queued payloads.
+        try:
+            tenant_id = int(payload.get("user_id") or db.current_tenant())
+        except (TypeError, ValueError):
+            tenant_id = db.current_tenant()
+
         # Pull top-K ranked opps from the last 36h that haven't been digested yet.
         # The 36h window absorbs missed digest cron runs (power-fail, restart);
         # the state flip below prevents duplicate posts on subsequent triggers.
@@ -181,12 +189,13 @@ class Bot(discord.Client):
                    o.posted_at, s.score, s.score_components
             FROM opportunities o
             JOIN opportunity_scores s ON s.opportunity_id = o.id
-            WHERE s.user_id = 1
+            WHERE s.user_id = $1
               AND o.state = 'ranked'
               AND o.first_seen > NOW() - INTERVAL '36 hours'
             ORDER BY s.score DESC
             LIMIT 10
-            """
+            """,
+            tenant_id,
         )
         opp_rows = [dict(r) for r in rows]
         count = int(payload.get("count") or len(opp_rows))

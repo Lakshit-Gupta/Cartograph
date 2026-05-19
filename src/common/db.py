@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
+from contextvars import ContextVar
 from typing import Any
 
 import asyncpg
@@ -15,6 +16,21 @@ from src.common.secrets import get_settings
 _log = get_logger(__name__)
 
 _pool: asyncpg.Pool | None = None
+
+# Phase 4.2 multi-tenant resolver.
+#
+# Every per-tenant code path reads this var instead of hardcoding `1`.
+# Default = 1 (the founding solo owner row inserted by V001) so single-tenant
+# code paths and offline tests keep working without scaffolding. Workers,
+# Discord interaction handlers, and CLI commands set the var explicitly via
+# `set_tenant()` / `with_tenant()` before issuing per-user queries.
+#
+# Why ContextVar rather than a thread-local? asyncpg + discord.py run on
+# asyncio; ContextVar is task-scoped and copied into every awaited child,
+# so a tenant set in a Discord handler propagates into every DB call that
+# handler issues even across `await` points, without leaking into the
+# scheduler task running concurrently for a different tenant.
+_current_tenant: ContextVar[int] = ContextVar("current_tenant", default=1)
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
@@ -85,7 +101,39 @@ async def execute_many(query: str, args_list: list[tuple[Any, ...]]) -> None:
         await conn.executemany(query, args_list)
 
 
-# Phase 4 multi-tenant: resolved from middleware or worker leasing context.
-# Phase 1: hardcoded solo owner.
+def current_tenant() -> int:
+    """Return the active tenant id for the current asyncio task.
+
+    Reads `_current_tenant`. Default = 1 (V001 founding owner) when no
+    handler has set the var — keeps single-tenant call sites + tests trivial.
+    Callers that need a *resolved* tenant (i.e. would error rather than
+    silently fall back to the founder) should grab the var directly.
+    """
+    return _current_tenant.get()
+
+
+def set_tenant(user_id: int) -> None:
+    """Pin the tenant on the current asyncio task. Used by long-running
+    workers that process exactly one tenant per loop iteration (e.g. the
+    Discord interaction handler after `_resolve_tenant_from_discord_user`).
+    """
+    _current_tenant.set(user_id)
+
+
+@contextlib.contextmanager
+def with_tenant(user_id: int) -> Generator[None, None, None]:
+    """Scoped tenant override. Resets to the prior value on exit, even on
+    exception — safe to use around DB calls inside a handler that runs
+    concurrently with other tenants on the same event loop.
+    """
+    token = _current_tenant.set(user_id)
+    try:
+        yield
+    finally:
+        _current_tenant.reset(token)
+
+
+# Backwards-compatible alias — keep the Phase 1 name working while callers
+# migrate. New code should call `current_tenant()` directly.
 def current_user_id() -> int:
-    return 1
+    return current_tenant()

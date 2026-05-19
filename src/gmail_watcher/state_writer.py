@@ -17,7 +17,7 @@ from __future__ import annotations
 from email.message import Message
 from typing import Any
 
-from src.common.db import execute, fetch_one
+from src.common.db import current_tenant, execute, fetch_one
 from src.common.logger import get_logger
 from src.common.metrics import outcome_events_total
 from src.common.queue import RedisQ, Streams
@@ -194,7 +194,7 @@ async def handle_classification(
             q = await _get_redis()
             task = NotificationTask(
                 kind="tracker_update",
-                user_id=1,
+                user_id=current_tenant(),
                 payload={
                     "opportunity_id": opp_id,
                     "application_id": app_id,
@@ -213,7 +213,7 @@ async def handle_classification(
             q = await _get_redis()
             task = NotificationTask(
                 kind="tracker_update",
-                user_id=1,
+                user_id=current_tenant(),
                 payload={
                     "label": label,
                     "summary": summary,

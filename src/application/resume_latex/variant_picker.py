@@ -29,7 +29,7 @@ import random
 from dataclasses import dataclass
 from typing import Any
 
-from src.common.db import acquire
+from src.common.db import acquire, current_tenant
 from src.common.logger import get_logger
 from src.common.types import Opportunity
 
@@ -63,10 +63,11 @@ class VariantStats:
 
 
 async def _load_active_variants() -> dict[str, int]:
-    """Return label -> id for every active variant for user_id=1.
+    """Return label -> id for every active variant for the current tenant.
 
-    Empty dict when the V011 migration hasn't run or the seed inserts
-    failed — the caller falls back to the legacy ``backend`` default.
+    Reads `db.current_tenant()`. Empty dict when the V011 migration hasn't
+    run or the seed inserts failed — the caller falls back to the legacy
+    `backend` default.
     """
     try:
         async with acquire() as conn:
@@ -74,8 +75,9 @@ async def _load_active_variants() -> dict[str, int]:
                 """
                 SELECT id, label
                   FROM resume_variants
-                 WHERE user_id = 1 AND active = TRUE
+                 WHERE user_id = $1 AND active = TRUE
                 """,
+                current_tenant(),
             )
     except Exception as e:
         _log.warning("variant_picker_db_read_failed", err=str(e))
@@ -112,11 +114,12 @@ async def _load_stats(category: str, window_days: int) -> list[VariantStats]:
                   LEFT JOIN opportunities o
                     ON o.id = a.opportunity_id
                    AND o.category = $2
-                 WHERE v.user_id = 1 AND v.active = TRUE
+                 WHERE v.user_id = $3 AND v.active = TRUE
                  GROUP BY v.id, v.label, o.category
                 """,
                 window_days,
                 category,
+                current_tenant(),
             )
     except Exception as e:
         _log.warning("variant_picker_stats_read_failed", err=str(e), category=category)

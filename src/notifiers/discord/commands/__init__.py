@@ -34,6 +34,9 @@ from src.notifiers.discord.commands import (
     identity as _identity,
 )
 from src.notifiers.discord.commands import (
+    jobs_onboard as _jobs_onboard,
+)
+from src.notifiers.discord.commands import (
     pin as _pin,
 )
 from src.notifiers.discord.commands import (
@@ -62,6 +65,7 @@ ALL_SETUPS: list[Callable[[object], None]] = [
     _status.setup,
     _source.setup,
     _identity.setup,
+    _jobs_onboard.setup,
     _cost.setup,
     _followup.setup,
     _explain.setup,

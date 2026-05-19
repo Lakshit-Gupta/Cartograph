@@ -18,6 +18,7 @@ from src.common import db
 from src.common.logger import get_logger
 from src.common.queue import RedisQ, Streams
 from src.notifiers.discord import voice
+from src.notifiers.discord.tenant import refuse_unonboarded, resolve_tenant
 
 _log = get_logger(__name__)
 
@@ -120,7 +121,11 @@ async def dispatch_followup_button(interaction: discord.Interaction) -> None:
         await _ephemeral(interaction, f"Bad button id: `{raw}`")
         return
 
-    user_id = 1  # solo phase
+    tenant = await resolve_tenant(interaction)
+    if tenant is None:
+        await refuse_unonboarded(interaction)
+        return
+    user_id = tenant.user_id
     try:
         if action == "send_followup":
             q = await RedisQ.connect()
@@ -206,7 +211,11 @@ async def dispatch_button(interaction: discord.Interaction) -> None:
         await _ephemeral(interaction, f"Bad button id: `{raw}`")
         return
 
-    user_id = 1  # solo phase; Phase 4 resolves from discord user → users.id
+    tenant = await resolve_tenant(interaction)
+    if tenant is None:
+        await refuse_unonboarded(interaction)
+        return
+    user_id = tenant.user_id
     try:
         if action == "apply":
             await _transition_state(opp_id, "applied")

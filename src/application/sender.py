@@ -20,7 +20,7 @@ from uuid import UUID
 
 import yaml
 
-from src.common.db import acquire, fetch_one
+from src.common.db import acquire, current_tenant, fetch_one
 from src.common.logger import get_logger
 from src.common.metrics import applications_sent_total
 from src.common.queue import RedisQ, Streams
@@ -327,7 +327,7 @@ async def _send_with_latex(
     profile_dict = _load_profile_dict()
     profile_summary = _profile_summary(profile_dict)
     prefs = _load_prefs()
-    user_id = 1  # Phase 1 — single tenant; multi-tenant lands in Phase 4.
+    user_id = current_tenant()
 
     # Phase 2.2 — bandit-picked variant. Falls through to the legacy
     # keyword-vote picker when no active variants exist in the DB (V011
@@ -781,7 +781,7 @@ async def _upsert_application(
     rec = await fetch_one(
         """
         INSERT INTO applications (user_id, opportunity_id, method, payload, resume_variant_id)
-        VALUES (1, $1, $2::apply_method_enum, $3::jsonb, $4)
+        VALUES ($5, $1, $2::apply_method_enum, $3::jsonb, $4)
         ON CONFLICT (user_id, opportunity_id) DO UPDATE
             SET sent_at           = NOW(),
                 method            = $2::apply_method_enum,
@@ -793,6 +793,7 @@ async def _upsert_application(
         method.value,
         json.dumps(payload, default=str),
         resume_variant_id,
+        current_tenant(),
     )
     if rec is None:
         raise RuntimeError("applications insert returned no row")

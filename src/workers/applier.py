@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 from src.application.sender import send_application
-from src.common.db import acquire, close_pool, fetch_one, init_pool
+from src.common.db import acquire, close_pool, current_tenant, fetch_one, init_pool
 from src.common.logger import configure_logging, get_logger
 from src.common.queue import Groups, RedisQ, Streams
 
@@ -397,7 +397,7 @@ async def _warm_fallback_pdf_if_enabled() -> None:
     # the per-variant warmups can run in any order without bricking
     # `get_fallback(user_id)` (no-label form).
     try:
-        base_path = await warm_fallback_pdf(user_id=1, resume_root=_resume_root(), main_file=manifest.main_file)
+        base_path = await warm_fallback_pdf(user_id=current_tenant(), resume_root=_resume_root(), main_file=manifest.main_file)
     except Exception as e:
         _log.warning("fallback_warmup_failed", err=str(e), variant="base")
         base_path = None
@@ -417,10 +417,11 @@ async def _warm_fallback_pdf_if_enabled() -> None:
                 """
                 SELECT label, main_tex_path
                   FROM resume_variants
-                 WHERE user_id = 1 AND active = TRUE
+                 WHERE user_id = $1 AND active = TRUE
                  ORDER BY id
                  LIMIT 5
                 """,
+                current_tenant(),
             )
     except Exception as e:
         _log.warning("variant_warmup_db_read_failed", err=str(e))
@@ -431,7 +432,7 @@ async def _warm_fallback_pdf_if_enabled() -> None:
         main_tex_path = str(r["main_tex_path"])
         try:
             v_path = await warm_fallback_pdf(
-                user_id=1,
+                user_id=current_tenant(),
                 resume_root=_resume_root(),
                 main_file=main_tex_path,
                 variant_label=label,

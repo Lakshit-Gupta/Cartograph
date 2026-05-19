@@ -42,16 +42,17 @@ async def _status() -> None:
 @click.option("--credentials-json", required=True, help='e.g. {"username":"...","password":"..."}')
 @click.option("--cookies-json", default="{}", help="optional cookies dict")
 @click.option("--email-alias", default=None)
-def add(platform: str, label: str, credentials_json: str, cookies_json: str, email_alias: str | None) -> None:
-    asyncio.run(_add(platform, label, credentials_json, cookies_json, email_alias))
+@click.option("--user-id", type=int, default=1, show_default=True, help="Tenant to own this identity.")
+def add(platform: str, label: str, credentials_json: str, cookies_json: str, email_alias: str | None, user_id: int) -> None:
+    asyncio.run(_add(platform, label, credentials_json, cookies_json, email_alias, user_id))
 
 
-async def _add(platform: str, label: str, credentials_json: str, cookies_json: str, email_alias: str | None) -> None:
+async def _add(platform: str, label: str, credentials_json: str, cookies_json: str, email_alias: str | None, user_id: int) -> None:
     creds = json.loads(credentials_json)
     cookies = json.loads(cookies_json) if cookies_json else None
     await init_pool()
     ident_id = await store(
-        user_id=1,
+        user_id=user_id,
         platform=platform,
         account_label=label,
         credentials=creds,

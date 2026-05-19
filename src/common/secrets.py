@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Discord
     discord_bot_token: str = ""
     discord_guild_id: int = 0
+    # Phase 4.2 — Discord user id of the founding owner; the very first
+    # interaction from this id autolinks `users(id=1).discord_user_id`
+    # without a manual /jobs-onboard step. 0 = disabled.
+    discord_owner_id: int = 0
 
     # Discord channel IDs — kept FLAT because SOPS exec-env only exports
     # top-level keys. See secrets.yaml.example for matching schema.
@@ -185,6 +189,15 @@ class Settings(BaseSettings):
     # ship with flag off, verify pipeline against ephemeral DB, flip + restart.
     mp_dark_source_discovery_enabled: bool = False
     dark_source_daily_llm_cap: int = 50
+
+    # Phase 4.4 — CDP sidecar addon. DOWNGRADED to a deferred extension on
+    # 2026-05-19 (user directive). Stays off in baseline; only flip if T2
+    # camoufox shows sustained failures. The sidecar runs on the user's
+    # spare ThinkCentre M720q (free hardware, not a paid service), so this
+    # remains a free-only feature compatible with the project's no-pay rule.
+    # See `docs/extensions/cdp_sidecar.md` for design + activation steps.
+    mp_cdp_sidecar_enabled: bool = False
+    cdp_sidecar_endpoint: str = ""
 
     # Misc
     obsidian_vault_path: str = "/vault"

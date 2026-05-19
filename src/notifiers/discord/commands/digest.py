@@ -11,6 +11,7 @@ from discord import app_commands
 from src.common import db
 from src.common.logger import get_logger
 from src.common.queue import RedisQ, Streams
+from src.notifiers.discord.tenant import refuse_unonboarded, resolve_tenant
 
 _log = get_logger(__name__)
 
@@ -20,9 +21,16 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
 
     @group.command(name="now", description="Force the digest to run right now.")
     async def now(interaction: discord.Interaction):
+        tenant = await resolve_tenant(interaction)
+        if tenant is None:
+            await refuse_unonboarded(interaction)
+            return
         try:
             q = await RedisQ.connect()
-            await q.publish(Streams.NOTIFY, {"kind": "digest", "force_digest": True, "user_id": 1})
+            await q.publish(
+                Streams.NOTIFY,
+                {"kind": "digest", "force_digest": True, "user_id": tenant.user_id},
+            )
             await interaction.response.send_message("Digest queued.", ephemeral=True)
         except Exception as e:
             _log.exception("digest_now_failed", err=str(e))
@@ -30,18 +38,23 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
 
     @group.command(name="preview", description="Show what would land in the next digest.")
     async def preview(interaction: discord.Interaction):
+        tenant = await resolve_tenant(interaction)
+        if tenant is None:
+            await refuse_unonboarded(interaction)
+            return
         try:
             rows = await db.fetch_all(
                 """
                 SELECT o.title, o.company, s.score
                 FROM opportunities o
                 JOIN opportunity_scores s ON s.opportunity_id = o.id
-                WHERE s.user_id = 1
+                WHERE s.user_id = $1
                   AND o.state IN ('ranked','digested')
                   AND o.first_seen > NOW() - INTERVAL '36 hours'
                 ORDER BY s.score DESC
                 LIMIT 10
-                """
+                """,
+                tenant.user_id,
             )
             if not rows:
                 await interaction.response.send_message("Nothing queued.", ephemeral=True)
@@ -55,6 +68,10 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
     @group.command(name="schedule", description="Set digest send time (HHMM, 24h, local TZ).")
     @app_commands.describe(hhmm="HHMM, e.g. 0830")
     async def schedule(interaction: discord.Interaction, hhmm: str):
+        tenant = await resolve_tenant(interaction)
+        if tenant is None:
+            await refuse_unonboarded(interaction)
+            return
         try:
             if len(hhmm) != 4 or not hhmm.isdigit():
                 raise ValueError("expected HHMM digits")
@@ -63,7 +80,10 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 raise ValueError("out of range")
 
             # Read user timezone, convert local HHMM → UTC.
-            tz_rec = await db.fetch_one("SELECT timezone FROM users WHERE id = 1")
+            tz_rec = await db.fetch_one(
+                "SELECT timezone FROM users WHERE id = $1",
+                tenant.user_id,
+            )
             tz_name = tz_rec["timezone"] if tz_rec else "UTC"
             try:
                 user_tz = ZoneInfo(tz_name)
@@ -79,10 +99,11 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 SET digest_hour_utc   = $1,
                     digest_minute_utc = $2,
                     digest_updated_at = NOW()
-                WHERE id = 1
+                WHERE id = $3
                 """,
                 utc_dt.hour,
                 utc_dt.minute,
+                tenant.user_id,
             )
             await interaction.response.send_message(
                 f"Digest schedule set to {local_hh:02d}:{local_mm:02d} {tz_name} "

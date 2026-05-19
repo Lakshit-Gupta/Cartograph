@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from src.common.db import acquire, close_pool, init_pool
+from src.common.db import acquire, close_pool, current_tenant, init_pool
 from src.common.logger import configure_logging, get_logger
 from src.common.metrics import score_latency_seconds
 from src.common.queue import Groups, RedisQ, Streams
@@ -61,7 +61,7 @@ async def _ensure_profile_embedding() -> tuple[list[float], dict]:
         await conn.execute(
             """
             INSERT INTO profiles(user_id, embedding, headline, skills, raw_resume, raw_skills_yaml, raw_prefs_yaml, updated_at)
-            VALUES (1, $1::vector, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, NOW())
+            VALUES ($7, $1::vector, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, NOW())
             ON CONFLICT (user_id) DO UPDATE SET
                 embedding = EXCLUDED.embedding,
                 headline = EXCLUDED.headline,
@@ -77,6 +77,7 @@ async def _ensure_profile_embedding() -> tuple[list[float], dict]:
             json.dumps(resume),
             json.dumps(skills_doc),
             json.dumps(prefs),
+            current_tenant(),
         )
     return emb, raw
 
@@ -168,7 +169,7 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
         await conn.execute(
             """
             INSERT INTO opportunity_scores(user_id, opportunity_id, score, score_components, ranker_version)
-            VALUES (1, $1, $2, $3::jsonb, 'v1')
+            VALUES ($4, $1, $2, $3::jsonb, 'v1')
             ON CONFLICT (user_id, opportunity_id) DO UPDATE
               SET score = EXCLUDED.score,
                   score_components = EXCLUDED.score_components,
@@ -177,6 +178,7 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
             opportunity_id,
             out.score,
             json.dumps(out.components),
+            current_tenant(),
         )
         await conn.execute(
             "UPDATE opportunities SET state = 'ranked' WHERE id = $1 AND state IN ('new','queued')",

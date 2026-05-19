@@ -8,6 +8,7 @@ import discord
 
 from src.common import db
 from src.common.logger import get_logger
+from src.notifiers.discord.tenant import refuse_unonboarded, resolve_tenant
 
 _log = get_logger(__name__)
 
@@ -15,9 +16,16 @@ _log = get_logger(__name__)
 def setup(bot) -> None:  # type: ignore[no-untyped-def]
     @bot.tree.command(name="status", description="Pipeline summary.")
     async def status_cmd(interaction: discord.Interaction):
+        tenant = await resolve_tenant(interaction)
+        if tenant is None:
+            await refuse_unonboarded(interaction)
+            return
         try:
             opps_24h = await db.fetch_one("SELECT COUNT(*) AS c FROM opportunities WHERE first_seen > NOW() - INTERVAL '24 hours'")
-            applied_today = await db.fetch_one("SELECT COUNT(*) AS c FROM applications WHERE user_id = 1 AND sent_at::date = CURRENT_DATE")
+            applied_today = await db.fetch_one(
+                "SELECT COUNT(*) AS c FROM applications WHERE user_id = $1 AND sent_at::date = CURRENT_DATE",
+                tenant.user_id,
+            )
             sources = await db.fetch_one(
                 """
                 SELECT
@@ -31,8 +39,9 @@ def setup(bot) -> None:  # type: ignore[no-untyped-def]
                 """
                 SELECT COALESCE(SUM(cost_usd_micros), 0) / 1000000.0 AS usd
                 FROM usage_ledger
-                WHERE ts::date = CURRENT_DATE AND user_id = 1
-                """
+                WHERE ts::date = CURRENT_DATE AND user_id = $1
+                """,
+                tenant.user_id,
             )
             ban = await db.fetch_one(
                 """
