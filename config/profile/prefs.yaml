@@ -60,3 +60,22 @@ freelance:
   # list = worker boots, logs `tg_no_channels_configured`, and idles. Append
   # entries here as you discover signal-rich freelance channels.
   telegram_channels: []
+
+# Phase 2.1 — cold-email outbound lane (Apollo/Hunter + LLM intro).
+#
+# This block is informational; the worker reads the actual flags from
+# SOPS-encrypted secrets.yaml so they roll through `sops exec-env`
+# verbatim. The hard caps live in src/common/secrets.py defaults
+# (daily_cap=10, warmup_start=5, warmup_days=5) and only the SOPS file
+# can override them at runtime. Keeping this stanza here documents the
+# intent + lets `/explain outreach` slash commands surface user prefs.
+outreach:
+  enabled: false              # mirror of cold_outreach_enabled in SOPS
+  daily_cap: 10               # hard ceiling per UTC day
+  warmup_start: 5             # day-0 floor (ramps linearly to daily_cap)
+  warmup_days: 5              # days to reach daily_cap
+  target_role: "Engineering Manager"   # used as a hint when Apollo titles are sparse
+  # Subject-line dedupe window. Subjects re-used inside this many days
+  # are refused at write time by cap.py.
+  subject_dedupe_days: 30
+  recipient_dedupe_days: 14

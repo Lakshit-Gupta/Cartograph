@@ -326,6 +326,38 @@ services:
       redis:
         condition: service_healthy
 
+  cold-outreach-worker:
+    # Phase 2.1 — opt-in cold-email lane. Defaults to cold_outreach_enabled=false
+    # so the worker boots, schedules the daily cron at 04:30 UTC (10:00 IST),
+    # and immediately short-circuits each tick until SOPS flips the flag.
+    # Reuses the base jobs-bot image — no tectonic / qpdf needed for cold
+    # emails (resume PDFs ride along on inbound `send_application` only).
+    # cap_drop ALL + user 1000 match the applier sandbox; this worker
+    # touches Resend + Apollo / Hunter + Postgres + Redis only.
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.cold_outreach"]
+    environment:
+      <<: *env-common
+      COLD_OUTREACH_ENABLED: ${cold_outreach_enabled:-false}
+      COLD_OUTREACH_DAILY_CAP: ${cold_outreach_daily_cap:-10}
+      COLD_OUTREACH_WARMUP_START: ${cold_outreach_warmup_start:-5}
+      COLD_OUTREACH_WARMUP_DAYS: ${cold_outreach_warmup_days:-5}
+      APOLLO_API_KEY: ${apollo_api_key:-}
+      HUNTER_API_KEY: ${hunter_api_key:-}
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+    cap_drop: ["ALL"]
+    mem_limit: 256m
+    pids_limit: 64
+    user: "1000"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   api-service:
     <<: [*jobs-bot-image, *restart-policy]
     command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "9090"]

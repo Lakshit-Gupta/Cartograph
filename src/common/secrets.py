@@ -128,6 +128,21 @@ class Settings(BaseSettings):
     # flag off, backfill embeddings, drain Streams.APPLY, then flip on.
     mp_resume_latex_enabled: bool = False
 
+    # Phase 2.1 — cold-outreach outbound lane. Daily cap is the HARD ceiling
+    # on cold emails sent in a UTC day; warmup_start is the day-0 floor that
+    # ramps linearly to daily_cap over warmup_days. When `enabled` is False
+    # the worker boots and idles silently — APScheduler trigger fires but
+    # the run_daily_cycle handler short-circuits immediately. Same staged-
+    # rollout pattern as MP_RESUME_LATEX_ENABLED: ship with flag off,
+    # populate target_companies + verify Apollo/Hunter key health, then
+    # flip via SOPS edit and restart cold-outreach-worker.
+    cold_outreach_enabled: bool = False
+    cold_outreach_daily_cap: int = 10
+    cold_outreach_warmup_start: int = 5
+    cold_outreach_warmup_days: int = 5
+    apollo_api_key: str = ""
+    hunter_api_key: str = ""
+
     # Phase 2.3 — follow-up automation. When False the daily 13:00 IST cron
     # short-circuits and never drafts anything; the Send button hard-refuses
     # too. Flip via SOPS edit + restart of jobs-scheduler / applier-worker /
