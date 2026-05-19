@@ -294,15 +294,19 @@ services:
     # publishes parsed messages directly onto stream:rank (no crawler/extractor
     # round-trip — Telegram posts are already structured enough).
     #
-    # The .session file is bind-mounted READ-ONLY: Telethon will log warnings
-    # when it tries to write back state; that's acceptable for v1. We'll
-    # relax to RW in Phase 2 if churn warrants it.
+    # Session is bind-mounted RW. Telethon's SQLiteSession runs DELETE +
+    # INSERT against the .session SQLite at every connect to refresh
+    # auth_key; a :ro mount hard-crashes the connect loop with "attempt
+    # to write a readonly database". The session is per-tenant (uid 1000,
+    # libsodium-equivalent secret), never user-edited, so RW is materially
+    # safe. Phase 2: migrate to MemorySession hydrated from a SOPS blob
+    # if SD-card write churn becomes a measurable metric.
     <<: [*jobs-bot-image, *restart-policy]
     command: ["python", "-m", "src.workers.telegram_fetcher"]
     environment: *env-common
     volumes:
       - /var/lib/agent/logs:/app/logs
-      - ./var/telegram:/var/lib/agent/telegram:ro
+      - ./var/telegram:/var/lib/agent/telegram:rw
     read_only: true
     tmpfs:
       - /tmp:size=64m
