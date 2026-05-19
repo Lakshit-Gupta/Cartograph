@@ -20,7 +20,12 @@
 # Base image is tagged `marked_path-jobs-bot:latest` by compose
 # (see x-jobs-bot-image anchor in compose.yaml). Build the base first via
 # `docker compose build jobs-scheduler` before building this image.
-FROM marked_path-jobs-bot:latest AS base
+#
+# BASE_IMAGE is overridable so cross-compile builds can chain onto a
+# differently-tagged jobs-bot (e.g. :arm64) without trampling the native
+# :latest on the dev host. See `scripts/ship_to_pi.sh`.
+ARG BASE_IMAGE=marked_path-jobs-bot:latest
+FROM ${BASE_IMAGE} AS base
 
 ARG TARGETARCH
 ARG TECTONIC_VERSION=0.16.9

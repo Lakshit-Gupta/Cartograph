@@ -102,18 +102,24 @@ ensure_buildx() {
 
 # Build one image for linux/arm64 and load it into the local docker daemon
 # under the `:${BUILD_TAG}` tag suffix so we don't trample the x86 latest.
+#
+# Applier extends jobs-bot via `FROM marked_path-jobs-bot:latest`. During
+# cross-compile the host's :latest is amd64 — applier would inherit amd64
+# layers wrapped in an arm64 manifest, producing a broken image. We pass
+# `BASE_IMAGE=marked_path-jobs-bot:${BUILD_TAG}` so applier chains onto
+# the freshly-built arm64 base instead.
 build_one() {
   local spec="$1"
   local image="${spec%%|*}"
   local rest="${spec#*|}"
   local dockerfile="${rest%%|*}"
   local context="${rest#*|}"
-  # Convert tag `:latest` → `:arm64` so we don't clobber the native amd64 image.
   local arm_tag="${image%:*}:${BUILD_TAG}"
   echo "==> building $arm_tag (from $dockerfile)"
-  # `--output type=docker` materialises the result into the local daemon
-  # so `docker save` works downstream. `--platform linux/arm64` runs the
-  # whole Dockerfile under QEMU emulation.
+  local -a build_args=()
+  if [[ "$image" == "marked_path-applier-worker:latest" ]]; then
+    build_args+=( --build-arg "BASE_IMAGE=marked_path-jobs-bot:${BUILD_TAG}" )
+  fi
   docker buildx build \
     --builder "$BUILDER_NAME" \
     --platform linux/arm64 \
@@ -121,6 +127,7 @@ build_one() {
     --tag "$arm_tag" \
     --output type=docker \
     --provenance=false \
+    "${build_args[@]}" \
     "$context"
 }
 
