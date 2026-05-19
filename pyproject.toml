@@ -151,6 +151,10 @@ ignore = [
 "src/ranker/global_refit.py" = ["N803", "N806"]
 "tests/ranker/test_source_refit.py" = ["N806"]
 "tests/ranker/test_global_refit.py" = ["N806"]
+# Telethon's TelegramClient / FloodWaitError are PascalCase classes;
+# rebinding them from a tuple-unpacked import wrapper trips N806 even
+# though we're naming classes, not variables.
+"src/sources/freelance/telegram_fetcher.py" = ["N806"]
 
 [tool.mypy]
 python_version = "3.11"

@@ -36,13 +36,41 @@ from src.extractors.persist import persist_and_publish
 
 _log = get_logger(__name__)
 
-# Backoff schedule for FloodWaitError / connection bounces (seconds).
-_BACKOFF_SCHEDULE: tuple[int, ...] = (30, 60, 120, 240, 300)
+# ----- tuning constants ------------------------------------------------------
+
+# Backoff schedule for FloodWaitError / connection bounces (seconds). Capped
+# at `_MAX_BACKOFF`; chosen so worst-case pause matches Telegram's typical
+# server-side cooldown (5 min) without compounding past it.
+_BACKOFF_SHORT_SEC = 30
+_BACKOFF_MEDIUM_SEC = 60
+_BACKOFF_LONG_SEC = 120
+_BACKOFF_EXTENDED_SEC = 240
 _MAX_BACKOFF = 300
+_BACKOFF_SCHEDULE: tuple[int, ...] = (
+    _BACKOFF_SHORT_SEC,
+    _BACKOFF_MEDIUM_SEC,
+    _BACKOFF_LONG_SEC,
+    _BACKOFF_EXTENDED_SEC,
+    _MAX_BACKOFF,
+)
 
 # Telegram message size — Telegram caps at 4096 chars, we cap at 2000 in DB.
 _DESC_MAX = 2000
 _TITLE_MAX = 200
+
+# SQLState for postgres UNIQUE violation — emitted by asyncpg on dupe
+# canonical_url races. Treat as a silent dedupe skip, not an error.
+_PG_UNIQUE_VIOLATION_SQLSTATE = "23505"
+
+# Telethon appends `.session` to whatever stem it gets. Strip our suffix
+# before handing it the path so it doesn't double up.
+_SESSION_SUFFIX = ".session"
+
+# Confidence score for tier-0 structured Telegram extraction. Higher than the
+# generic regex floor because channel posts follow a predictable shape.
+_TG_EXTRACTION_CONFIDENCE = 0.6
+
+# ----- compensation regexes --------------------------------------------------
 
 # Compensation hints. Order matters: hourly first (more specific), then range,
 # then bare USD, then bare INR. Each returns (lo, hi, currency, period).
@@ -52,6 +80,13 @@ _RX_RANGE_USD = re.compile(r"\$\s?(\d[\d,]*)\s*[-–to]+\s*\$?\s?(\d[\d,]*)")
 _RX_RANGE_INR = re.compile(r"(?:₹|INR)\s?(\d[\d,]*)\s*[-–to]+\s*(?:₹|INR)?\s?(\d[\d,]*)")
 _RX_BARE_USD = re.compile(r"\$\s?(\d[\d,]*)")
 _RX_BARE_INR = re.compile(r"(?:₹\s?(\d[\d,]*)|(\d[\d,]*)\s*INR)", re.I)
+
+_EMPTY_COMP: dict[str, Any] = {
+    "comp_min": None,
+    "comp_max": None,
+    "comp_currency": None,
+    "comp_period": None,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,41 +143,63 @@ def _first_nonempty_line(text: str, *, cap: int = _TITLE_MAX) -> str:
     return ""
 
 
+def _to_float(s: str) -> float:
+    """Strip thousands separators and cast to float."""
+    return float(s.replace(",", ""))
+
+
+def _hourly_match(text: str, rx: re.Pattern[str], currency: str) -> dict[str, Any] | None:
+    m = rx.search(text)
+    if not m:
+        return None
+    lo = _to_float(m.group(1))
+    hi = _to_float(m.group(2)) if m.group(2) else lo
+    return {"comp_min": lo, "comp_max": hi, "comp_currency": currency, "comp_period": "hour"}
+
+
+def _range_match(text: str, rx: re.Pattern[str], currency: str) -> dict[str, Any] | None:
+    m = rx.search(text)
+    if not m:
+        return None
+    return {
+        "comp_min": _to_float(m.group(1)),
+        "comp_max": _to_float(m.group(2)),
+        "comp_currency": currency,
+        "comp_period": None,
+    }
+
+
+def _bare_usd_match(text: str) -> dict[str, Any] | None:
+    m = _RX_BARE_USD.search(text)
+    if not m:
+        return None
+    v = _to_float(m.group(1))
+    return {"comp_min": v, "comp_max": v, "comp_currency": "USD", "comp_period": None}
+
+
+def _bare_inr_match(text: str) -> dict[str, Any] | None:
+    m = _RX_BARE_INR.search(text)
+    if not m:
+        return None
+    v = _to_float(m.group(1) or m.group(2))
+    return {"comp_min": v, "comp_max": v, "comp_currency": "INR", "comp_period": None}
+
+
 def _parse_compensation(text: str) -> dict[str, Any]:
     """Best-effort rate extraction. Order: hourly USD/INR → range → bare."""
-
-    def _f(s: str) -> float:
-        return float(s.replace(",", ""))
-
-    if m := _RX_HOURLY_USD.search(text):
-        lo = _f(m.group(1))
-        hi = _f(m.group(2)) if m.group(2) else lo
-        return {"comp_min": lo, "comp_max": hi, "comp_currency": "USD", "comp_period": "hour"}
-    if m := _RX_HOURLY_INR.search(text):
-        lo = _f(m.group(1))
-        hi = _f(m.group(2)) if m.group(2) else lo
-        return {"comp_min": lo, "comp_max": hi, "comp_currency": "INR", "comp_period": "hour"}
-    if m := _RX_RANGE_USD.search(text):
-        return {
-            "comp_min": _f(m.group(1)),
-            "comp_max": _f(m.group(2)),
-            "comp_currency": "USD",
-            "comp_period": None,
-        }
-    if m := _RX_RANGE_INR.search(text):
-        return {
-            "comp_min": _f(m.group(1)),
-            "comp_max": _f(m.group(2)),
-            "comp_currency": "INR",
-            "comp_period": None,
-        }
-    if m := _RX_BARE_USD.search(text):
-        v = _f(m.group(1))
-        return {"comp_min": v, "comp_max": v, "comp_currency": "USD", "comp_period": None}
-    if m := _RX_BARE_INR.search(text):
-        v = _f(m.group(1) or m.group(2))
-        return {"comp_min": v, "comp_max": v, "comp_currency": "INR", "comp_period": None}
-    return {"comp_min": None, "comp_max": None, "comp_currency": None, "comp_period": None}
+    extractors = (
+        lambda t: _hourly_match(t, _RX_HOURLY_USD, "USD"),
+        lambda t: _hourly_match(t, _RX_HOURLY_INR, "INR"),
+        lambda t: _range_match(t, _RX_RANGE_USD, "USD"),
+        lambda t: _range_match(t, _RX_RANGE_INR, "INR"),
+        _bare_usd_match,
+        _bare_inr_match,
+    )
+    for extractor in extractors:
+        result = extractor(text)
+        if result is not None:
+            return result
+    return dict(_EMPTY_COMP)
 
 
 def parse_message(*, channel: str, message_id: int, text: str) -> ParsedMessage | None:
@@ -184,7 +241,7 @@ def build_opportunity(parsed: ParsedMessage, *, source_id: int) -> Opportunity:
         apply_method=ApplyMethod.EXTERNAL,
         fingerprint_hash=parsed.fingerprint_hash,
         extraction_tier=0,
-        extraction_confidence=0.6,
+        extraction_confidence=_TG_EXTRACTION_CONFIDENCE,
     )
 
 
@@ -235,7 +292,7 @@ async def _publish_with_dedupe(q: RedisQ, opp: Opportunity, *, channel: str, mes
         # canonical_url has a UNIQUE constraint (V001), so a race on the same
         # message will land here. Swallow at debug; everything else escalates.
         sqlstate = getattr(e, "sqlstate", None)
-        if sqlstate == "23505":
+        if sqlstate == _PG_UNIQUE_VIOLATION_SQLSTATE:
             _log.debug("tg_dedupe_skip", channel=channel, message_id=message_id, sqlstate=sqlstate)
             return
         _log.exception("tg_publish_failed", channel=channel, message_id=message_id, err=str(e))
@@ -249,6 +306,104 @@ def _resolve_session_path() -> Path:
     # Local-dev default: ./var/telegram/<stem>.session relative to repo root.
     repo_root = Path(__file__).resolve().parents[3]
     return repo_root / "var" / "telegram" / f"{settings.telegram_session_name}.session"
+
+
+def _session_stem(session_path: Path) -> str:
+    """Telethon appends `.session` itself — strip ours if present."""
+    s = str(session_path)
+    if s.endswith(_SESSION_SUFFIX):
+        return s[: -len(_SESSION_SUFFIX)]
+    return s
+
+
+def _import_telethon() -> tuple[Any, Any, Any] | None:
+    """Lazy import. Returns (TelegramClient, events, FloodWaitError) or None.
+
+    Telethon is imported here — not at module load — so unit tests can mock
+    this fetcher without telethon's optional native deps being available.
+    """
+    try:
+        from telethon import TelegramClient, events
+        from telethon.errors import FloodWaitError
+    except ImportError as e:
+        _log.error("tg_telethon_missing", err=str(e))
+        return None
+    return TelegramClient, events, FloodWaitError
+
+
+async def _handle_event(event: Any, q: RedisQ, source_id: int) -> None:
+    """Parse one NewMessage event and publish. Errors logged, never raised."""
+    try:
+        chat = await event.get_chat()
+        channel = getattr(chat, "username", None) or str(getattr(chat, "id", "unknown"))
+        message_id = int(event.message.id)
+        text = event.message.text or event.message.message or ""
+        _log.info(
+            "tg_message_received",
+            channel=channel,
+            message_id=message_id,
+            length=len(text),
+        )
+        parsed = parse_message(channel=channel, message_id=message_id, text=text)
+        if parsed is None:
+            _log.debug("tg_skip_empty", channel=channel, message_id=message_id)
+            return
+        opp = build_opportunity(parsed, source_id=source_id)
+        await _publish_with_dedupe(q, opp, channel=channel, message_id=message_id)
+    except Exception as e:
+        _log.exception("tg_handler_failed", err=str(e))
+
+
+def _register_handler(client: Any, events: Any, *, channels: list[str], q: RedisQ, source_id: int) -> None:
+    """Attach NewMessage handler to the client for the given channel set."""
+
+    @client.on(events.NewMessage(chats=channels))
+    async def _handler(event: Any) -> None:
+        await _handle_event(event, q, source_id)
+
+
+async def _ensure_authorised(client: Any) -> bool:
+    """Connect + auth-check. Returns True on success, False otherwise."""
+    await client.connect()
+    if not await client.is_user_authorized():
+        _log.error("tg_not_authorised", hint="re-run scripts/telegram_auth.py")
+        return False
+    me = await client.get_me()
+    _log.info("tg_authorised", user_id=getattr(me, "id", None))
+    return True
+
+
+def _next_backoff(backoff_idx: int) -> tuple[int, int]:
+    """Return (sleep_seconds, next_idx) from the backoff schedule."""
+    sleep_s = _BACKOFF_SCHEDULE[min(backoff_idx, len(_BACKOFF_SCHEDULE) - 1)]
+    next_idx = min(backoff_idx + 1, len(_BACKOFF_SCHEDULE) - 1)
+    return sleep_s, next_idx
+
+
+async def _safe_disconnect(client: Any) -> None:
+    """Best-effort disconnect — never raise."""
+    try:
+        await client.disconnect()
+    except Exception:
+        pass
+
+
+async def _run_session(
+    *,
+    client: Any,
+    events: Any,
+    channels: list[str],
+    q: RedisQ,
+    source_id: int | None,
+) -> None:
+    """One session lifecycle: connect, register, run until disconnected."""
+    if not await _ensure_authorised(client):
+        await asyncio.sleep(_MAX_BACKOFF)
+        return
+    if channels and source_id is not None:
+        _register_handler(client, events, channels=channels, q=q, source_id=source_id)
+    await client.run_until_disconnected()
+    _log.warning("tg_disconnected_retry")
 
 
 async def run() -> None:
@@ -274,78 +429,37 @@ async def run() -> None:
     if not session_path.exists():
         _log.warning("tg_session_missing", path=str(session_path))
 
-    # Telethon imported lazily — never at module import — so unit tests can
-    # mock the fetcher without telethon's optional native deps loading.
-    try:
-        from telethon import TelegramClient, events
-        from telethon.errors import FloodWaitError
-    except ImportError as e:
-        _log.error("tg_telethon_missing", err=str(e))
+    telethon = _import_telethon()
+    if telethon is None:
         await close_pool()
         return
+    TelegramClient, events, FloodWaitError = telethon
 
     backoff_idx = 0
+    stem = _session_stem(session_path)
     while True:
-        # Strip `.session` suffix when handing to Telethon — it appends it.
-        session_stem = str(session_path)
-        if session_stem.endswith(".session"):
-            session_stem = session_stem[: -len(".session")]
-        client = TelegramClient(session_stem, settings.telegram_api_id, settings.telegram_api_hash)
+        client = TelegramClient(stem, settings.telegram_api_id, settings.telegram_api_hash)
         try:
-            await client.connect()
-            if not await client.is_user_authorized():
-                _log.error("tg_not_authorised", hint="re-run scripts/telegram_auth.py")
-                await asyncio.sleep(_MAX_BACKOFF)
-                continue
-            me = await client.get_me()
-            _log.info("tg_authorised", user_id=getattr(me, "id", None))
-
-            if channels and source_id is not None:
-
-                @client.on(events.NewMessage(chats=channels))
-                async def _handler(event):
-                    try:
-                        chat = await event.get_chat()
-                        channel = getattr(chat, "username", None) or str(getattr(chat, "id", "unknown"))
-                        message_id = int(event.message.id)
-                        text = event.message.text or event.message.message or ""
-                        _log.info(
-                            "tg_message_received",
-                            channel=channel,
-                            message_id=message_id,
-                            length=len(text),
-                        )
-                        parsed = parse_message(channel=channel, message_id=message_id, text=text)
-                        if parsed is None:
-                            _log.debug("tg_skip_empty", channel=channel, message_id=message_id)
-                            return
-                        opp = build_opportunity(parsed, source_id=source_id)
-                        await _publish_with_dedupe(q, opp, channel=channel, message_id=message_id)
-                    except Exception as e:
-                        _log.exception("tg_handler_failed", err=str(e))
-
-            backoff_idx = 0  # successful connect resets backoff
-            await client.run_until_disconnected()
-            _log.warning("tg_disconnected_retry")
+            await _run_session(
+                client=client,
+                events=events,
+                channels=channels,
+                q=q,
+                source_id=source_id,
+            )
+            backoff_idx = 0  # successful run resets backoff
         except FloodWaitError as e:
             wait = min(getattr(e, "seconds", _MAX_BACKOFF) or _MAX_BACKOFF, _MAX_BACKOFF)
             _log.warning("tg_flood_wait", seconds=wait)
             await asyncio.sleep(wait)
         except (asyncio.CancelledError, KeyboardInterrupt):
             _log.info("tg_shutdown")
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+            await _safe_disconnect(client)
             break
         except Exception as e:
-            sleep_s = _BACKOFF_SCHEDULE[min(backoff_idx, len(_BACKOFF_SCHEDULE) - 1)]
-            backoff_idx = min(backoff_idx + 1, len(_BACKOFF_SCHEDULE) - 1)
+            sleep_s, backoff_idx = _next_backoff(backoff_idx)
             _log.exception("tg_loop_error", err=str(e), backoff_seconds=sleep_s)
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+            await _safe_disconnect(client)
             await asyncio.sleep(sleep_s)
 
     await close_pool()
