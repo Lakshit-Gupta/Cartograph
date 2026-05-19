@@ -155,6 +155,37 @@ class Settings(BaseSettings):
     # "followup_overflow" so the operator sees it in #🤖-bot-logs.
     followup_daily_cap: int = 30
 
+    # Phase 3.4 — OSS contribution funnel. Daily 08:00 IST cron sweeps
+    # `target_companies WHERE active=true AND github_org IS NOT NULL`,
+    # queries the GitHub Search API for "good first issue" issues on
+    # each org, and publishes filtered issues onto Streams.RANK as
+    # Opportunity rows (apply_method=external, comp=NULL). When this
+    # flag is False the worker boots and idles — the cron tick fires
+    # but run_daily_scan short-circuits with `oss_funnel_disabled`.
+    # Staged-rollout pattern identical to MP_RESUME_LATEX_ENABLED /
+    # COLD_OUTREACH_ENABLED / MP_FOLLOWUP_ENABLED: ship with flag off,
+    # populate target_companies, verify GH_TOKEN, then flip + restart.
+    mp_oss_funnel_enabled: bool = False
+    # GitHub personal access token (PAT). When set the funnel uses
+    # authenticated search (30 req/min, higher search rate-limit
+    # ceiling, headers contain X-RateLimit-Remaining we honour). When
+    # unset the funnel falls back to unauth (10 req/min for search) and
+    # backs off aggressively on 403/rate-limit responses. Same env var
+    # name as the existing github_markdown scrapers consume so a
+    # single PAT covers both lanes.
+    github_token: str = ""
+
+    # Phase 3.2 — dark-source discovery worker. When False the weekly Sunday
+    # 04:00 IST cron fires but the handler returns immediately without
+    # spending any LLM budget. Flip via SOPS edit + restart of jobs-scheduler.
+    # `dark_source_daily_llm_cap` is a HARD per-run ceiling on classifier
+    # calls — overflow candidates are dropped and re-surface on the next
+    # weekly cycle (dedupe keeps the DB clean). Same staged-rollout pattern
+    # as MP_RESUME_LATEX_ENABLED / COLD_OUTREACH_ENABLED / MP_FOLLOWUP_ENABLED:
+    # ship with flag off, verify pipeline against ephemeral DB, flip + restart.
+    mp_dark_source_discovery_enabled: bool = False
+    dark_source_daily_llm_cap: int = 50
+
     # Misc
     obsidian_vault_path: str = "/vault"
     config_root: str = Field(default_factory=lambda: str(Path(__file__).resolve().parents[2] / "config"))

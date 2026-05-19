@@ -166,6 +166,63 @@ async def weekly_variant_refit(q: RedisQ) -> None:
     )
 
 
+async def weekly_dark_source_discovery(q: RedisQ) -> None:
+    """Phase 3.2 — weekly dark-source discovery cron.
+
+    Sunday 04:00 IST. Gated by ``settings.mp_dark_source_discovery_enabled``
+    inside ``run_once`` so flipping the flag off via SOPS is instant; the
+    cron still fires but the handler returns ``{"status": "disabled"}`` and
+    publishes nothing.
+
+    Inside the gate: pulls all 4 strategies, classifies via LLM (cap 50/day
+    enforced inside the pipeline), and auto-promotes high-confidence rows
+    into ``sources``. Mid-confidence land in ``candidate_sources`` for the
+    user to review via ``/review``.
+
+    Failure is logged but does not propagate — the rest of the scheduler
+    keeps emitting fetch ticks and digest crons regardless.
+    """
+    try:
+        from src.workers.dark_source_discovery import run_once
+
+        result = await run_once(publish_alert=True)
+    except Exception as e:
+        _log.warning("dark_source_discovery_cron_failed", err=str(e))
+        return
+    _log.info("dark_source_discovery_cron_done", **{k: v for k, v in result.items() if k != "strategies"})
+
+
+async def emit_daily_oss_funnel_scan(q: RedisQ) -> None:
+    """Phase 3.4 — 08:00 IST OSS contribution funnel scan.
+
+    Imports lazily because the worker pulls in httpx +
+    extractors.persist + sources.oss_funnel.github_issues. Keeping
+    the import inside the handler stops a missing-dependency hiccup
+    in the OSS funnel module from taking down the rest of the
+    scheduler.
+
+    Idempotent across reruns — every Opportunity emitted carries a
+    deterministic ``oss:<org>:<repo>:<issue>`` fingerprint hash that
+    persist_and_publish dedupes against. Gated by
+    ``settings.mp_oss_funnel_enabled`` inside ``run_daily_scan`` so
+    flipping the flag off via SOPS is instant; the cron still fires
+    but the handler returns an empty summary and publishes nothing.
+    """
+    try:
+        from src.workers.oss_funnel import run_daily_scan
+    except Exception as e:
+        _log.warning("oss_funnel_module_import_failed", err=str(e))
+        return
+    try:
+        summary = await run_daily_scan(q)
+        _log.info(
+            "oss_funnel_cron_tick",
+            **{k: getattr(summary, k) for k in summary.__dataclass_fields__},
+        )
+    except Exception as e:
+        _log.exception("oss_funnel_cron_failed", err=str(e))
+
+
 async def weekly_source_refit(q: RedisQ) -> None:
     """Phase 2.4 — weekly refit of ``sources.ranking_weight``.
 
@@ -241,6 +298,29 @@ async def main() -> None:
         CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Asia/Kolkata"),
         args=[q],
         id="weekly_source_refit",
+    )
+    # Phase 3.2 — Sunday 04:00 IST. Lands one hour after weekly_source_refit
+    # so the discovery run sees freshly-updated source weights. Gated by
+    # settings.mp_dark_source_discovery_enabled inside the handler — when
+    # off, the tick returns immediately without touching the LLM budget.
+    scheduler.add_job(
+        weekly_dark_source_discovery,
+        CronTrigger(day_of_week="sun", hour=4, minute=0, timezone="Asia/Kolkata"),
+        args=[q],
+        id="weekly_dark_source_discovery",
+    )
+    # Phase 3.4 — daily OSS contribution funnel scan at 08:00 IST.
+    # Explicit IST timezone matches the digest + follow-up crons so
+    # the entire user-facing day starts on a stable wall-clock. Lands
+    # before the apply-rate nudge (21:00 IST) so any new "good first
+    # issue" pickups have a chance to surface in the day's digest.
+    scheduler.add_job(
+        emit_daily_oss_funnel_scan,
+        CronTrigger(hour=8, minute=0, timezone="Asia/Kolkata"),
+        args=[q],
+        id="daily_oss_funnel_scan",
+        max_instances=1,
+        coalesce=True,
     )
     scheduler.start()
     _log.info("scheduler_started", now=datetime.now(UTC).isoformat())

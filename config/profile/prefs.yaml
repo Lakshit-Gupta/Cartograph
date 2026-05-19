@@ -61,6 +61,17 @@ freelance:
   # entries here as you discover signal-rich freelance channels.
   telegram_channels: []
 
+  # Phase 3.1 — Twitter/X founder-signal scraper. List founder / recruiter
+  # handles you trust to surface hiring intent ("we're hiring", "looking for
+  # a [role]", "paid project", "join us", "we need"). The worker polls each
+  # handle via Nitter mirrors on a 30 min schedule and publishes matched
+  # tweets onto stream:rank. Accepts `paulg`, `@paulg`, `twitter.com/paulg`,
+  # or `https://x.com/paulg/`. Empty list = worker boots, logs
+  # `tw_no_handles_configured`, and idles. Daily fetch budget is capped at
+  # 10 polls per handle (240 total at 24 handles) to play nice with Nitter
+  # operators.
+  twitter_handles: []
+
 # Phase 2.1 — cold-email outbound lane (Apollo/Hunter + LLM intro).
 #
 # This block is informational; the worker reads the actual flags from

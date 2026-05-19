@@ -42,6 +42,11 @@ x-env-common: &env-common
   MP_FOLLOWUP_ENABLED: ${mp_followup_enabled:-false}
   FOLLOWUP_WINDOW_DAYS: ${followup_window_days:-4}
   FOLLOWUP_DAILY_CAP: ${followup_daily_cap:-30}
+  # Phase 3.2 dark-source discovery worker — flag-gated. When false the
+  # weekly Sunday 04:00 IST cron returns immediately without LLM spend.
+  # `dark_source_daily_llm_cap` caps classifier calls per run (default 50).
+  MP_DARK_SOURCE_DISCOVERY_ENABLED: ${mp_dark_source_discovery_enabled:-false}
+  DARK_SOURCE_DAILY_LLM_CAP: ${dark_source_daily_llm_cap:-50}
   PYTHONUNBUFFERED: "1"
   TZ: ${TZ:-Asia/Kolkata}
 
@@ -312,6 +317,34 @@ services:
     volumes:
       - /var/lib/agent/logs:/app/logs
       - ./var/telegram:/var/lib/agent/telegram:rw
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    mem_limit: 256m
+    pids_limit: 64
+    user: "1000"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  freelance-twitter-fetcher:
+    # Phase 3.1 — Twitter/X founder-signal scraper. Polls a curated list of
+    # Nitter mirrors (public Twitter front-ends without auth) for the
+    # founder/recruiter handles in config/profile/prefs.yaml ->
+    # freelance.twitter_handles, filters hiring-intent tweets, and publishes
+    # matches onto stream:rank (same shape as freelance-telegram-fetcher).
+    # No host network, no API keys, no PII. Sandbox parity with telegram
+    # fetcher: read_only rootfs, mem 256m, pids 64, user 1000. Boots cleanly
+    # with an empty handles list — logs `tw_no_handles_configured` and idles.
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.twitter_signal"]
+    environment: *env-common
+    volumes:
+      - /var/lib/agent/logs:/app/logs
     read_only: true
     tmpfs:
       - /tmp:size=64m
