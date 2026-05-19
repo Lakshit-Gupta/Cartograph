@@ -128,6 +128,18 @@ class Settings(BaseSettings):
     # flag off, backfill embeddings, drain Streams.APPLY, then flip on.
     mp_resume_latex_enabled: bool = False
 
+    # Phase 2.3 — follow-up automation. When False the daily 13:00 IST cron
+    # short-circuits and never drafts anything; the Send button hard-refuses
+    # too. Flip via SOPS edit + restart of jobs-scheduler / applier-worker /
+    # notifier-discord. Same staged-rollout pattern as MP_RESUME_LATEX_ENABLED.
+    mp_followup_enabled: bool = False
+    # Days of silence after sent_at before an application becomes eligible.
+    followup_window_days: int = 4
+    # Hard cap on follow-ups drafted per cron tick. Oldest-application-first
+    # when the eligible set exceeds the cap; overflow is logged via
+    # "followup_overflow" so the operator sees it in #🤖-bot-logs.
+    followup_daily_cap: int = 30
+
     # Misc
     obsidian_vault_path: str = "/vault"
     config_root: str = Field(default_factory=lambda: str(Path(__file__).resolve().parents[2] / "config"))
