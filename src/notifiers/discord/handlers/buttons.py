@@ -269,3 +269,192 @@ async def _ephemeral(interaction: discord.Interaction, msg: str) -> None:
             await interaction.response.send_message(msg, ephemeral=True)
     except Exception as e:
         _log.warning("ephemeral_send_failed", err=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.2 — dark-source candidate review buttons.
+# Custom-id shape: candidate:<action>:<candidate_id>
+#   action ∈ {approve, reject, snooze}
+# Buttons live under the embed returned by `/review` (commands/review.py).
+# Approve materialises a sources row inline (small txn, no separate worker).
+# ---------------------------------------------------------------------------
+
+
+class CandidateReviewView(discord.ui.View):
+    """View attached to a paginated `/review` embed.
+
+    Discord caps an action row at 5 buttons and a view at 5 rows. With the
+    page-size of 10 we can't fit per-row Approve/Reject/Snooze. We instead
+    show one Approve / Reject / Snooze trio that operates on the FIRST
+    pending candidate id in the rendered page. The operator can re-run
+    /review after each click to action the next one. Crude but Discord-
+    constraint-honest; Phase 3.3 can replace with a Select component
+    (25-option dropdown) to pick which candidate.
+    """
+
+    def __init__(self, candidate_ids: list[int], *, timeout: float | None = None):
+        super().__init__(timeout=timeout)
+        if not candidate_ids:
+            return
+        first = candidate_ids[0]
+        self.add_item(_candidate_btn("Approve", "approve", first, discord.ButtonStyle.success, "✅"))
+        self.add_item(_candidate_btn("Reject", "reject", first, discord.ButtonStyle.danger, "❌"))
+        self.add_item(_candidate_btn("Snooze", "snooze", first, discord.ButtonStyle.secondary, "🔁"))
+
+
+def _candidate_btn(
+    label: str,
+    action: str,
+    candidate_id: int,
+    style: discord.ButtonStyle,
+    emoji: str | None = None,
+) -> discord.ui.Button:
+    button = discord.ui.Button(
+        label=label,
+        style=style,
+        custom_id=f"candidate:{action}:{candidate_id}",
+        emoji=emoji,
+    )
+
+    async def _cb(interaction: discord.Interaction) -> None:
+        await dispatch_candidate_button(interaction)
+
+    button.callback = _cb  # type: ignore[assignment]
+    return button
+
+
+async def _approve_candidate(candidate_id: int) -> tuple[bool, str]:
+    """Promote the candidate into sources atomically.
+
+    Mirrors the auto-promote path in `src/sources/discovery/promoter.py` but
+    fires from human approval, not LLM confidence. Returns (ok, message).
+    """
+    # Lazy import to dodge a circular: buttons.py imports → promoter.py imports
+    # db / logger from common, no cycle today but keeps the dependency direction
+    # clear if promoter ever grows a Discord import.
+    from src.sources.discovery.promoter import _CATEGORY_TO_STRATEGY, _slug_from_url
+
+    rec = await db.fetch_one(
+        """
+        SELECT id, url, title, classifier_confidence, classifier_category, status
+        FROM candidate_sources WHERE id = $1
+        """,
+        candidate_id,
+    )
+    if rec is None:
+        return False, f"No candidate `#{candidate_id}` found."
+    if rec["status"] != "pending":
+        return False, f"Candidate `#{candidate_id}` already {rec['status']}."
+
+    category = rec["classifier_category"] or "other"
+    strategy, cf_level = _CATEGORY_TO_STRATEGY.get(category, ("generic_html", "basic"))
+    slug = _slug_from_url(rec["url"])
+    safe_category = category if category in ("ats", "rss", "github_md", "hn", "reddit", "fellowship", "india", "freelance") else "other"
+
+    try:
+        async with db.acquire() as conn, conn.transaction():
+            source_row = await conn.fetchrow(
+                """
+                    INSERT INTO sources (
+                        slug, name, category, base_url, crawler_strategy,
+                        fetch_freq_minutes, priority, cf_protection_level,
+                        tier_chain, browser_mode_required, status, created_via,
+                        discovery_confidence
+                    ) VALUES ($1,$2,$3,$4,$5,240,5,$6,ARRAY[0,1,2],FALSE,'active','discovery',$7)
+                    ON CONFLICT (slug) DO NOTHING
+                    RETURNING id
+                    """,
+                slug,
+                (rec["title"] or rec["url"])[:200],
+                safe_category,
+                rec["url"],
+                strategy,
+                cf_level,
+                rec["classifier_confidence"],
+            )
+            if source_row is None:
+                return False, f"Slug `{slug}` already exists — manually resolve via `/source list`."
+            source_id = int(source_row["id"])
+            await conn.execute(
+                """
+                    UPDATE candidate_sources
+                       SET status = 'approved',
+                           promoted_source_id = $2,
+                           reviewed_at = NOW()
+                     WHERE id = $1
+                    """,
+                candidate_id,
+                source_id,
+            )
+            await conn.execute(
+                """
+                    INSERT INTO source_provenance (source_id, candidate_source_id, discovered_via)
+                    VALUES ($1, $2, (SELECT discovered_via FROM candidate_sources WHERE id = $2))
+                    """,
+                source_id,
+                candidate_id,
+            )
+        return True, f"Approved → new source `{slug}` (id={source_id})."
+    except Exception as e:
+        _log.exception("candidate_approve_failed", candidate_id=candidate_id, err=str(e))
+        return False, f"Approve failed: {e}"
+
+
+async def _reject_candidate(candidate_id: int) -> tuple[bool, str]:
+    result = await db.execute(
+        """
+        UPDATE candidate_sources
+           SET status = 'rejected', reviewed_at = NOW()
+         WHERE id = $1 AND status = 'pending'
+        """,
+        candidate_id,
+    )
+    if result.endswith(" 0"):
+        return False, f"Could not reject `#{candidate_id}` (already actioned?)."
+    return True, f"Rejected `#{candidate_id}`."
+
+
+async def _snooze_candidate(candidate_id: int) -> tuple[bool, str]:
+    result = await db.execute(
+        """
+        UPDATE candidate_sources
+           SET status = 'snoozed', reviewed_at = NOW()
+         WHERE id = $1 AND status = 'pending'
+        """,
+        candidate_id,
+    )
+    if result.endswith(" 0"):
+        return False, f"Could not snooze `#{candidate_id}`."
+    return True, f"Snoozed `#{candidate_id}`."
+
+
+async def dispatch_candidate_button(interaction: discord.Interaction) -> None:
+    """Single entry point for `candidate:<action>:<id>` buttons.
+
+    Same pattern as ``dispatch_button`` but operates against candidate_sources
+    rather than opportunities. Idempotency comes from the
+    `WHERE status = 'pending'` guard inside each handler — clicking the same
+    button twice is a no-op message.
+    """
+    raw = interaction.data.get("custom_id", "") if interaction.data else ""
+    try:
+        _, action, candidate_id_str = raw.split(":", 2)
+        candidate_id = int(candidate_id_str)
+    except (ValueError, TypeError):
+        await _ephemeral(interaction, f"Bad button id: `{raw}`")
+        return
+
+    try:
+        if action == "approve":
+            ok, msg = await _approve_candidate(candidate_id)
+        elif action == "reject":
+            ok, msg = await _reject_candidate(candidate_id)
+        elif action == "snooze":
+            ok, msg = await _snooze_candidate(candidate_id)
+        else:
+            ok, msg = False, f"Unknown action `{action}`."
+    except Exception as e:
+        _log.exception("candidate_button_dispatch_failed", action=action, candidate_id=candidate_id, err=str(e))
+        ok, msg = False, f"Error: {e}"
+
+    await _ephemeral(interaction, ("✓ " if ok else "✗ ") + msg)

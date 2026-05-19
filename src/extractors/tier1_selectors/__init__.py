@@ -25,6 +25,10 @@ def get(slug: str) -> Callable[[ExtractInput], Awaitable[ExtractOutput]] | None:
 # Eager-import selector modules so they register themselves
 from . import (  # noqa: F401,E402  # noqa: F401,E402
     ashby,
+    bounty_algora,
+    bounty_gitcoin,
+    bounty_replit,
+    bounty_superteam,
     contra,
     cuvette,
     github_md,
