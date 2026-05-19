@@ -144,6 +144,11 @@ ignore = [
 # prompts for credentials inside an async main(). aioconsole is overkill
 # for a single-use script.
 "scripts/add_identity.py" = ["ASYNC250"]
+# Phase 2.4 source refit follows the sklearn convention of uppercase ``X``
+# for the feature matrix (lowercase ``y`` for the label vector). PEP8
+# would object; ML readability wins here. Same exemption for the test.
+"src/ranker/source_refit.py" = ["N803", "N806"]
+"tests/ranker/test_source_refit.py" = ["N806"]
 
 [tool.mypy]
 python_version = "3.11"

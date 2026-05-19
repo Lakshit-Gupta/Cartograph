@@ -166,6 +166,34 @@ async def weekly_variant_refit(q: RedisQ) -> None:
     )
 
 
+async def weekly_source_refit(q: RedisQ) -> None:
+    """Phase 2.4 — weekly refit of ``sources.ranking_weight``.
+
+    Fits an L2 logistic regression over the last 90 days of applications
+    joined to opportunity_transitions (engagement-window labels) and
+    writes per-source weights in ``[0.5, 2.0]`` back to the sources
+    table. The formula ranker already reads that column, so the next
+    opp scored picks up the new weight without further code changes.
+
+    Cold-start safe: when the labeled-row count is below 50, the run
+    logs ``source_refit_cold_start`` and exits without writing weights.
+
+    Failure is logged but does not propagate — the ranker keeps using
+    its previous (or seeded ``1.0``) weights.
+    """
+    try:
+        from src.ranker.source_refit import run_weekly_refit
+
+        summary = await run_weekly_refit()
+    except Exception as e:
+        _log.warning("source_refit_cron_failed", err=str(e))
+        return
+    await q.publish(
+        Streams.ALERTS,
+        {"kind": "source_refit_done", **{k: v for k, v in summary.items() if k != "weights"}},
+    )
+
+
 async def main() -> None:
     await init_pool()
     q = await RedisQ.connect()
@@ -203,6 +231,16 @@ async def main() -> None:
         CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="Asia/Kolkata"),
         args=[q],
         id="weekly_variant_refit",
+    )
+    # Phase 2.4 — weekly source response-rate refit. Sunday 03:00 IST,
+    # one hour after the variant refit so it sees up-to-date weight rows
+    # if the two refit modules ever share signals. Independent transactions
+    # today; the scheduling offset is defensive future-proofing.
+    scheduler.add_job(
+        weekly_source_refit,
+        CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Asia/Kolkata"),
+        args=[q],
+        id="weekly_source_refit",
     )
     scheduler.start()
     _log.info("scheduler_started", now=datetime.now(UTC).isoformat())

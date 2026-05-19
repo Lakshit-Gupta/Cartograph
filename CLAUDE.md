@@ -777,7 +777,7 @@ Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, 
   Hunter for richer title metadata; NullProvider used when neither API key set.
 - Resume A/B variants with `application.resume_variant_id` tracking.
 - Follow-up automation (13:00 cron, LLM draft, button-driven send).
-- Source response-rate feedback (logistic regression refit weekly).
+- Source response-rate feedback (logistic regression refit weekly). Phase 2.4 lands `src/ranker/source_refit.py` (L2 logistic over the last 90 days of applications joined to opportunity_transitions, engagement window = 30 days, weights mapped to `[0.5, 2.0]` and UPSERTed into `sources.ranking_weight`). Weekly cron `weekly_source_refit` (Sun 03:00 IST) emits one row into `source_refit_log` per run; cold-start gate skips the UPDATE when <50 labeled apps exist.
 
 ### Phase 3 — Multi-channel v1.2 (Weeks 5–8)
 
