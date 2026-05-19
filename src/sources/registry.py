@@ -33,7 +33,12 @@ def _load() -> None:
         openai_residency,
         yc_fellows,
     )
-    from src.sources.freelance import contra, telegram_channel, upwork_email  # noqa: F401
+    from src.sources.freelance import (  # noqa: F401
+        contra,
+        telegram_channel,
+        twitter_signal,
+        upwork_email,
+    )
     from src.sources.github_markdown import ouckah, simplifyjobs  # noqa: F401
     from src.sources.india import (  # noqa: F401
         cuvette,
