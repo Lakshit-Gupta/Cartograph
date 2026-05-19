@@ -141,6 +141,31 @@ async def emit_daily_followup_scan(q: RedisQ) -> None:
         _log.exception("followup_cron_failed", err=str(e))
 
 
+async def weekly_variant_refit(q: RedisQ) -> None:
+    """Phase 2.2 — weekly refit of ``resume_variants.weight``.
+
+    Pulls the last 30 days of applications + opportunity_transitions and
+    writes a smoothed per-variant weight back to the table. Pure-local
+    sklearn-style compute — no LLM call, so no daily-spend gate.
+
+    Emits a heartbeat onto ``Streams.ALERTS`` so the user sees a row in
+    ``#🔔-alerts`` confirming the refit ran. Failure is logged but does
+    not propagate — the picker degrades gracefully to UCB1 with the
+    previous (or seeded) weights.
+    """
+    try:
+        from src.ranker.variant_refit import refit_variant_weights
+
+        weights = await refit_variant_weights()
+    except Exception as e:
+        _log.warning("variant_refit_cron_failed", err=str(e))
+        return
+    await q.publish(
+        Streams.ALERTS,
+        {"kind": "variant_refit_done", "weights": weights},
+    )
+
+
 async def main() -> None:
     await init_pool()
     q = await RedisQ.connect()
@@ -168,6 +193,16 @@ async def main() -> None:
         CronTrigger(hour=13, minute=0, timezone="Asia/Kolkata"),
         args=[q],
         id="daily_followup_scan",
+    )
+    # Phase 2.2 — weekly variant weight refit. Sunday 02:00 IST is the
+    # quietest window (post-Saturday digest, pre-Sunday digest). Explicit
+    # IST timezone keeps the column update landing at the same wall-clock
+    # time each week regardless of UTC drift.
+    scheduler.add_job(
+        weekly_variant_refit,
+        CronTrigger(day_of_week="sun", hour=2, minute=0, timezone="Asia/Kolkata"),
+        args=[q],
+        id="weekly_variant_refit",
     )
     scheduler.start()
     _log.info("scheduler_started", now=datetime.now(UTC).isoformat())
