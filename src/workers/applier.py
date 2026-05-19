@@ -270,6 +270,40 @@ async def _do_source_add(q: RedisQ, payload: dict[str, Any]) -> None:
     )
 
 
+async def _do_send_followup(q: RedisQ, payload: dict[str, Any]) -> None:
+    """Phase 2.3 — Send button on the follow-up embed lands here.
+
+    The followup body lives in the DB (followups.body_markdown). We
+    delegate the actual Resend call to
+    ``src.application.followup.send_followup`` which handles the
+    feature-flag gate, threading via In-Reply-To, and the status
+    transitions.
+
+    A tracker_update message rides back so the user sees the result in
+    Discord without having to refresh the thread.
+    """
+    fid_raw = payload.get("followup_id")
+    if fid_raw is None:
+        raise ValueError("send_followup payload missing followup_id")
+    followup_id = int(fid_raw)
+    user_id = _user_id(payload)
+
+    from src.application.followup import send_followup
+
+    ok = await send_followup(followup_id)
+    await q.publish(
+        Streams.NOTIFY,
+        {
+            "kind": "tracker_update",
+            "user_id": user_id,
+            "opp_id": str(payload.get("opp_id") or ""),
+            "verb": "follow-up sent" if ok else "follow-up failed",
+            "tracker": "applied",
+            "message": (f"follow-up `{followup_id}` sent" if ok else f"follow-up `{followup_id}` could not be sent"),
+        },
+    )
+
+
 async def _do_proposal_send(q: RedisQ, payload: dict[str, Any]) -> None:
     """Freelance proposal: user-edited cover passed through sender.
 
@@ -310,6 +344,7 @@ _DISPATCH: dict[str, HandlerFn] = {
     "source_add": _do_source_add,
     "proposal_send": _do_proposal_send,
     "freelance_send_proposal": _do_proposal_send,
+    "send_followup": _do_send_followup,
 }
 
 
@@ -328,7 +363,7 @@ async def _process(q: RedisQ, payload: dict[str, Any]) -> None:
 
 
 async def _warm_fallback_pdf_if_enabled() -> None:
-    """Pre-compile the untailored resume PDF at worker boot.
+    """Pre-compile the untailored resume PDF(s) at worker boot.
 
     Without this, `_send_with_latex` has no fallback to attach when a
     tailored compile fails (sanitizer reject, render bug, source drift,
@@ -336,24 +371,78 @@ async def _warm_fallback_pdf_if_enabled() -> None:
     cached on disk afterward; subsequent appliers reuse the cached PDF.
 
     Skipped silently when MP_RESUME_LATEX_ENABLED is false.
+
+    Phase 2.2 — warms one PDF per active variant in ``resume_variants``,
+    plus the legacy base ``fallback.pdf`` for backward compat with code
+    paths that haven't been variant-ised yet. Capped at 5 variants by
+    spec (manifest stub paths line up with the V011 seed) — beyond that,
+    cold-start warmup cost grows linearly with #variants.
     """
     from src.application.sender import _manifest_path, _resume_root, is_latex_enabled
 
     if not is_latex_enabled():
         return
+
     try:
         from src.application.resume_latex.fallback import warm_fallback_pdf
         from src.application.resume_latex.parser.manifest import load as load_manifest
 
         manifest = load_manifest(_manifest_path())
-        path = await warm_fallback_pdf(user_id=1, resume_root=_resume_root(), main_file=manifest.main_file)
     except Exception as e:
         _log.warning("fallback_warmup_failed", err=str(e))
         return
-    if path is None:
-        _log.warning("fallback_warmup_returned_none")
+
+    # 1. Always warm the unlabelled base PDF first — legacy callers and
+    # the single-variant deployment path both rely on it; if it succeeds
+    # the per-variant warmups can run in any order without bricking
+    # `get_fallback(user_id)` (no-label form).
+    try:
+        base_path = await warm_fallback_pdf(user_id=1, resume_root=_resume_root(), main_file=manifest.main_file)
+    except Exception as e:
+        _log.warning("fallback_warmup_failed", err=str(e), variant="base")
+        base_path = None
+    if base_path is None:
+        _log.warning("fallback_warmup_returned_none", variant="base")
     else:
-        _log.info("fallback_warmup_ok", path=str(path))
+        _log.info("fallback_warmup_ok", path=str(base_path), variant="base")
+
+    # 2. Warm one PDF per active variant. We read from the DB so that an
+    # eventual manifest-only edit can't make picker and warmup disagree —
+    # they consult the same `resume_variants` rows.
+    try:
+        from src.common.db import acquire as _acquire
+
+        async with _acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT label, main_tex_path
+                  FROM resume_variants
+                 WHERE user_id = 1 AND active = TRUE
+                 ORDER BY id
+                 LIMIT 5
+                """,
+            )
+    except Exception as e:
+        _log.warning("variant_warmup_db_read_failed", err=str(e))
+        return
+
+    for r in rows:
+        label = str(r["label"])
+        main_tex_path = str(r["main_tex_path"])
+        try:
+            v_path = await warm_fallback_pdf(
+                user_id=1,
+                resume_root=_resume_root(),
+                main_file=main_tex_path,
+                variant_label=label,
+            )
+        except Exception as e:
+            _log.warning("fallback_warmup_failed", err=str(e), variant=label)
+            continue
+        if v_path is None:
+            _log.warning("fallback_warmup_returned_none", variant=label)
+        else:
+            _log.info("fallback_warmup_ok", path=str(v_path), variant=label)
 
 
 async def main() -> None:
