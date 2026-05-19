@@ -28,8 +28,10 @@ _log = get_logger(__name__)
 # keeps it small + reliable. Phase 3.3 can pull from a YAML config.
 _AWESOME_READMES = [
     ("https://raw.githubusercontent.com/tramcar/awesome-job-boards/master/README.md", "awesome-job-boards"),
-    ("https://raw.githubusercontent.com/bmuschko/awesome-remote-jobs/master/README.md", "awesome-remote-jobs"),
     ("https://raw.githubusercontent.com/lukasz-madon/awesome-remote-job/master/README.md", "awesome-remote-job"),
+    # bmuschko/awesome-remote-jobs returned 404 on live smoke 2026-05-19 — leave
+    # only the two confirmed-live READMEs. Easy to extend via re-add when the
+    # owner restores the repo or via Phase 3.3 config/dorks.yaml.
 ]
 
 # Markdown link form: [text](url) — captures both groups. We also accept bare URLs.

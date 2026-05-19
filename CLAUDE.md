@@ -781,7 +781,7 @@ Covered above. Ships daily digest, apply/skip flow, Gmail outcome tracking, free
 
 ### Phase 3 — Multi-channel v1.2 (Weeks 5–8)
 
-- Twitter/X founder signal scraper (Nitter or paid API).
+- Twitter/X founder signal scraper (Nitter or paid API). **Phase 3.1 shipped** via `src/sources/freelance/twitter_fetcher.py` + `freelance-twitter-fetcher` compose service. Nitter-only (no API key); handles live in `config/profile/prefs.yaml -> freelance.twitter_handles`; per-mirror 30s cool-down, per-handle 10/day cap, hiring-keyword filter, publishes onto `stream:rank` bypassing crawler/extractor.
 - Dark-source discovery worker (Google dorking + Reddit + HN + GitHub awesome-lists + Common Crawl + newsletters).
 - Bounty lane (Algora, Replit Bounties, Gitcoin).
 - OSS contribution funnel (`target_companies` + "good first issue" scan).

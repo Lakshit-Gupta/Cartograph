@@ -89,11 +89,18 @@ def _is_stale(updated_at_iso: str, *, threshold_days: int = _STALE_THRESHOLD_DAY
 
 
 def _split_repo_url(repo_url: str) -> tuple[str, str]:
-    """('https://api.github.com/repos/vercel/next.js') -> ('vercel', 'next.js')."""
-    parts = [p for p in repo_url.rstrip("/").split("/") if p]
+    """('https://api.github.com/repos/vercel/next.js') -> ('vercel', 'next.js').
+
+    Returns ('', '') for any URL that isn't a github.com repos endpoint
+    (e.g. example.com, malformed URLs, empty strings).
+    """
+    if not repo_url or "github.com/repos/" not in repo_url:
+        return "", ""
+    after = repo_url.split("github.com/repos/", 1)[1].rstrip("/")
+    parts = [p for p in after.split("/") if p]
     if len(parts) < 2:
         return "", ""
-    return parts[-2], parts[-1]
+    return parts[0], parts[1]
 
 
 def parse_issue_to_opportunity(

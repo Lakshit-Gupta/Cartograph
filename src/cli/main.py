@@ -20,7 +20,7 @@ import click
 
 from src.cli.identity import identity_group
 from src.cli.opps import opps_group
-from src.cli.sources import sources_group
+from src.cli.sources import sources_group, targets_group
 from src.common.db import acquire, close_pool, init_pool
 
 # Static lock id — any 32-bit signed int. Picked from /dev/random once and
@@ -122,6 +122,7 @@ async def _seed_sources() -> None:
 cli.add_command(sources_group)
 cli.add_command(identity_group)
 cli.add_command(opps_group)
+cli.add_command(targets_group)
 
 
 if __name__ == "__main__":

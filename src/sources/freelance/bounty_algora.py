@@ -1,8 +1,14 @@
 """Algora bounty feed source plugin.
 
-Phase 3.3 — registers the source so the dispatcher routes Algora's
-public JSON feed to tier 0 (no CF, no JS). The extractor lives at
-``src/extractors/tier1_selectors/bounty_algora.py``.
+Phase 3.3 — registers the bounty_algora strategy so the scheduler routes
+Algora's public tRPC `bounty.list` endpoint to tier 0 (no CF, no JS).
+The extractor lives at `src/extractors/tier1_selectors/bounty_algora.py`.
+
+The original brief documented `/api/v1/bounties/feed.json` — that path
+404s as of 2026-05-19 and the seed migration (V015) now points at the
+tRPC route. The plugin itself stays endpoint-agnostic: it passes the
+`sources.base_url` value through verbatim, so flipping the seed row to
+a future REST endpoint requires zero code change here.
 """
 
 from __future__ import annotations
