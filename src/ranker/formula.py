@@ -1,16 +1,37 @@
-"""Formula ranker: kw_match + emb_sim + comp + freshness + source_quality + resp_rate."""
+"""Formula ranker: kw_match + emb_sim + comp + freshness + source_quality + resp_rate.
+
+Phase 5.3 — when a successful row exists in `ranker_weights_fit` for the
+current tenant, the six component weights are taken from there in
+preference to `config/profile/prefs.yaml`. The fitted row is fetched
+opportunistically via `load_weights_async`; the sync `load_weights()` path
+keeps reading YAML so legacy callers (unit tests, CLI utilities) don't
+need to thread an event loop.
+
+`recency_half_life_hours` is NOT refitted — there's no labelled signal in
+the data we currently capture to back that out. It stays YAML-driven.
+"""
 
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
+from src.common.logger import get_logger
 from src.common.secrets import get_settings
 from src.common.types import Opportunity
+
+_log = get_logger(__name__)
+
+# Phase 5.3 — short refresh cache so the hot-path scorer doesn't query DB
+# every score(). 5min strikes the balance: a nightly refit lands well
+# inside the next cache miss, and a stale read at worst loses one day of
+# fitted weights before the next refresh.
+_FIT_CACHE_TTL_SECONDS = 300
 
 
 @dataclass(slots=True)
@@ -24,7 +45,7 @@ class RankerWeights:
     recency_half_life_hours: float = 36.0
 
 
-def load_weights() -> RankerWeights:
+def _load_yaml_weights() -> RankerWeights:
     settings = get_settings()
     p = Path(settings.config_root) / "profile" / "prefs.yaml"
     if not p.exists():
@@ -40,6 +61,80 @@ def load_weights() -> RankerWeights:
         response_rate=float(w.get("response_rate", 0.10)),
         recency_half_life_hours=float((data.get("ranker") or {}).get("recency_half_life_hours", 36.0)),
     )
+
+
+def load_weights() -> RankerWeights:
+    """Sync API — YAML only. Used by tests and any non-async caller.
+
+    Production scorers should prefer `load_weights_async`; that consults
+    the fitted `ranker_weights_fit` row first.
+    """
+    return _load_yaml_weights()
+
+
+# Per-tenant cache: {user_id: (weights, fetched_at_monotonic)}. Cleared on
+# refit by `invalidate_fit_cache()`.
+_fit_cache: dict[int, tuple[RankerWeights, float]] = {}
+
+
+def invalidate_fit_cache(user_id: int | None = None) -> None:
+    """Clear cached fitted weights — called by the nightly cron after a
+    successful refit so the next score() sees the new row immediately
+    instead of waiting up to `_FIT_CACHE_TTL_SECONDS`.
+    """
+    if user_id is None:
+        _fit_cache.clear()
+    else:
+        _fit_cache.pop(int(user_id), None)
+
+
+async def load_weights_async(user_id: int | None = None) -> RankerWeights:
+    """Async API — fitted row first, YAML fallback, ttl-cached.
+
+    Pulls the latest `status='ok'` row from `ranker_weights_fit` for the
+    tenant, merges those six component weights onto the YAML defaults
+    (so `recency_half_life_hours` and any future YAML-only knob stay
+    intact), and caches the result for `_FIT_CACHE_TTL_SECONDS`.
+
+    Any DB error falls through to the YAML defaults — the scorer never
+    crashes because of a missing or malformed fit row.
+    """
+    yaml_w = _load_yaml_weights()
+    if user_id is None:
+        from src.common.db import current_tenant
+
+        user_id = current_tenant()
+    uid = int(user_id)
+
+    cached = _fit_cache.get(uid)
+    if cached and (time.monotonic() - cached[1]) < _FIT_CACHE_TTL_SECONDS:
+        return cached[0]
+
+    try:
+        from src.ranker.global_refit import fetch_latest_weights
+
+        fitted = await fetch_latest_weights(uid)
+    except Exception as e:
+        _log.warning("ranker_fit_fetch_failed", user_id=uid, err=str(e))
+        fitted = None
+
+    if fitted is None:
+        # Cache the YAML fallback too — saves a DB roundtrip per score()
+        # when the fit table is empty (e.g. fresh deployment).
+        _fit_cache[uid] = (yaml_w, time.monotonic())
+        return yaml_w
+
+    merged = RankerWeights(
+        kw_match=float(fitted["kw_match"]),
+        embedding_sim=float(fitted["embedding_sim"]),
+        comp_score=float(fitted["comp_score"]),
+        freshness=float(fitted["freshness"]),
+        source_quality=float(fitted["source_quality"]),
+        response_rate=float(fitted["response_rate"]),
+        recency_half_life_hours=yaml_w.recency_half_life_hours,
+    )
+    _fit_cache[uid] = (merged, time.monotonic())
+    return merged
 
 
 def kw_score(opp: Opportunity, profile_keywords: set[str]) -> float:

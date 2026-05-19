@@ -808,8 +808,15 @@ Scope-cut 2026-05-19. Only 5.2 + 5.3 are worthy. Free-only.
 
 - **5.2 Web dashboard** (Next.js + PostgREST views over Postgres). Free
   hosting target (Vercel free tier + PostgREST in compose).
-- **5.3 Advanced ranker** (response-rate-weighted ML refit nightly,
-  sklearn local — free).
+- **5.3 Advanced ranker** (SHIPPED 2026-05-19). Nightly L2 logistic
+  regression over the six ranker components (kw_match, embedding_sim,
+  comp_score, freshness, source_quality, response_rate) using the last
+  90 days of applications + opportunity_transitions for labels. Coefs
+  clamped non-negative + L1-normalised; written to
+  `ranker_weights_fit` (V018). `formula.load_weights_async` reads the
+  latest `status='ok'` row (with 5-min process cache + cron-driven
+  invalidation), falls back to `prefs.yaml` on cold-start /
+  single-class / fit failure. Pure local sklearn — zero spend.
 - 5.1 NVMe HAT, 5.4 local Llama (unless free), 5.5 multi-region VPS — DROPPED.
 
 ---

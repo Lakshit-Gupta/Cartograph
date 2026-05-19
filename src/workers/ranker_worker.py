@@ -18,7 +18,7 @@ from src.common.secrets import get_settings
 from src.common.types import Opportunity
 from src.ranker.embeddings import cosine, embed_one
 from src.ranker.feedback import source_response_rates
-from src.ranker.formula import load_weights, score
+from src.ranker.formula import load_weights_async, score
 
 configure_logging("ranker")
 _log = get_logger(__name__)
@@ -145,7 +145,7 @@ async def _score_one(q: RedisQ, opportunity_id: str, profile_emb: list[float], r
         extraction_confidence=float(rec["extraction_confidence"] or 0),
     )
 
-    weights = load_weights()
+    weights = await load_weights_async()
     floors_table = raw["comp_floors"]
     floors = {
         "internship": _comp_floor(floors_table, "internship"),

@@ -223,6 +223,51 @@ async def emit_daily_oss_funnel_scan(q: RedisQ) -> None:
         _log.exception("oss_funnel_cron_failed", err=str(e))
 
 
+async def nightly_global_ranker_refit(q: RedisQ) -> None:
+    """Phase 5.3 — nightly refit of the global formula weights.
+
+    Pulls every application from the last 90 days, joins
+    `opportunity_scores.score_components` (the six features the scorer
+    used at the time) + `opportunity_transitions` (engagement label
+    inside a 30-day window), fits L2 logistic regression, persists one
+    row to `ranker_weights_fit`.
+
+    Cold-start safe: <50 labelled apps → row inserted with
+    status='cold_start' and the formula keeps reading
+    `config/profile/prefs.yaml`. Failures land status='failed' with
+    `error_message` — the scheduler keeps ticking.
+
+    Cache invalidation: on success we clear the per-tenant fit cache in
+    `formula._fit_cache` so the next score() picks up the new weights
+    immediately instead of waiting up to 5 minutes.
+
+    Free-only: pure local sklearn LR; no LLM / proxy spend.
+    """
+    try:
+        from src.ranker.formula import invalidate_fit_cache
+        from src.ranker.global_refit import run_nightly_refit
+
+        summary = await run_nightly_refit()
+    except Exception as e:
+        _log.warning("global_ranker_refit_cron_failed", err=str(e))
+        return
+    if summary.get("status") == "ok":
+        try:
+            invalidate_fit_cache(int(summary.get("user_id") or 0))
+        except Exception as e:
+            _log.warning("global_ranker_refit_cache_invalidate_failed", err=str(e))
+    await q.publish(
+        Streams.ALERTS,
+        {
+            "kind": "global_ranker_refit_done",
+            "status": summary.get("status"),
+            "rows_used": summary.get("rows_used"),
+            "positive_rate": summary.get("positive_rate"),
+            "auc": summary.get("auc"),
+        },
+    )
+
+
 async def weekly_source_refit(q: RedisQ) -> None:
     """Phase 2.4 — weekly refit of ``sources.ranking_weight``.
 
@@ -298,6 +343,21 @@ async def main() -> None:
         CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Asia/Kolkata"),
         args=[q],
         id="weekly_source_refit",
+    )
+    # Phase 5.3 — nightly global ranker weights refit at 02:30 IST. Lands
+    # 30 minutes after the digest cron's earliest tick and well before
+    # the Sunday source_refit, so the source refit can read the most
+    # recent global weights cached in formula._fit_cache.
+    # Cold-start safe + flag-free (no toggle) — the scheduler simply runs
+    # nightly, the handler decides whether to fit or insert a cold_start
+    # audit row.
+    scheduler.add_job(
+        nightly_global_ranker_refit,
+        CronTrigger(hour=2, minute=30, timezone="Asia/Kolkata"),
+        args=[q],
+        id="nightly_global_ranker_refit",
+        max_instances=1,
+        coalesce=True,
     )
     # Phase 3.2 — Sunday 04:00 IST. Lands one hour after weekly_source_refit
     # so the discovery run sees freshly-updated source weights. Gated by

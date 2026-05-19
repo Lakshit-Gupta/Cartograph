@@ -148,7 +148,9 @@ ignore = [
 # for the feature matrix (lowercase ``y`` for the label vector). PEP8
 # would object; ML readability wins here. Same exemption for the test.
 "src/ranker/source_refit.py" = ["N803", "N806"]
+"src/ranker/global_refit.py" = ["N803", "N806"]
 "tests/ranker/test_source_refit.py" = ["N806"]
+"tests/ranker/test_global_refit.py" = ["N806"]
 
 [tool.mypy]
 python_version = "3.11"
