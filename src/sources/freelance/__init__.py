@@ -14,8 +14,8 @@ to keep it discoverable from the running scheduler / extractor_worker.
 from __future__ import annotations
 
 # Side-effect imports — each module's top-level `register(PLUGIN)` call
-# fires when the module loads. The `# noqa: F401` suppresses unused-import
-# warnings. Ordering is alphabetic for grep-ability.
+# fires when the module loads. The trailing `noqa` directive suppresses
+# F401 unused-import warnings. Ordering is alphabetic for grep-ability.
 from . import (  # noqa: F401
     bounty_algora,
     bounty_gitcoin,
