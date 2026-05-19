@@ -128,6 +128,34 @@ def test_record_outcome_increments_counter():
     assert s0.mean_reward == 0.0
 
 
+def test_resolve_variant_main_skips_comments(tmp_path):
+    """Phase 2.2 — comment-aware `\\input{...}` flattening.
+
+    The variant stubs include a comment mentioning ``\\input{...}`` for
+    documentation; the resolver MUST NOT replace the comment-embedded
+    reference, only the actual non-comment one. Regression catch for
+    the original boot smoke that compiled into a giant inlined comment.
+    """
+    from src.application.resume_latex.fallback import resolve_variant_main
+
+    base = tmp_path / "base.tex"
+    base.write_text("BASE_CONTENT", encoding="utf-8")
+
+    variant_dir = tmp_path / "variants" / "x"
+    variant_dir.mkdir(parents=True)
+    variant = variant_dir / "main.tex"
+    variant.write_text(
+        "% docstring: the resolver flattens \\input{../../base.tex}.\n\\input{../../base.tex}\n",
+        encoding="utf-8",
+    )
+
+    out = resolve_variant_main(variant, tmp_path)
+    # Comment line stays verbatim.
+    assert "% docstring: the resolver flattens \\input{../../base.tex}." in out
+    # Real \input got flattened — once.
+    assert out.count("BASE_CONTENT") == 1
+
+
 def test_variant_refit_writes_weights():
     """Pure-function check on the weight smoother.
 

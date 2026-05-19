@@ -78,6 +78,10 @@ def resolve_variant_main(variant_tex_path: Path, source_root: Path) -> str:
         against ``source_root``; if still missing, left in place.
       * The resolved file's contents are spliced in verbatim. No recursion
         through nested includes — the variant stubs are one-deep by spec.
+      * Lines that begin with ``%`` (LaTeX line comments — leading
+        whitespace allowed) are skipped during substitution so a comment
+        that *mentions* ``\\input{x}`` for documentation purposes doesn't
+        get flattened into a giant inlined comment.
 
     Returns the flattened LaTeX source as a single string, ready to write
     to ``partial/main.tex``.
@@ -97,7 +101,18 @@ def resolve_variant_main(variant_tex_path: Path, source_root: Path) -> str:
             return match.group(0)
         return candidate.read_text(encoding="utf-8")
 
-    return _INPUT_RE.sub(_replace, raw)
+    # Walk line by line so we can skip comments. A LaTeX comment is any
+    # line whose first non-whitespace char is ``%`` (escape-aware ``\%``
+    # is data, not a comment-start — handled implicitly because the
+    # regex only fires on non-comment lines).
+    out_lines: list[str] = []
+    for line in raw.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith("%"):
+            out_lines.append(line)
+            continue
+        out_lines.append(_INPUT_RE.sub(_replace, line))
+    return "".join(out_lines)
 
 
 async def warm_fallback_pdf(
