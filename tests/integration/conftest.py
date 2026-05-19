@@ -332,12 +332,15 @@ async def _seed_minimal(conn: asyncpg.Connection) -> None:
 
     # One usage_ledger row inside the 30-day window so v_cost_daily is
     # non-empty. usage_kind_enum is defined in V001; 'llm_extract' is a
-    # safe value (extractor cost — see src/common/llm.py).
+    # safe value (extractor cost — see src/common/llm.py). Matches the
+    # comment immediately above — the literal 'llm' here was a typo that
+    # the enum check (V001 line 341-342) rejected, blocking the entire
+    # integration suite.
     await conn.execute(
         """
         INSERT INTO usage_ledger
             (user_id, kind, provider, model, input_tokens, output_tokens, cost_usd_micros)
-        VALUES (1, 'llm', 'openrouter', 'gemini-flash', 100, 50, 25000)
+        VALUES (1, 'llm_extract', 'openrouter', 'gemini-flash', 100, 50, 25000)
         """,
     )
 

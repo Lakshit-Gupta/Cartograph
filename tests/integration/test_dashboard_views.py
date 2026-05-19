@@ -53,6 +53,9 @@ _FRONTEND_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
     # dashboard/views/opps.js — buildRow + COLS sort keys.
+    # `source` is the V021 alias for s.slug — opps.js sorts AND displays
+    # under that key (the COLS array carries `key: "source"`). The base
+    # `source_slug` column stays available for any other reader.
     "v_recent_opps": frozenset(
         {
             "title",
@@ -62,6 +65,7 @@ _FRONTEND_COLUMNS: dict[str, frozenset[str]] = {
             "score_components",
             "posted_at",
             "first_seen",
+            "source",
         }
     ),
     # dashboard/views/applications.js — buildRow + COLS sort keys.
