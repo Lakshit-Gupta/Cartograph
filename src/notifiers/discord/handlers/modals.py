@@ -97,6 +97,63 @@ class SourceAddModal(discord.ui.Modal, title="Add a source"):
             await interaction.response.send_message(f"Error: {e}", ephemeral=True)
 
 
+class FollowupEditModal(discord.ui.Modal, title="Edit follow-up"):
+    """Phase 2.3 — user edits the LLM-drafted follow-up before send.
+
+    The Send button on the embed publishes ``action=send_followup`` to
+    Streams.APPLY. This modal is the Edit button — on submit we update
+    the followups row (status='edited') AND queue a send so the user
+    only clicks once.
+    """
+
+    body = discord.ui.TextInput(
+        label="Follow-up body (under 80 words)",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        # Hard ceiling matches the prompt's word cap. 800 chars ~= 130
+        # words of dense English; leaves headroom for occasional URLs
+        # without letting the user splat a half-page rant.
+        max_length=800,
+    )
+
+    def __init__(self, followup_id: int, prefill: str | None = None):
+        super().__init__()
+        self.followup_id = int(followup_id)
+        if prefill:
+            self.body.default = prefill[:800]
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        from src.application.followup import update_draft_body
+
+        edited = str(self.body.value or "").strip()
+        if not edited:
+            await interaction.response.send_message("Empty body — nothing saved.", ephemeral=True)
+            return
+        ok = await update_draft_body(self.followup_id, edited)
+        if not ok:
+            await interaction.response.send_message(
+                "Could not save (already sent or skipped?).",
+                ephemeral=True,
+            )
+            return
+        # Queue the send right away — the user clicked Edit because they
+        # wanted to fix wording then ship it.
+        q = await RedisQ.connect()
+        await q.publish(
+            Streams.APPLY,
+            {
+                "action": "send_followup",
+                "followup_id": self.followup_id,
+                "user_id": 1,
+                "source": "modal",
+            },
+        )
+        await interaction.response.send_message(
+            "Edited + queued for send.",
+            ephemeral=True,
+        )
+
+
 class BudgetSetModal(discord.ui.Modal, title="Set comp floor"):
     min_intern = discord.ui.TextInput(label="Intern floor (₹/mo)", required=False, max_length=20)
     min_ft = discord.ui.TextInput(label="Full-time floor (₹/mo)", required=False, max_length=20)

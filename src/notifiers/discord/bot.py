@@ -32,7 +32,7 @@ from src.notifiers.discord.embeds import manual_apply as manual_apply_embed
 from src.notifiers.discord.embeds.digest_header import build_digest_header
 from src.notifiers.discord.embeds.opp_card import build_opp_card
 from src.notifiers.discord.embeds.priority_push import build_priority_push
-from src.notifiers.discord.handlers.buttons import OppActionView, OppReviewView
+from src.notifiers.discord.handlers.buttons import FollowupActionView, OppActionView, OppReviewView
 from src.notifiers.discord.handlers.reactions import handle_raw_reaction_add
 from src.notifiers.discord.routing import channel_id_for, route_for
 
@@ -79,6 +79,9 @@ class Bot(discord.Client):
         # Re-register persistent views so old messages still respond after restart.
         self.add_view(OppActionView(opp_id="00000000-0000-0000-0000-000000000000"))
         self.add_view(OppReviewView(opp_id="00000000-0000-0000-0000-000000000000"))
+        # Phase 2.3 follow-up buttons. Real custom_id is `followup:<action>:<id>`;
+        # discord.py matches the prefix when re-binding callbacks on restart.
+        self.add_view(FollowupActionView(followup_id=0))
 
     async def on_ready(self) -> None:
         _log.info("discord_ready", user=str(self.user), guilds=len(self.guilds))
@@ -133,6 +136,8 @@ class Bot(discord.Client):
             await self._post_applied(payload)
         elif kind == "manual_apply_ready":
             await self._post_manual_apply(payload)
+        elif kind == "followup_ready":
+            await self._post_followup_ready(payload)
         else:
             _log.warning("unknown_notify_kind", kind=kind)
 
@@ -418,6 +423,42 @@ class Bot(discord.Client):
             deliver_success_total.labels(channel="applied").inc()
         except Exception as e:
             _log.exception("post_manual_apply_failed", err=str(e))
+            raise
+
+    async def _post_followup_ready(self, payload: dict[str, Any]) -> None:
+        """Phase 2.3 — surface the LLM-drafted follow-up with Send/Edit/Skip."""
+        try:
+            from src.notifiers.discord.embeds.followup import build_followup_ready, thread_title
+
+            data = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+            data = {**payload, **(data or {})}
+
+            followup_id = data.get("followup_id")
+            if not followup_id:
+                _log.warning("followup_ready_no_id", payload=payload)
+                return
+
+            embed = build_followup_ready(data)
+            view = FollowupActionView(followup_id=int(followup_id))
+
+            chan_id = channel_id_for("applied")
+            chan = await self._resolve_channel(chan_id)
+            if chan is None:
+                _log.warning("followup_channel_missing")
+                return
+
+            name = thread_title(data.get("title"), data.get("company"))
+            if isinstance(chan, discord.ForumChannel):
+                await chan.create_thread(name=name, embed=embed, view=view)
+            else:
+                msg = await chan.send(embed=embed, view=view)
+                try:
+                    await msg.create_thread(name=name[:100])
+                except Exception as e:
+                    _log.warning("followup_thread_create_fallback_failed", err=str(e))
+            deliver_success_total.labels(channel="followup").inc()
+        except Exception as e:
+            _log.exception("post_followup_ready_failed", err=str(e))
             raise
 
     # ---- helpers ------------------------------------------------------------

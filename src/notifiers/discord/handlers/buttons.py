@@ -67,6 +67,100 @@ class OppActionView(discord.ui.View):
         self.add_item(_btn("Explain", "explain", opp, discord.ButtonStyle.secondary, "💬"))
 
 
+class FollowupActionView(discord.ui.View):
+    """Persistent view attached to ``kind=followup_ready`` embeds.
+
+    Three buttons: Send → publish onto Streams.APPLY (action=send_followup);
+    Edit → open the FollowupEditModal (modals.py); Skip → mark the row
+    status='skipped'. All actions are idempotent at the DB layer — the
+    applier worker's _do_send_followup also rechecks the followups row's
+    status so a double-click can't double-send.
+    """
+
+    def __init__(self, followup_id: int | str, *, timeout: float | None = None):
+        super().__init__(timeout=timeout)
+        fid = str(followup_id)
+        self.add_item(_followup_btn("Send", "send_followup", fid, discord.ButtonStyle.success, "📤"))
+        self.add_item(_followup_btn("Edit", "edit_followup", fid, discord.ButtonStyle.primary, "✏️"))
+        self.add_item(_followup_btn("Skip", "skip_followup", fid, discord.ButtonStyle.secondary, "🚫"))
+
+
+def _followup_btn(
+    label: str,
+    action: str,
+    followup_id: str,
+    style: discord.ButtonStyle,
+    emoji: str | None = None,
+) -> discord.ui.Button:
+    button = discord.ui.Button(
+        label=label,
+        style=style,
+        custom_id=f"followup:{action}:{followup_id}",
+        emoji=emoji,
+    )
+
+    async def _cb(interaction: discord.Interaction) -> None:
+        await dispatch_followup_button(interaction)
+
+    button.callback = _cb  # type: ignore[assignment]
+    return button
+
+
+async def dispatch_followup_button(interaction: discord.Interaction) -> None:
+    """Single entry point for follow-up buttons. Mirrors ``dispatch_button``.
+
+    Edit opens a modal IN-PLACE; Send / Skip publish onto Streams.APPLY so
+    the applier-worker (already running with DB pool + LLM cost gate)
+    handles state mutations + Resend.
+    """
+    raw = interaction.data.get("custom_id", "") if interaction.data else ""
+    try:
+        _, action, followup_id = raw.split(":", 2)
+    except ValueError:
+        await _ephemeral(interaction, f"Bad button id: `{raw}`")
+        return
+
+    user_id = 1  # solo phase
+    try:
+        if action == "send_followup":
+            q = await RedisQ.connect()
+            await q.publish(
+                Streams.APPLY,
+                {
+                    "action": "send_followup",
+                    "followup_id": int(followup_id),
+                    "user_id": user_id,
+                    "source": "button",
+                    "ts": datetime.now(UTC).isoformat(),
+                },
+            )
+            await _ephemeral(interaction, "Follow-up queued for send.")
+        elif action == "skip_followup":
+            # Mark the row skipped synchronously — the worker would do this
+            # too, but skipping is cheap and immediate user feedback feels
+            # better than the round-trip.
+            from src.application.followup import mark_skipped
+
+            ok = await mark_skipped(int(followup_id))
+            await _ephemeral(interaction, "Skipped." if ok else "Could not skip (already terminal?).")
+        elif action == "edit_followup":
+            # Open the modal directly. The followup_id rides on the modal
+            # so on_submit knows which row to update.
+            from src.notifiers.discord.handlers.modals import FollowupEditModal
+
+            modal = FollowupEditModal(followup_id=int(followup_id))
+            try:
+                await interaction.response.send_modal(modal)
+            except Exception as e:
+                _log.warning("followup_modal_send_failed", err=str(e), followup_id=followup_id)
+                await _ephemeral(interaction, f"Could not open editor: {e}")
+        else:
+            await _ephemeral(interaction, f"Unknown follow-up action `{action}`.")
+    except Exception as e:
+        _log.exception("followup_button_dispatch_failed", err=str(e), action=action, followup_id=followup_id)
+        await _ephemeral(interaction, f"Error: {e}")
+
+
 class OppReviewView(discord.ui.View):
     """Persistent view attached to `manual_apply_ready` review threads.
 
