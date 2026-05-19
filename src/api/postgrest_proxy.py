@@ -37,10 +37,29 @@ from src.common.logger import get_logger
 
 _log = get_logger(__name__)
 
+# HTTP status codes the proxy emits. Named constants so a typo doesn't
+# silently mis-classify a response (e.g. 405 vs 404).
+_STATUS_METHOD_NOT_ALLOWED = 405
+_STATUS_BAD_GATEWAY = 502
+_STATUS_GATEWAY_TIMEOUT = 504
+
+# Upstream connection budget. Connect is short — postgrest is one
+# docker-DNS hop away — read is generous enough for the biggest dash view
+# (currently ~30 rows) without pinning the uvicorn worker.
+_UPSTREAM_CONNECT_TIMEOUT_S = 2.0
+_UPSTREAM_READ_TIMEOUT_S = 10.0
+_UPSTREAM_WRITE_TIMEOUT_S = 10.0
+_UPSTREAM_POOL_TIMEOUT_S = 2.0
+
+# Default PostgREST upstream URL inside the Docker `internal` network.
+# Matches the compose service name + the port published by V019's
+# postgrest service. Tests override via `_UPSTREAM_BASE` (respx mock).
+_DEFAULT_POSTGREST_BASE_URL = "http://postgrest:3000"
+
 # PostgREST service hostname inside the Docker `internal` network. The
 # default matches the compose service name; tests override via the
 # httpx-base-url-controlled `_UPSTREAM_BASE` (respx mock).
-POSTGREST_BASE_URL = os.environ.get("POSTGREST_BASE_URL", "http://postgrest:3000")
+POSTGREST_BASE_URL = os.environ.get("POSTGREST_BASE_URL", _DEFAULT_POSTGREST_BASE_URL)
 
 # Read-only HTTP methods the proxy will forward. Everything else gets 405.
 # OPTIONS is included so PostgREST's auto-generated OpenAPI doc / CORS
@@ -105,7 +124,12 @@ def _get_client() -> httpx.AsyncClient:
             # PostgREST query would pin a uvicorn worker indefinitely;
             # that's the exact failure mode the proxy's gateway-error
             # contract is supposed to prevent.
-            timeout=httpx.Timeout(connect=2.0, read=10.0, write=10.0, pool=2.0),
+            timeout=httpx.Timeout(
+                connect=_UPSTREAM_CONNECT_TIMEOUT_S,
+                read=_UPSTREAM_READ_TIMEOUT_S,
+                write=_UPSTREAM_WRITE_TIMEOUT_S,
+                pool=_UPSTREAM_POOL_TIMEOUT_S,
+            ),
             # PostgREST is Docker-internal — no redirects, no retries.
             follow_redirects=False,
         )
@@ -118,6 +142,54 @@ async def aclose_proxy_client() -> None:
     if _client is not None:
         await _client.aclose()
         _client = None
+
+
+def _assert_method_allowed(method: str, path: str) -> None:
+    """Refuse writes with a structured 405. Pure guard — no I/O."""
+    if method in _ALLOWED_METHODS:
+        return
+    _log.warning("postgrest_proxy_method_rejected", method=method, path=path)
+    raise HTTPException(
+        status_code=_STATUS_METHOD_NOT_ALLOWED,
+        detail=f"method {method} not allowed; read-only proxy",
+    )
+
+
+def _build_target(path: str, query: str) -> str:
+    """Compose the upstream URL path. Querystring forwarded verbatim so
+    PostgREST's `?select=`, `?order=`, `?limit=` semantics pass through.
+    """
+    target = f"/{path}"
+    if query:
+        target = f"{target}?{query}"
+    return target
+
+
+async def _forward(method: str, path: str, target: str, headers: dict[str, str]) -> Response:
+    """Issue the upstream request and map errors onto gateway responses."""
+    client = _get_client()
+    try:
+        upstream = await client.request(method, target, headers=headers)
+    except httpx.TimeoutException as exc:
+        _log.error("postgrest_proxy_upstream_timeout", method=method, path=path, error=str(exc))
+        return Response(
+            content=b'{"error":"postgrest upstream timeout"}',
+            status_code=_STATUS_GATEWAY_TIMEOUT,
+            media_type="application/json",
+        )
+    except httpx.RequestError as exc:
+        _log.error("postgrest_proxy_upstream_error", method=method, path=path, error=str(exc))
+        return Response(
+            content=b'{"error":"postgrest unreachable"}',
+            status_code=_STATUS_BAD_GATEWAY,
+            media_type="application/json",
+        )
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=_filter_headers(upstream.headers),
+        media_type=upstream.headers.get("content-type"),
+    )
 
 
 @router.api_route(
@@ -133,61 +205,7 @@ async def postgrest_proxy(path: str, request: Request) -> Response:
     trail.
     """
     method = request.method.upper()
-    if method not in _ALLOWED_METHODS:
-        _log.warning(
-            "postgrest_proxy_method_rejected",
-            method=method,
-            path=path,
-        )
-        raise HTTPException(
-            status_code=405,
-            detail=f"method {method} not allowed; read-only proxy",
-        )
-
-    client = _get_client()
-    # Forward path + querystring verbatim — PostgREST relies on the
-    # `?select=`, `?order=`, `?limit=` query params extensively for its
-    # row-level read API.
-    target = f"/{path}"
-    if request.url.query:
-        target = f"{target}?{request.url.query}"
-
-    try:
-        upstream = await client.request(
-            method,
-            target,
-            headers=_filter_headers(dict(request.headers)),
-        )
-    except httpx.TimeoutException as exc:
-        _log.error(
-            "postgrest_proxy_upstream_timeout",
-            method=method,
-            path=path,
-            error=str(exc),
-        )
-        # 504 Gateway Timeout maps cleanly to "we asked, no answer".
-        return Response(
-            content=b'{"error":"postgrest upstream timeout"}',
-            status_code=504,
-            media_type="application/json",
-        )
-    except httpx.RequestError as exc:
-        _log.error(
-            "postgrest_proxy_upstream_error",
-            method=method,
-            path=path,
-            error=str(exc),
-        )
-        # 502 Bad Gateway for connect errors + protocol-level failures.
-        return Response(
-            content=b'{"error":"postgrest unreachable"}',
-            status_code=502,
-            media_type="application/json",
-        )
-
-    return Response(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        headers=_filter_headers(upstream.headers),
-        media_type=upstream.headers.get("content-type"),
-    )
+    _assert_method_allowed(method, path)
+    target = _build_target(path, request.url.query)
+    headers = _filter_headers(dict(request.headers))
+    return await _forward(method, path, target, headers)
