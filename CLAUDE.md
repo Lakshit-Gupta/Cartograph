@@ -2,13 +2,13 @@
 
 > Repo/system: **Cartograph** · Discord bot identity: **Hop**
 
-> Source of truth: `/home/lakshit_gupta/.claude/plans/virtual-splashing-pine.md`. Read that plan when full detail is needed. This file is the working summary every session loads.
+> Source of truth: `/home/lakshit_gupta/.claude/plans/virtual-splashing-pine.md`. Read plan when full detail needed. This file = working summary each session loads.
 
 ---
 
 ## What this is
 
-Autonomous 24/7 job / internship / fellowship / freelance pipeline running on a Raspberry Pi 5 (DietPi, ARM64, 8GB). Crawls 28+ sources, ranks against user profile, delivers a daily Discord digest, supports apply / skip / snooze via buttons + slash commands, tracks outcomes via Gmail IMAP, learns from feedback.
+Autonomous 24/7 job / internship / fellowship / freelance pipeline on Raspberry Pi 5 (DietPi, ARM64, 8GB). Crawls 28+ sources, ranks vs user profile, delivers daily Discord digest, supports apply / skip / snooze via buttons + slash commands, tracks outcomes via Gmail IMAP, learns from feedback.
 
 **Success metric**: first paid internship OR first $X freelance gig within 30 days of go-live.
 
@@ -22,19 +22,19 @@ Autonomous 24/7 job / internship / fellowship / freelance pipeline running on a 
 /home/lakshit_gupta/coding/cartograph/
 ```
 
-Every build session begins with:
+Each build session begin with:
 
 ```bash
 cd /home/lakshit_gupta/coding/cartograph/
 ```
 
-All paths in plan/docs/code are relative to this root unless an absolute path is given. No `agent-jobs/` subfolder — root is flattened.
+Paths in plan/docs/code relative to this root unless absolute given. No `agent-jobs/` subfolder — root flat.
 
 ---
 
 ## Power-fail safety (NO UPS)
 
-Pi may lose power at any time. Durability config is non-negotiable:
+Pi may lose power any time. Durability config non-negotiable:
 
 ### Postgres (`postgresql.conf`)
 
@@ -84,7 +84,7 @@ rename-command CONFIG ""
 6. Notifier reconnects to Discord gateway with backoff.
 7. Alert fires in `#🔔-alerts` if `READY` event absent >5min.
 
-**Trade-off accepted**: ~10–20% write throughput hit vs. unsafe config. Acceptable for projected <5 GB/day.
+**Trade-off accepted**: ~10–20% write throughput hit vs unsafe config. OK for projected <5 GB/day.
 
 ---
 
@@ -238,13 +238,13 @@ cartograph/
 
 ### Structural rules
 
-- One file = one concern. Split when a file exceeds 300 lines.
-- Every subsystem ships a `base.py` (Protocol interface, swappable implementations).
-- **No cross-subsystem imports.** Subsystems communicate via Redis Streams only.
-- `common/` is the only universal import target.
-- Config is data: YAML/JSON in `config/`, prompts in `config/prompts/*.txt`. Never inline.
+- One file = one concern. Split when file exceeds 300 lines.
+- Each subsystem ships `base.py` (Protocol interface, swappable implementations).
+- **No cross-subsystem imports.** Subsystems talk via Redis Streams only.
+- `common/` = only universal import target.
+- Config = data: YAML/JSON in `config/`, prompts in `config/prompts/*.txt`. Never inline.
 - Tests mirror `src/` structure.
-- Browser tier lives in `src/fetchers/browser/` (5 files), built into separate Docker image (`docker/camoufox.Dockerfile`) — Firefox + Xvfb adds ~400MB to base image. Communicates with rest of system via Redis Streams only.
+- Browser tier lives in `src/fetchers/browser/` (5 files), built into separate Docker image (`docker/camoufox.Dockerfile`) — Firefox + Xvfb adds ~400MB to base image. Talks to rest via Redis Streams only.
 
 ---
 
@@ -368,7 +368,7 @@ resume_variants, target_companies, contacts, outreach_log
 
 ## Critical path (sequential, ~2 days)
 
-All parallel work is blocked until CP is done.
+All parallel work blocked until CP done.
 
 | Step | Owner | Effort | Depends |
 |---|---|---|---|
@@ -402,7 +402,7 @@ All parallel work is blocked until CP is done.
 | 13 | Security hardening | 0.5d | `scripts/bootstrap.sh`, `.pre-commit-config.yaml` |
 | 14 | Observability (Prometheus exporter + Grafana dashboard + restore drill) | 0.5d | `api/metrics.py`, `grafana/dashboards/agent_jobs.json`, `scripts/restore_drill.sh` |
 
-**Track 8 has zero dependency on scrapers** — build with mocked data, integrate Day 7+.
+**Track 8 zero dependency on scrapers** — build with mocked data, integrate Day 7+.
 
 ### Blocking dependencies
 
@@ -520,8 +520,8 @@ Bot perms scoped to JOBS category only: `Manage Threads`, `Send Messages`, `Crea
 
 | Question | Decision |
 |---|---|
-| Single bot or separate? | Separate jobs bot (NEW Discord application) — **NOT** a PiClaw cog |
-| Bot display name | **Hop** (Grace Hopper — built the first compiler, 1952; coined "debugging" after the moth). Double meaning: the bot literally hops between 28+ sources daily. Sibling to user's existing `Ada` personal assistant — both named for women who founded computing. |
+| Single bot or separate? | Separate jobs bot (NEW Discord application) — **NOT** PiClaw cog |
+| Bot display name | **Hop** (Grace Hopper — built first compiler, 1952; coined "debugging" after moth). Double meaning: bot literally hops between 28+ sources daily. Sibling to user's existing `Ada` personal assistant — both named for women who founded computing. |
 | Repo / codename | `cartograph` (internal); system metaphor = `Cartograph` (used in docs/microcopy) |
 | Server | Same existing personal server (Hop = 2nd bot member alongside Ada) |
 | Perm scope | JOBS category only |
@@ -603,13 +603,13 @@ identity_ban_status_count{status}
 
 ## LaTeX resume subsystem (Phase 1 — design ratified by 4-specialist review)
 
-Replaces the JSON `config/profile/resume.json` template with the user's actual AltaCV LaTeX resume tree at `config/profile/my_resume/`. The pipeline parses LaTeX → tailors selected bullets via LLM → splices back into a copy of the user's files → compiles to PDF via `tectonic` → attaches the PDF to outgoing applications.
+Replaces JSON `config/profile/resume.json` template with user's actual AltaCV LaTeX resume tree at `config/profile/my_resume/`. Pipeline parses LaTeX → tailors selected bullets via LLM → splices back into copy of user's files → compiles to PDF via `tectonic` → attaches PDF to outgoing applications.
 
 ### Why
 
-- LaTeX is the user's existing source of truth (Overleaf).
-- AltaCV is highly structured (`\cvevent`, `\cvproject`, `\cvsection`) → parser can auto-detect tailorable blocks with **zero markup** from the user.
-- Tailored PDFs match the user's visual identity verbatim — recruiters see the resume they expected, just with bullets emphasizing the role keywords.
+- LaTeX = user's existing source of truth (Overleaf).
+- AltaCV highly structured (`\cvevent`, `\cvproject`, `\cvsection`) → parser auto-detects tailorable blocks with **zero markup** from user.
+- Tailored PDFs match user's visual identity verbatim — recruiters see resume they expected, just with bullets emphasizing role keywords.
 
 ### Files
 
@@ -656,7 +656,7 @@ user clicks Apply → applier-worker consumes Streams.APPLY → sender.send_appl
 
 ### Container layout
 
-- **New** `docker/applier.Dockerfile` extends `jobs-bot.Dockerfile`. Adds `tectonic`, `qpdf`, `exiftool`, `pylatexenc`. Only the `applier-worker` service uses this image. Base image stays lean for other 8 workers.
+- **New** `docker/applier.Dockerfile` extends `jobs-bot.Dockerfile`. Adds `tectonic`, `qpdf`, `exiftool`, `pylatexenc`. Only `applier-worker` service uses this image. Base image stays lean for other 8 workers.
 - **New** named volume `tectonic_cache` mounted at `/var/lib/tectonic` (env `XDG_CACHE_HOME=/var/lib/tectonic`). Survives image rebuild.
 - TeX bundle pre-warmed at image build via `RUN tectonic --only-cached-fonts /opt/warmup.tex` → cold-compile ~30s → ~2s.
 - `applier-worker` runs with `cap_drop: [ALL]`, `read_only: true` rootfs (only `/var/lib/agent/resume_artifacts/<user_id>/` RW), `mem_limit: 512m`, `pids_limit: 64`, `user: 1000`. Defense-in-depth alongside subprocess timeout + tectonic `--untrusted`.
@@ -705,15 +705,15 @@ Alerts: p95 compile > 10s for 10min → degraded; failure rate > 0.2/min → pag
 
 ### Hard rules — non-negotiable
 
-1. **Never splice raw LLM output.** `sanitizer.escape_and_check` runs between LLM and `render`. Reject any LLM bullet containing a `\command` outside the allowlist (`\textbf`, `\textit`, `\emph`, escaped specials).
+1. **Never splice raw LLM output.** `sanitizer.escape_and_check` runs between LLM and `render`. Reject any LLM bullet containing `\command` outside allowlist (`\textbf`, `\textit`, `\emph`, escaped specials).
 2. **`tectonic --untrusted` always.** Disables `\write18`, restricts file reads to working dir. Plus subprocess `timeout=30s` and `kill_group=True`.
 3. **Artifact dir on disk, never tmpfs.** `/var/lib/agent/resume_artifacts/<user_id>/<opp_id>.partial/` → atomic rename to `.complete/`. Boot-time sweep deletes `.partial/`.
 4. **PDF metadata scrubbed.** `\hypersetup{pdftitle=Resume, pdfauthor=..., pdfcreator={}, pdfproducer={}}` in `manifest.yaml`-driven post-edit step + `exiftool -all:all=` post-compile.
-5. **PDF NEVER posted to a Discord channel.** Email attachment only. Discord posts a link/summary, not the file. (Discord CDN URLs are crawlable.)
+5. **PDF NEVER posted to Discord channel.** Email attachment only. Discord posts link/summary, not file. (Discord CDN URLs crawlable.)
 6. **`profile.jpg` EXIF stripped before commit.** Pillow re-encode or `exiftool -all=`.
 7. **Source-hash drift guard.** `Document.source_hashes` recorded at parse; `render()` re-reads + verifies — raises `SourceDriftError` on mismatch.
 8. **Macro vocabulary in `manifest.yaml`**, not hardcoded. Future class swap (moderncv, Awesome-CV) = config edit.
-9. **`user_id` on day one.** Resume tree path, `manifest.yaml`, artifact dir, `resume_compile_log.user_id` — all carry `user_id NOT NULL DEFAULT 1`. Phase 4 multi-tenant requires zero retrofits.
+9. **`user_id` on day one.** Resume tree path, `manifest.yaml`, artifact dir, `resume_compile_log.user_id` — all carry `user_id NOT NULL DEFAULT 1`. Phase 4 multi-tenant needs zero retrofits.
 10. **`MP_RESUME_LATEX_ENABLED` feature flag.** Staged rollout: ship code with flag off → backfill embeddings → drain Streams.APPLY → flip flag → 7d clean → remove JSON branches in separate PR.
 
 ### Deferred to Phase 2+
@@ -755,10 +755,10 @@ Full review records: ephemeral specialist agents; key amendments folded above.
 | Tectonic compile fail (sanitizer reject, timeout, package fetch) | `resume_compile_failures_total` rate >0.2/min | Auto-fallback to untailored PDF + alert | 0 (next apply retries tailoring) |
 | Resume source drift mid-render | `SourceDriftError` raised | Re-parse + retry once; on second fail → fallback PDF | 0 |
 | Tectonic cache corruption | First-compile latency >60s | `rm -rf tectonic_cache && restart applier-worker` | 0 (cache rebuildable from network) |
-| Migration SQL fails on apply (semantic, e.g. non-IMMUTABLE in index, missing extension) | Pre-commit `migrate-replay` against ephemeral pgvector blocks the commit | <15s to detect locally; <1min to fix and re-stage | 0 (never reaches prod) |
+| Migration SQL fails on apply (semantic, e.g. non-IMMUTABLE in index, missing extension) | Pre-commit `migrate-replay` against ephemeral pgvector blocks commit | <15s to detect locally; <1min to fix and re-stage | 0 (never reaches prod) |
 | Migration runner aborts mid-chain (e.g. file N fails) | `_format_pg_error` prints `file:line:col` + caret + class name | Fix SQL, re-run `make migrate` — no volume wipe, picks up at file N | 0 (file N's BEGIN/COMMIT rolled back, V1..V(N-1) intact) |
 | Concurrent `migrate` runners race | `pg_advisory_lock(727274)` held for full loop | Second runner blocks until first releases (or first conn drops → auto-release) | 0 |
-| Redis at maxmemory cap (200MB) → `noeviction` blocks all `XADD` | `OutOfMemoryError` in `RedisQ.publish` | Per-stream MAXLEN caps in `src/common/queue.py` keep streams bounded; manual `XTRIM stream:<name> MAXLEN <n>` recovers headroom if a slow consumer (e.g. ranker on cold start) lets the cap drift. | 0 |
+| Redis at maxmemory cap (200MB) → `noeviction` blocks all `XADD` | `OutOfMemoryError` in `RedisQ.publish` | Per-stream MAXLEN caps in `src/common/queue.py` keep streams bounded; manual `XTRIM stream:<name> MAXLEN <n>` recovers headroom if slow consumer (e.g. ranker on cold start) lets cap drift. | 0 |
 
 ---
 
@@ -766,7 +766,7 @@ Full review records: ephemeral specialist agents; key amendments folded above.
 
 ### Phase 1 — MVP (Days 1–10)
 
-Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, freelance speed lane.
+Covered above. Ships daily digest, apply/skip flow, Gmail outcome tracking, freelance speed lane.
 
 ### Phase 2 — Conversion v1.1 (7–14 days post-MVP)
 
@@ -777,7 +777,7 @@ Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, 
   Hunter for richer title metadata; NullProvider used when neither API key set.
 - Resume A/B variants with `application.resume_variant_id` tracking.
 - Follow-up automation (13:00 cron, LLM draft, button-driven send).
-- Source response-rate feedback (logistic regression refit weekly). Phase 2.4 lands `src/ranker/source_refit.py` (L2 logistic over the last 90 days of applications joined to opportunity_transitions, engagement window = 30 days, weights mapped to `[0.5, 2.0]` and UPSERTed into `sources.ranking_weight`). Weekly cron `weekly_source_refit` (Sun 03:00 IST) emits one row into `source_refit_log` per run; cold-start gate skips the UPDATE when <50 labeled apps exist.
+- Source response-rate feedback (logistic regression refit weekly). Phase 2.4 lands `src/ranker/source_refit.py` (L2 logistic over last 90 days of applications joined to opportunity_transitions, engagement window = 30 days, weights mapped to `[0.5, 2.0]` and UPSERTed into `sources.ranking_weight`). Weekly cron `weekly_source_refit` (Sun 03:00 IST) emits one row into `source_refit_log` per run; cold-start gate skips UPDATE when <50 labeled apps exist.
 
 ### Phase 3 — Multi-channel v1.2 (Weeks 5–8)
 
@@ -823,7 +823,7 @@ Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, 
 - Sidecar Chrome.
 - Per-lane forum channel variations.
 
-**Hard rule**: ONE feature per week MAX after Day 14. Until first ₹X earned, only features that improve apply rate or response rate are allowed.
+**Hard rule**: ONE feature per week MAX after Day 14. Until first ₹X earned, only features improving apply rate or response rate allowed.
 
 ---
 
@@ -848,9 +848,9 @@ Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, 
 1. **Postgres durability**: kill power during write load. On boot: `pg_amcheck` clean, last 5min of opps may be lost, DB consistent.
 2. **Redis durability**: same test. AOF replay, max 1s data loss.
 3. **Restore drill**: `bash scripts/restore_drill.sh` restores latest `pg_dump` from R2 into tmpfs Postgres; schema + row counts match prod.
-4. **CF clearance**: hit a CF-protected source 10 times. `cf_clearance_solve_rate` > 70%. Inspect `cf_clearance_cache` for reuse.
-5. **End-to-end happy path**: manual fetch of a Greenhouse source → opp appears in `opportunities` within 60s → `opportunity_scores` row written → embed posted to `#📰-daily-digest` → click Apply → `applications` row + forum thread in `#✅-applied`.
-6. **Reaction handler**: ✅ on an opp embed mutates state identically to button click.
+4. **CF clearance**: hit CF-protected source 10 times. `cf_clearance_solve_rate` > 70%. Inspect `cf_clearance_cache` for reuse.
+5. **End-to-end happy path**: manual fetch of Greenhouse source → opp appears in `opportunities` within 60s → `opportunity_scores` row written → embed posted to `#📰-daily-digest` → click Apply → `applications` row + forum thread in `#✅-applied`.
+6. **Reaction handler**: ✅ on opp embed mutates state identically to button click.
 7. **Slash commands**: `/status` returns pipeline overview; `/budget today 30` updates DB; `/source list` returns rows.
 8. **Gmail watcher**: send test auto-rejection email to monitored inbox → opp state transitions to `rejected` + message posted in tracker thread.
 9. **Behavioral nudge**: at 9pm, if `applications_sent_today < target`, @mention fires in `#🔔-alerts`.
@@ -858,7 +858,7 @@ Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, 
 11. **Cost cap**: artificially inflate `daily_spend` past $3 → next LLM call refuses + alert fires.
 12. **Identity isolation**: `UPDATE identities SET ban_status='banned' WHERE id=X` → sibling identities with same `fingerprint_id` auto-quarantined within 5min.
 
-If 12/12 pass: pipeline is production-ready for solo use. First 5 manual applies fired same day.
+If 12/12 pass: pipeline production-ready for solo use. First 5 manual applies fired same day.
 
 ---
 
@@ -877,31 +877,31 @@ If 12/12 pass: pipeline is production-ready for solo use. First 5 manual applies
 | 9 | Resend signup + verify sender domain | Phase 0 |
 | 10 | Google Cloud project + Gmail OAuth | Phase 0 (or before Day 12) |
 | 11 | Telegram `api_id` / `api_hash` | Before Day 13 |
-| 12 | Worker Gmail (`upwork-worker@yourdomain.tld`) — Without `gmail_worker_app_password`, the worker mailbox is skipped silently with one `imap_worker_password_empty` info log. Personal mailbox (`gmail_user`) still monitored via OAuth. | Before Day 13 |
+| 12 | Worker Gmail (`upwork-worker@yourdomain.tld`) — Without `gmail_worker_app_password`, worker mailbox skipped silently with one `imap_worker_password_empty` info log. Personal mailbox (`gmail_user`) still monitored via OAuth. | Before Day 13 |
 
 ---
 
 ## Working conventions for Claude
 
-- **Always** `cd /home/lakshit_gupta/coding/cartograph/` at the start of a build session.
-- **Never** add an `agent-jobs/` (or any other) wrapper folder. Root is flat.
-- **Never** set `synchronous_commit=off` or disable `full_page_writes` on Postgres. Power-fail risk is real (no UPS).
-- **Never** publish Postgres or Redis ports to the host. Docker network only.
-- **Never** import across subsystems. Talk via Redis Streams. `common/` is the only universal import.
+- **Always** `cd /home/lakshit_gupta/coding/cartograph/` at start of build session.
+- **Never** add `agent-jobs/` (or other) wrapper folder. Root flat.
+- **Never** set `synchronous_commit=off` or disable `full_page_writes` on Postgres. Power-fail risk real (no UPS).
+- **Never** publish Postgres or Redis ports to host. Docker network only.
+- **Never** import across subsystems. Talk via Redis Streams. `common/` = only universal import.
 - **Never** inline prompts or config in code. Prompts live in `config/prompts/*.txt`, config in `config/*.yaml`.
-- Split any file that exceeds ~300 lines.
-- Every subsystem has a `base.py` Protocol — swap implementations without touching callers.
-- Browser tier is a separate Docker image (`docker/camoufox.Dockerfile`) because Firefox + Xvfb adds ~400MB.
+- Split any file exceeding ~300 lines.
+- Each subsystem has `base.py` Protocol — swap implementations without touching callers.
+- Browser tier = separate Docker image (`docker/camoufox.Dockerfile`) because Firefox + Xvfb adds ~400MB.
 - Tier-2 LLM extractor: no tool access, delimiter-fenced input (`<IGNORE>...</IGNORE>`), JSON-schema validated output.
-- Cost gate: every LLM call goes through `common/llm.py`. It checks `daily_spend` and refuses past cap.
+- Cost gate: every LLM call goes through `common/llm.py`. Checks `daily_spend` and refuses past cap.
 - Identity vault: never log decrypted credentials. Per-row libsodium boxes, master key in SOPS.
 - Discord bot perms: JOBS category only — never grant server-wide.
-- **Feature gate after Day 14**: ONE feature per week max. Only features that improve apply rate or response rate are allowed until first earnings.
-- **Never commit a new or modified `migrations/V*.sql` without running `make migrate-test` first**. The pre-commit `migrate-replay` hook enforces this automatically by replaying every V*.sql against an ephemeral `pgvector/pgvector:pg16` container with tmpfs data dir. Catches non-IMMUTABLE function in index predicate, function call in inline PK, missing extension, enum-cast-in-index, and ordering bugs — the failure class that bit us four times on V001/V004/V005. Static linters miss this class. See `docs/superpowers/specs/2026-05-18-migration-validation-design.md`.
-- **Never `down --volumes` to recover from a failed `migrate`**. Each V*.sql wraps in BEGIN/COMMIT and inserts its own `schema_migrations` marker inside that transaction. A failed file rolls back both its statements AND its marker row, leaving the DB in the exact pre-file state. Fix the SQL and re-run `make migrate` — it picks up at the failed file.
+- **Feature gate after Day 14**: ONE feature per week max. Only features improving apply rate or response rate allowed until first earnings.
+- **Never commit new or modified `migrations/V*.sql` without running `make migrate-test` first**. Pre-commit `migrate-replay` hook enforces this auto by replaying every V*.sql against ephemeral `pgvector/pgvector:pg16` container with tmpfs data dir. Catches non-IMMUTABLE function in index predicate, function call in inline PK, missing extension, enum-cast-in-index, ordering bugs — failure class that bit us 4 times on V001/V004/V005. Static linters miss this class. See `docs/superpowers/specs/2026-05-18-migration-validation-design.md`.
+- **Never `down --volumes` to recover from failed `migrate`**. Each V*.sql wraps in BEGIN/COMMIT and inserts own `schema_migrations` marker inside that transaction. Failed file rolls back both statements AND marker row, leaves DB in exact pre-file state. Fix SQL and re-run `make migrate` — picks up at failed file.
 
 ---
 
 ## Pointer back to plan
 
-Full plan with all sub-tasks, tier-chain details, and rationale: `/home/lakshit_gupta/.claude/plans/virtual-splashing-pine.md`.
+Full plan with all sub-tasks, tier-chain details, rationale: `/home/lakshit_gupta/.claude/plans/virtual-splashing-pine.md`.
