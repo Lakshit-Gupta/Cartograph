@@ -39,11 +39,28 @@ class ResumeManifest(BaseModel):
     exclude_sections: list[str] = Field(default_factory=list)
     output_name: str = "resume.pdf"
     pdf_metadata: dict[str, str] = Field(default_factory=dict)
+    # Phase 2.2 — optional A/B variants. Maps a variant label
+    # (``backend``/``fullstack``/``ml``/``freelance``/``intern_india``) to the
+    # relative path of its own main .tex. When unset (legacy single-variant
+    # config), the apply pipeline falls back to ``main_file`` and treats the
+    # variant id as 1 in the DB.
+    variants: dict[str, str] = Field(default_factory=dict)
 
 
 def load(path: Path) -> ResumeManifest:
-    """Load and validate a ``manifest.yaml`` from ``path``."""
+    """Load and validate a ``manifest.yaml`` from ``path``.
+
+    Also resolves variant paths relative to ``path.parent``. A configured
+    variant whose file is missing on disk is dropped from the dict so the
+    runtime picker never selects a label whose .tex doesn't exist — bad
+    YAML keeps Phase 1 single-variant working instead of bricking the
+    pipeline.
+    """
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError(f"manifest must be a mapping, got {type(raw).__name__}: {path}")
-    return ResumeManifest(**raw)
+    manifest = ResumeManifest(**raw)
+    if manifest.variants:
+        root = path.parent
+        manifest.variants = {label: rel for label, rel in manifest.variants.items() if (root / rel).is_file()}
+    return manifest

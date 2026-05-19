@@ -43,3 +43,20 @@ pdf_metadata:
   author: Lakshit Gupta
   creator: ""
   producer: ""
+
+# Phase 2.2 — Resume A/B variants.
+#
+# Each entry's value is the relative path (from this manifest's directory)
+# to a complete `.tex` file. The variant picker selects the label, the
+# sender swaps `main_file` for the variant path, the renderer flattens any
+# `\input{../../<basename>}` reference into the partial dir so tectonic
+# --untrusted compiles cleanly without a parent-dir read.
+#
+# Backward compat: when this `variants:` block is absent or empty, the
+# pipeline behaves exactly as Phase 1 — `main_file` above is the only PDF.
+variants:
+  backend:      variants/backend/main.tex
+  fullstack:    variants/fullstack/main.tex
+  ml:           variants/ml/main.tex
+  freelance:    variants/freelance/main.tex
+  intern_india: variants/intern_india/main.tex
