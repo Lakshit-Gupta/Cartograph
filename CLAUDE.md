@@ -771,6 +771,10 @@ Covered above. Ships the daily digest, apply/skip flow, Gmail outcome tracking, 
 ### Phase 2 — Conversion v1.1 (7–14 days post-MVP)
 
 - Cold email outbound lane (Apollo/Hunter, max 10/day/identity, warmup ramp).
+  Shipped 2026-05-19 as `src/application/cold_outreach/` + `src/workers/cold_outreach.py` +
+  migration V010 (`target_companies` + `outbound_messages`). Default-off via
+  `cold_outreach_enabled=False`; flip in SOPS to enable. Apollo preferred over
+  Hunter for richer title metadata; NullProvider used when neither API key set.
 - Resume A/B variants with `application.resume_variant_id` tracking.
 - Follow-up automation (13:00 cron, LLM draft, button-driven send).
 - Source response-rate feedback (logistic regression refit weekly).
