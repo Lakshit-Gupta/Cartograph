@@ -140,6 +140,10 @@ ignore = [
 # SIM112: SOPS-decrypted env keys are lowercase by project convention
 # (secrets.yaml keys map verbatim to env names); don't uppercase here.
 "scripts/telegram_auth.py" = ["ASYNC250", "SIM112"]
+# Same justification as telegram_auth.py: one-shot interactive CLI that
+# prompts for credentials inside an async main(). aioconsole is overkill
+# for a single-use script.
+"scripts/add_identity.py" = ["ASYNC250"]
 
 [tool.mypy]
 python_version = "3.11"
