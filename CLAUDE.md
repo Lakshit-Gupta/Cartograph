@@ -60,7 +60,13 @@ archive_timeout = 300                # 5min RPO
 ```ini
 appendonly yes
 appendfsync everysec                 # 1s loss window; preserves SD card
-maxmemory 200mb
+maxmemory 1gb                        # raised from 200mb 2026-05-20 — Pi 5 has
+                                     # 8GB; 200mb pegged within a day of go-live
+                                     # (stream:notify backlog) and noeviction
+                                     # blocked every XADD incl. /apply. Set via
+                                     # compose.yaml redis `command:` args, NOT a
+                                     # conf file. CONFIG SET is renamed-out, so
+                                     # changing it = edit compose + recreate.
 maxmemory-policy noeviction          # producer blocks on full queue
 requirepass <from SOPS>
 rename-command FLUSHALL ""
@@ -758,7 +764,7 @@ Full review records: ephemeral specialist agents; key amendments folded above.
 | Migration SQL fails on apply (semantic, e.g. non-IMMUTABLE in index, missing extension) | Pre-commit `migrate-replay` against ephemeral pgvector blocks commit | <15s to detect locally; <1min to fix and re-stage | 0 (never reaches prod) |
 | Migration runner aborts mid-chain (e.g. file N fails) | `_format_pg_error` prints `file:line:col` + caret + class name | Fix SQL, re-run `make migrate` — no volume wipe, picks up at file N | 0 (file N's BEGIN/COMMIT rolled back, V1..V(N-1) intact) |
 | Concurrent `migrate` runners race | `pg_advisory_lock(727274)` held for full loop | Second runner blocks until first releases (or first conn drops → auto-release) | 0 |
-| Redis at maxmemory cap (200MB) → `noeviction` blocks all `XADD` | `OutOfMemoryError` in `RedisQ.publish` | Per-stream MAXLEN caps in `src/common/queue.py` keep streams bounded; manual `XTRIM stream:<name> MAXLEN <n>` recovers headroom if slow consumer (e.g. ranker on cold start) lets cap drift. | 0 |
+| Redis at maxmemory cap → `noeviction` blocks all `XADD` | `OutOfMemoryError` in `RedisQ.publish`; user-visible as `/apply` failing with "command not allowed when used memory > maxmemory" | Recover: `XTRIM stream:<name> MAXLEN <n>` on the fat stream (usually `stream:notify` — notifier-discord drains slow under Discord rate limits). Cap raised 200mb→1gb on 2026-05-20 after it pegged within a day of go-live. Per-stream MAXLEN caps in `src/common/queue.py` still bound XADD. | 0 |
 | Worker restart loop on cold start under Redis OOM (`crawler-worker` + `camoufox-worker` were the canaries) | All N replicas Restarting (1) → `redis.exceptions.OutOfMemoryError` traces inside `RedisQ.ensure_group` / `RedisQ.dlq` on every boot | `ensure_group` probes via read-only `XINFO GROUPS` first and only issues the write (`XGROUP CREATE MKSTREAM`) when the group is genuinely absent; falls back to bounded OOM retry (~7s) for true cold-start. `dlq` is best-effort under OOM (logs `dlq_write_failed`, lets the message stay in-flight for `XAUTOCLAIM`). Rebuild the affected service against the patched image — DO NOT skip the `--build` flag, the patch lives in `src/common/queue.py`. | 0 |
 
 ---
@@ -823,6 +829,87 @@ Scope-cut 2026-05-19. Only 5.2 + 5.3 are worthy. Free-only.
   invalidation), falls back to `prefs.yaml` on cold-start /
   single-class / fit failure. Pure local sklearn — zero spend.
 - 5.1 NVMe HAT, 5.4 local Llama (unless free), 5.5 multi-region VPS — DROPPED.
+
+---
+
+## Deployment status (live on Pi — 2026-05-20)
+
+Stack cross-compiled on the x86 dev box and shipped to the Pi 5
+(`dietpi@192.168.1.240`). All 21 containers Up; postgres + redis healthy;
+migrations V001–V021 applied; daily digest cron firing.
+
+### Cross-compile + ship pipeline
+
+- `scripts/ship_to_pi.sh` + `docs/runbooks/cross_compile_ship.md` —
+  Option A (SSH tarball). `docker buildx --platform linux/arm64
+  --output type=docker` for the 4 owned images (jobs-bot, tools,
+  applier-worker, camoufox-worker); `xz` save; `rsync --partial`;
+  `xz -d | docker load` on the Pi; `docker compose up -d --no-build`.
+- Builder: prefers the default `docker` driver when the containerd
+  snapshotter is present (host network/DNS/cache, no isolation flakiness);
+  falls back to a `docker-container` builder with `--driver-opt
+  network=host`. The isolated builder's NAT DNS was the cause of two
+  failed dry-runs (`EAI_AGAIN`, TLS handshake timeout).
+- `docker/applier.Dockerfile` takes `ARG BASE_IMAGE` so the cross-build
+  chains onto `marked_path-jobs-bot:arm64` instead of the host's native
+  amd64 `:latest` (was producing a mixed-arch applier image).
+- External images (pgvector, redis, postgrest, flaresolverr) the Pi
+  pulls straight from Docker Hub — already multi-arch upstream.
+
+### Pi-side deploy gotchas (all hit + resolved 2026-05-20)
+
+- **Compose project name** — Pi repo dir is `Cartograph` → compose
+  project `cartograph`; services without an explicit `image:` resolve
+  to `cartograph-<svc>`. The shipped images are `marked_path-*`.
+  Anchor-using services find `marked_path-jobs-bot:latest`; the three
+  own-build images (applier, camoufox, tools) must be re-tagged
+  `marked_path-<x>:latest → cartograph-<x>:latest` before `up`.
+- **pgvector extension** — `register_vector` runs at pool-init but
+  `CREATE EXTENSION vector` lives inside V001. On a fresh DB,
+  pre-create it once: `psql -c "CREATE EXTENSION IF NOT EXISTS vector;"`
+  before `mp migrate`.
+- **Telethon session** — `var/telegram/*.session` is host-local, never
+  shipped in an image. Re-auth on the dev box
+  (`sops exec-env secrets.yaml 'uv run python scripts/telegram_auth.py'`)
+  then `rsync` the `.session` to the Pi; `chown 1000:1000`.
+- **Owner Discord link** — Phase 4.2 multi-tenant: `users.id=1` ships
+  with `discord_user_id=NULL`, so `/apply` refuses the owner with
+  "not linked to a Cartograph tenant". Fix: set `discord_owner_id` in
+  `secrets.yaml` (autolink on first interaction) AND/OR
+  `UPDATE users SET discord_user_id=<id> WHERE id=1` directly.
+- **Port 9090 clash** — Prometheus owns `127.0.0.1:9090` on the Pi.
+  api-service publishes to `127.0.0.1:8090:9090` (loopback only).
+  Dashboard reached via SSH tunnel `-L 8090:127.0.0.1:8090`.
+
+### Observability
+
+- Prometheus (Pi host, `127.0.0.1:9090`) scrapes the `cartograph` job
+  at `127.0.0.1:8090/metrics`.
+- Grafana (Pi host, `127.0.0.1:3001`) — `grafana/dashboards/agent_jobs.json`
+  imported via `POST /api/dashboards/db` (legacy schema; the v12 UI
+  paste-editor rejects it, the API auto-migrates). Datasource uid is
+  per-install — rewrite `"uid": "prom"` to the real one before import.
+- **KNOWN GAP — most panels read empty.** `src/common/metrics.py` uses
+  a per-process `CollectorRegistry`. Each worker container increments
+  counters in its own memory; api-service `/metrics` only exposes
+  api-service's registry. Worker-driven panels (`fetch_*`, `extract_*`,
+  `score_*`, `applications_sent_total`, `cf_*`) never populate.
+  Fix = prometheus_client multiprocess mode (shared
+  `PROMETHEUS_MULTIPROC_DIR` volume). DEFERRED.
+
+### Known issues — deferred
+
+- **Multiprocess metrics** (above) — Grafana panels stay empty until
+  fixed.
+- **Stale jobs in digest** — `_post_digest` filters on `first_seen`
+  (when crawled), not `posted_at` (when posted). A 100-day-old listing
+  freshly crawled enters the digest. Fix: add
+  `AND (o.posted_at IS NULL OR o.posted_at > NOW() - INTERVAL '30 days')`
+  to the digest query.
+- **`stream:notify` drain lag** — notifier-discord posts under Discord
+  rate limits; the stream backed up to ~3.7k entries and pegged Redis
+  within a day. The 200mb→1gb bump masks it; real fix is faster notify
+  draining or a tighter per-stream `MAXLEN` in `src/common/queue.py`.
 
 ---
 
