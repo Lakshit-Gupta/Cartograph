@@ -136,33 +136,48 @@ class RedisQ:
             f"ensure_group({stream=}, {group=}) failed after 4 OOM retries; Redis is at maxmemory cap. XTRIM streams or raise maxmemory."
         )
 
-    # Per-stream MAXLEN caps. Redis is configured with maxmemory=200mb and
+    # Per-stream MAXLEN caps. Redis is configured with maxmemory=1gb and
     # maxmemory-policy=noeviction (CLAUDE.md durability spec — under
     # back-pressure producers MUST block rather than silently lose data).
-    # Without an XADD MAXLEN, streams grow until the 200MB cap is hit and
-    # every publisher then sees OutOfMemoryError. The `~` modifier is an
-    # approximate trim that lets Redis use whole-node deletion (cheap) at
-    # the cost of leaving a few extra entries above the cap.
+    # The `~` modifier is an approximate trim that lets Redis use whole-node
+    # deletion (cheap) at the cost of leaving a few extra entries above the
+    # cap.
     #
-    # Caps are sized for the bottleneck stage:
-    #   FETCH   — produced by scheduler, consumed by crawlers (cheap)
-    #   EXTRACT — consumed by extractor-worker (LLM-bound, slow). Smallest
-    #             cap so back-pressure hits the crawler quickly instead of
-    #             eating all of Redis.
-    #   RANK    — consumed by ranker-worker (embedding-bound, medium).
-    #   NOTIFY  — consumed by notifier-discord (network-bound).
-    #   APPLY   — small, user-initiated.
+    # Caps are sized for BYTES, not entry count. Empirically on 2026-05-22
+    # only ~7,300 entries (across all streams combined) filled the entire
+    # 1GB cap because stream:extract carries raw HTML bodies (~200-500KB
+    # per entry) and stream:rank carries Opportunity payloads with 384-float
+    # embeddings (~15-40KB per entry). The previous 20k / 30k entry caps
+    # were unreachable at those payload sizes — XADD MAXLEN never trimmed,
+    # consumed-and-acked entries piled up until OOM jammed every XADD and
+    # froze the whole pipeline (no digest for 2 days).
+    #
+    # Per-stream byte ceilings (worst-case estimate, leaves ~700MB headroom
+    # under the 1GB Redis cap for AOF buffer, PELs, and client buffers):
+    #   FETCH    5k x~2KB    = ~10MB    (FetchTask: source_id + url + tier)
+    #   EXTRACT  500 x~250KB = ~125MB   (FetchResult: url + raw HTML — hog)
+    #   RANK     2k x~30KB   = ~60MB    (Opportunity + 384-float embedding)
+    #   NOTIFY   2k x~15KB   = ~30MB    (RankedOpportunity)
+    #   APPLY    1k x~1KB    = ~1MB     (user command)
+    #   EMAIL    2k x~5KB    = ~10MB
+    #   ALERTS   1k x~1KB    = ~1MB
+    #   DLQ      2k x~50KB   = ~100MB   (wraps failed payload incl. HTML)
+    # Total worst case ≈ 337MB.
+    #
+    # Proper long-term fix is to NOT inline raw HTML in stream:extract — store
+    # the body to disk / R2 and pass an opaque key in the stream payload. That
+    # is a refactor; these caps are the byte-aware hold-the-line.
     _MAXLEN: dict[str, int] = {
-        "stream:fetch": 50_000,
-        "stream:extract": 20_000,
-        "stream:rank": 30_000,
-        "stream:notify": 10_000,
-        "stream:apply": 5_000,
-        "stream:email_in": 10_000,
-        "stream:alerts": 5_000,
-        "stream:dlq": 50_000,
+        "stream:fetch": 5_000,
+        "stream:extract": 500,
+        "stream:rank": 2_000,
+        "stream:notify": 2_000,
+        "stream:apply": 1_000,
+        "stream:email_in": 2_000,
+        "stream:alerts": 1_000,
+        "stream:dlq": 2_000,
     }
-    _DEFAULT_MAXLEN = 20_000
+    _DEFAULT_MAXLEN = 2_000
 
     async def publish(self, stream: str, payload: dict[str, Any]) -> str:
         maxlen = self._MAXLEN.get(stream, self._DEFAULT_MAXLEN)
