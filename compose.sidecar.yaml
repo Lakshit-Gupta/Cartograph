@@ -1,0 +1,53 @@
+# Marked_Path / Cartograph — spare-machine sidecar compose file.
+#
+# Runs camoufox-worker replicas on a separate Linux x86_64 host that
+# connects to the Pi's Redis + Postgres via an SSH tunnel terminating on
+# the spare's localhost. The sidecar joins the existing g:crawlers
+# consumer group on stream:fetch and load-shares browser fetches with
+# the Pi's 3 native camoufox replicas. Different egress IP from the Pi
+# is the whole point — reduces Cloudflare fingerprint linkage to the
+# burned Pi IP.
+#
+# Pre-reqs (see docs/runbooks/sidecar_setup.md for the full procedure):
+#   1. Pi compose redis + postgres publish 127.0.0.1:6379 / 127.0.0.1:5432.
+#   2. Pi has a `carto-tunnel` SSH user, port-forward-only, restricted
+#      authorized_keys entry permitting exactly those two destinations.
+#   3. Spare runs an autossh systemd unit holding the tunnel up.
+#   4. `.env.sidecar` exists alongside this file with the minimal env
+#      vars (POSTGRES_HOST=127.0.0.1 REDIS_HOST=127.0.0.1 + decrypted
+#      secrets pasted from the Pi's SOPS). See .env.sidecar.example.
+#
+# Bring up:
+#   docker compose -f compose.sidecar.yaml up -d --build
+# Scale (only AFTER the queue.py byte-cap fix has shipped):
+#   docker compose -f compose.sidecar.yaml up -d --scale camoufox-worker-spare=2
+
+services:
+  camoufox-worker-spare:
+    build:
+      context: .
+      dockerfile: docker/camoufox.Dockerfile
+    image: marked_path-camoufox-worker:latest
+    restart: unless-stopped
+    # Host networking so the container's 127.0.0.1 is the spare's loopback,
+    # i.e. the tunnel endpoint. Alternative (extra_hosts: host-gateway)
+    # adds a docker0 NAT hop, harder to attribute in Postgres logs, and
+    # gives no isolation benefit here because the container has no
+    # listening ports — nothing to firewall off.
+    network_mode: host
+    env_file:
+      - .env.sidecar
+    environment:
+      WORKER_KIND: browser
+    # 1.5g headroom — Pi caps at 1g because it co-hosts the whole stack on
+    # 8 GB. Spare runs only camoufox, so Firefox renders get more rope.
+    mem_limit: 1500m
+    memswap_limit: 1500m
+    tmpfs:
+      - /tmp:size=512m
+      - /home/camoufox/.cache:size=256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"

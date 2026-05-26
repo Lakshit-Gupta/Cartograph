@@ -38,6 +38,7 @@ htmlcov/
 .env
 .env.local
 .env.production
+.env.sidecar
 secrets.yaml.dec
 secrets.dec.yaml
 *.dec

@@ -88,7 +88,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # NO host port published — Docker network only
+    # Loopback-only host port for SSH-tunneled remote workers. The spare
+    # machine in compose.sidecar.yaml reaches this through an `ssh -L
+    # 127.0.0.1:5432:127.0.0.1:5432 carto-tunnel@<pi>` forward — see
+    # docs/runbooks/sidecar_setup.md. NEVER widen to 0.0.0.0 / LAN IP:
+    # the only path in must remain SSH-authenticated port forwarding from
+    # the restricted carto-tunnel user. The CLAUDE.md "Docker network
+    # only" baseline holds for every other interface.
+    ports:
+      - "127.0.0.1:5432:5432"
 
   redis:
     image: redis:7-alpine
@@ -120,7 +128,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # NO host port published
+    # Loopback-only host port for SSH-tunneled remote workers. Same threat
+    # model as postgres above — only `ssh -L 127.0.0.1:6379:127.0.0.1:6379
+    # carto-tunnel@<pi>` from the spare reaches this. requirepass +
+    # rename-command CONFIG/FLUSHALL still hold; the new port is a
+    # loopback rendezvous, not a network exposure.
+    ports:
+      - "127.0.0.1:6379:6379"
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:latest
