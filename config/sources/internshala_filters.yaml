@@ -1,0 +1,93 @@
+# Per-source crawl-time filters for Internshala — Phase 4 auto-apply v2.
+#
+# Internshala already supports rich URL-level filtering. Rather than crawl
+# everything and discard 99% in our policy gate, we generate filtered
+# URLs from the dimensions below and only ingest opps that already match
+# the user's preferences.
+#
+# URL shapes (observed 2026-05-29):
+#   /internships/<category>-internships/stipend-<amt>
+#   /internships/<work_mode>-internships/stipend-<amt>
+#   /internships/<work_mode>-<category>-internships/stipend-<amt>
+#   /internships/<category>-internships-in-<city>/stipend-<amt>
+#   /internships/keyword-<word>/stipend-<amt>
+#
+# `src/sources/india/internshala.py:plan()` reads this file and emits
+# one FetchTask per generated URL × page (default 3 pages each).
+#
+# Cartesian product is bounded — we DON'T cross every dimension with
+# every other. Each `combinations` entry below picks specific axes to
+# combine. Keeps URL count manageable (~30 URLs per cycle vs. 5000).
+#
+# Edit + restart jobs-scheduler to apply. No image rebuild needed for
+# config-only changes (scheduler reads on each tick).
+
+internshala:
+  # Hard floor on monthly stipend (₹). Internshala URL accepts integer
+  # rupees only — fractional is rejected.
+  stipend_min_inr: 30000
+
+  # How many listing pages to crawl per filtered URL. 3 ≈ 30 listings
+  # per URL × ~30 URLs = ~900 listings per cycle, post-filter from
+  # Internshala's side.
+  pages_per_url: 3
+
+  # Work modes Internshala supports as URL fragments. Empty list = no
+  # work-mode dimension in the generated URLs.
+  work_modes:
+    - work-from-home
+    - part-time
+
+  # Category slugs as Internshala uses them in URLs. Internshala has
+  # ~150 categories; we list only the ones aligned with user's profile.
+  # Add / remove freely.
+  categories:
+    - web-development
+    - backend-development
+    - frontend-development
+    - software-development
+    - full-stack-development
+    - python-django-development
+    - data-science
+    - machine-learning
+    - product-management
+
+  # City slugs Internshala accepts in URLs. Lowercase, hyphen-separated.
+  # Empty list = no city dimension.
+  locations:
+    - mumbai
+    - bangalore
+    - hyderabad
+    - pune
+    - delhi
+    - gurgaon
+    - noida
+
+  # Free-form keywords for Internshala's `/keyword-<word>` search. Each
+  # keyword becomes one URL. Good for company-name searches the
+  # category dimension can't express.
+  keywords:
+    - python
+    - fastapi
+    - django
+    - backend
+    - ml
+    - infosys
+    - tcs
+    - microsoft
+    - razorpay
+
+  # Which axes to combine. Each combination becomes one set of URLs.
+  # Available axes: work_mode, category, location, keyword (mutually
+  # exclusive — only one of these per URL).
+  combinations:
+    # work-from-home internships in each category
+    - axes: [work_mode, category]
+      work_modes: [work-from-home]
+    # category-only (catches in-office positions)
+    - axes: [category]
+    # category × location (Mumbai backend, Bangalore Python, etc.)
+    - axes: [category, location]
+      categories: [backend-development, web-development, data-science]
+    # raw keyword search
+    - axes: [keyword]

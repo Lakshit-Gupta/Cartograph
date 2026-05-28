@@ -233,6 +233,29 @@ async def _transition_to_ranked(opportunity_id: str) -> None:
         )
 
 
+async def _persist_comp_min_inr(opportunity_id: str, comp_min: float | None, comp_currency: str | None) -> None:
+    """Populate `opportunities.comp_min_inr` (V023) with the INR-normalized
+    comp value for the auto-apply filter to read without per-row Python.
+
+    Best-effort — failures here are logged but never break ranking; the
+    auto-apply filter treats NULL comp_min_inr as "no comp signal" (passes).
+    """
+    from src.common.currency import to_inr
+
+    inr = to_inr(comp_min, comp_currency)
+    if inr is None:
+        return
+    try:
+        async with acquire() as conn:
+            await conn.execute(
+                "UPDATE opportunities SET comp_min_inr = $2 WHERE id = $1",
+                opportunity_id,
+                float(inr),
+            )
+    except Exception as e:
+        _log.warning("ranker_comp_min_inr_persist_failed", err=str(e), opp_id=opportunity_id)
+
+
 async def _maybe_priority_push(q: RedisQ, opportunity_id: str, category: Any, final_score: float) -> None:
     """Freelance + high score → publish a priority_push to stream:notify.
 
@@ -282,6 +305,7 @@ async def _score_one(q: RedisQ, opportunity_id: str, ctx: _ScoreContext) -> None
     )
 
     await _persist_score(opportunity_id, out)
+    await _persist_comp_min_inr(opportunity_id, rec["comp_min"], rec["comp_currency"])
     await _transition_to_ranked(opportunity_id)
 
     score_latency_seconds.observe(time.perf_counter() - t0)

@@ -268,6 +268,40 @@ async def nightly_global_ranker_refit(q: RedisQ) -> None:
     )
 
 
+async def emit_daily_auto_apply(q: RedisQ) -> None:
+    """Phase 4 v2 — daily auto-apply cron at 08:30 IST.
+
+    Calls `auto_apply_engine.dispatch()` which:
+      1. Reads `prefs.auto_apply` (filters + caps + whitelists).
+      2. Queries opportunities matching every hard filter via SQL.
+      3. Enqueues `stream:apply` for the top-N matches (capped by
+         `max_per_day` minus today's count).
+
+    Per-opp policy gate (score, source kill switch, method whitelist)
+    runs again inside applier-worker, so a flag flip between cron tick
+    and per-opp consideration still catches the latest state.
+
+    Failure logged but does not propagate — the scheduler keeps ticking
+    every other cron regardless.
+    """
+    _ = q
+    try:
+        from src.application.auto_apply_engine import dispatch
+
+        summary = await dispatch(user_id=1, source="auto_cron")
+    except Exception as e:
+        _log.warning("daily_auto_apply_cron_failed", err=str(e))
+        return
+    _log.info(
+        "daily_auto_apply_cron_tick",
+        fired=summary.fired_count,
+        candidates=summary.candidates_found,
+        daily_cap=summary.daily_cap,
+        daily_count_before=summary.daily_count_before,
+        dry_run=summary.dry_run,
+    )
+
+
 async def weekly_source_refit(q: RedisQ) -> None:
     """Phase 2.4 — weekly refit of ``sources.ranking_weight``.
 
@@ -368,6 +402,20 @@ async def main() -> None:
         CronTrigger(day_of_week="sun", hour=4, minute=0, timezone="Asia/Kolkata"),
         args=[q],
         id="weekly_dark_source_discovery",
+    )
+    # Phase 4 v2 — daily auto-apply cron at 08:30 IST. Lands AFTER the
+    # OSS funnel scan (08:00) so OSS opps captured this morning are
+    # eligible candidates, and AFTER the digest cron (~02:30 UTC = 08:00
+    # IST) so the user sees today's batch before the auto-apply fires.
+    # Cap enforced inside the handler — overshooting it logs but doesn't
+    # fire more than `max_per_day - today_count` applies.
+    scheduler.add_job(
+        emit_daily_auto_apply,
+        CronTrigger(hour=8, minute=30, timezone="Asia/Kolkata"),
+        args=[q],
+        id="daily_auto_apply",
+        max_instances=1,
+        coalesce=True,
     )
     # Phase 3.4 — daily OSS contribution funnel scan at 08:00 IST.
     # Explicit IST timezone matches the digest + follow-up crons so

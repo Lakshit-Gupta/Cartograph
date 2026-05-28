@@ -13,6 +13,9 @@ from src.notifiers.discord.commands import (
     apply as _apply,
 )
 from src.notifiers.discord.commands import (
+    auto_apply as _auto_apply,
+)
+from src.notifiers.discord.commands import (
     budget as _budget,
 )
 from src.notifiers.discord.commands import (
@@ -43,6 +46,9 @@ from src.notifiers.discord.commands import (
     review as _review,
 )
 from src.notifiers.discord.commands import (
+    scrape_status as _scrape_status,
+)
+from src.notifiers.discord.commands import (
     skip as _skip,
 )
 from src.notifiers.discord.commands import (
@@ -59,6 +65,8 @@ ALL_SETUPS: list[Callable[[object], None]] = [
     _budget.setup,
     _digest.setup,
     _apply.setup,
+    _auto_apply.setup,
+    _scrape_status.setup,
     _skip.setup,
     _snooze.setup,
     _pin.setup,

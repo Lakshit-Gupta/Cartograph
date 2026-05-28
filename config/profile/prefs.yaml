@@ -36,21 +36,53 @@ apply:
   require_user_confirm_above_score: 0.90   # below this, ask before applying
   resume_variant_default: "backend"
 
-# Phase 4 auto-apply — policy gate consulted by src/application/policy.py
-# before any submitter (Internshala browser, Greenhouse API, Resend email)
-# fires. Default DISABLED; flip `enabled: true` only after the relevant
-# sources are individually whitelisted via
-#   `UPDATE sources SET auto_apply_enabled=true WHERE slug=...`
-# and the chosen method is added to the `methods` whitelist below.
-# Hard caps are mirrored in src/application/policy.py defaults so a
-# missing block here degrades to disabled, not unbounded.
+# Phase 4 v2 auto-apply.
+#
+# Two-layer filter:
+#   1. CRAWL-TIME — config/sources/internshala_filters.yaml generates
+#      pre-filtered Internshala URLs (stipend ≥ N, work-mode, category,
+#      location, keyword). 99% of irrelevant opps never enter the DB.
+#   2. APPLY-TIME — this block. Defence in depth + per-opp policy gate.
+#
+# Default DISABLED; flip `enabled: true` only after the source is
+# whitelisted via `UPDATE sources SET auto_apply_enabled=TRUE`.
 auto_apply:
   enabled: false                 # master kill switch
-  dry_run: true                  # pipeline + sidecar run; sidecar STOPS before final Submit click
-  min_score: 0.80                # opportunity_scores.score gate
-  max_per_day: 3                 # hard ceiling per UTC date — verification window default
-  methods:                       # whitelist; nothing fires unless method key listed
-    - in_platform_internshala    # Phase 4.1 — ThinkPad sidecar
+  dry_run: true                  # sidecar fills modal + STOPS before Submit
+  max_per_day: 3                 # hard ceiling per UTC date
+
+  # SOFT SCORE — within filter survivors, score must be ≥ min_score.
+  # Per-source overrides because score distributions differ wildly:
+  # Internshala maxes at ~0.45 (no comp), ATS roles can hit 0.90.
+  min_score: 0.30                # global floor
+  per_source_min_score:
+    in_internshala: 0.35         # observed 2026-05-29 p75=0.394
+    ats_greenhouse: 0.75
+    ats_lever:      0.70
+
+  # HARD APPLY-TIME FILTERS — opp must satisfy ALL before scoring matters.
+  # Most enforcement happens at crawl time (Internshala filter URLs); this
+  # block catches stragglers + applies to non-Internshala sources too.
+  filters:
+    # INR floor. Cross-currency opps (USD freelance, GBP fellowships) are
+    # normalized to INR via src/common/currency.py at score time and stored
+    # in opportunities.comp_min_inr. NULL comp passes — many internships
+    # advertise stipend in the description rather than a structured field.
+    min_comp_inr_month: 30000
+    # Max age (days since posted_at). Stale opps often already filled.
+    max_age_days: 14
+
+  # Apply methods the policy accepts. EMAIL = Resend send (existing path).
+  # IN_PLATFORM = sidecar route (Internshala / future Naukri etc.).
+  apply_methods_whitelist:
+    - in_platform
+    - email
+
+  # Submitter keys allowed to fire. Each maps 1-to-1 with a registered
+  # submitter in src/application/submitters/. Adding a key here without
+  # a corresponding submitter module = `refused_no_submitter`.
+  methods:
+    - in_platform_internshala    # Phase 4.1 sidecar (ThinkPad)
     # Phase 4.2+ entries land here:
     # - in_platform_naukri
     # - in_platform_cuvette
