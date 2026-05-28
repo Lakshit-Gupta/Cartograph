@@ -1059,6 +1059,51 @@ dry-runs pass AND a 4th over-cap `/apply` logs `decision=refused_cap`.
 
 ---
 
+## Browser engine refresh (deferred — keep edge across years)
+
+**Trigger conditions** for reopening:
+1. Internshala + at least one other Phase 4 platform (Naukri / Cuvette / Unstop / Contra) running clean for 30+ days.
+2. OR Camoufox dry-run + real-submit failure rate climbs > 10% on bot detection (currently camoufox is in a ~1-year maintenance gap; Firefox base is several majors behind upstream).
+3. OR first Cloudflare-protected source (Wellfound, US ATS forms, etc.) needs browser-driven submission — at that point Camoufox vs Nodriver matters because Nodriver wins the 2026 CF benchmark (0 blocked of 31 CF targets, vs Camoufox mid-pack).
+
+**Strategy when reopened — DO NOT pick one browser, build a multi-engine layer:**
+
+```
+src/fetchers/browser/engine.py
+    class BrowserEngine(Protocol):
+        async def open_context(*, cookies, ua) -> ContextHandle
+    class CamoufoxEngine: ...
+    class NodriverEngine: ...
+    class PatchrightEngine: ...
+    class CloakBrowserEngine: ...   # emerging Chromium fork w/ C++ patches
+sources.browser_engine TEXT DEFAULT 'camoufox'    # per-source config flip
+```
+
+Per-source engine selection. Internshala stays on Camoufox; CF-protected sources flip
+to whichever wins the latest benchmark. Switching = config UPDATE, not code change.
+
+**Active monitoring (post-rollout) — track these monthly:**
+- https://github.com/daijro/camoufox releases — for Camoufox revival or hand-off to active fork.
+- https://github.com/ultrafunkamsterdam/nodriver — Nodriver release cadence.
+- https://github.com/CloakHQ/CloakBrowser — new Chromium-fork contender, claims 30/30 tests.
+- ianlpaterson.com / scrapfly.io — quarterly anti-detect benchmarks; refresh choices when leaderboard shifts.
+- bot.sannysoft.com + creepjs (https://abrahamjuliot.github.io/creepjs/) — run quarterly against current production engine; flip if score climbs above stealth threshold.
+
+**Build cost when triggered:** ~1 hour refactor (wrap existing camoufox call into
+CamoufoxEngine) + ~1 day per new engine adapter.
+
+**Why deferred today:** Internshala isn't Cloudflare-protected. The dominant risk
+on Internshala is account-behavior (timing, rate) + IP — not fingerprint quality.
+Multi-engine layer pays off only when CF gates appear OR Camoufox drift hurts.
+
+Research sources captured 2026-05-29:
+- [Anti-detect browser benchmark 2026 — Ian L. Paterson](https://ianlpaterson.com/blog/anti-detect-browser-benchmark-patchright-nodriver-curl-cffi/) — 7 stealth tools, 31 CF targets, Nodriver wins.
+- [Evomi: Camoufox vs Rebrowser vs Playwright fingerprint benchmark](https://evomi.com/blog/camoufox-vs.-rebrowser-vs.-stock-playwright-a-fingerprint-benchmark) — Camoufox 0% CreepJS still holds.
+- [Scrapfly: How to bypass Cloudflare 2026](https://scrapfly.io/blog/posts/how-to-bypass-cloudflare-anti-scraping) — current SOTA tactics.
+- [PROXIES.SX: Camoufox + Nodriver 2026 guide](https://www.proxies.sx/blog/ai-browser-automation-camoufox-nodriver-2026) — production patterns.
+
+---
+
 ## Defer list (Phase 1 — DO NOT BUILD)
 
 - Upwork direct integration (use email digest only).
