@@ -1,93 +1,209 @@
-# Per-source crawl-time filters for Internshala — Phase 4 auto-apply v2.
+# config/sources/internshala_filters.yaml
 #
-# Internshala already supports rich URL-level filtering. Rather than crawl
-# everything and discard 99% in our policy gate, we generate filtered
-# URLs from the dimensions below and only ingest opps that already match
-# the user's preferences.
+# Internshala URL-filter crawler config — refined 2026-05-29 via SEO
+# Specialist agent recon. URL slugs treated as Internshala's internal
+# ranking taxonomy; we crawl the slug paths that map cleanly to backend
+# + ML personas and let the policy gate's negative-keyword filter
+# (config/policy/negative_keywords.yaml) reject noise post-crawl.
 #
-# URL shapes (observed 2026-05-29):
-#   /internships/<category>-internships/stipend-<amt>
-#   /internships/<work_mode>-internships/stipend-<amt>
-#   /internships/<work_mode>-<category>-internships/stipend-<amt>
-#   /internships/<category>-internships-in-<city>/stipend-<amt>
-#   /internships/keyword-<word>/stipend-<amt>
+# URL shapes:
+#   /internships/<category>-internships/stipend-<N>
+#   /internships/work-from-home-<category>-internships/stipend-<N>
+#   /internships/<category>-internships-in-<city>/stipend-<N>
+#   /internships/keyword-<word>/stipend-<N>
 #
-# `src/sources/india/internshala.py:plan()` reads this file and emits
-# one FetchTask per generated URL × page (default 3 pages each).
+# Multi-word keyword slugs use hyphens (python-developer, nlp-engineer).
+# Internshala accepts them literally — the URL generator MUST NOT
+# urlencode the hyphens.
 #
-# Cartesian product is bounded — we DON'T cross every dimension with
-# every other. Each `combinations` entry below picks specific axes to
-# combine. Keeps URL count manageable (~30 URLs per cycle vs. 5000).
-#
-# Edit + restart jobs-scheduler to apply. No image rebuild needed for
-# config-only changes (scheduler reads on each tick).
+# Persona-scoped combinations: each block targets ONE intent slice.
+# ~22 URLs/cycle × pages_per_url=3 = ~66 page fetches/cycle.
+# Approx steady-state: bumped down from 30 URLs with broader coverage.
 
 internshala:
-  # Hard floor on monthly stipend (₹). Internshala URL accepts integer
-  # rupees only — fractional is rejected.
   stipend_min_inr: 30000
-
-  # How many listing pages to crawl per filtered URL. 3 ≈ 30 listings
-  # per URL × ~30 URLs = ~900 listings per cycle, post-filter from
-  # Internshala's side.
   pages_per_url: 3
 
-  # Work modes Internshala supports as URL fragments. Empty list = no
-  # work-mode dimension in the generated URLs.
+  # ────────────────────────────────────────────────────────────────
+  # WORK MODES
+  # ────────────────────────────────────────────────────────────────
+  # part-time dropped — too noisy on Internshala (content/marketing
+  # skew, sub-30k stipends). Default (no work-mode prefix) covers
+  # on-site listings via the `[category, location]` block.
   work_modes:
     - work-from-home
-    - part-time
 
-  # Category slugs as Internshala uses them in URLs. Internshala has
-  # ~150 categories; we list only the ones aligned with user's profile.
-  # Add / remove freely.
+  # ────────────────────────────────────────────────────────────────
+  # CATEGORIES — Internshala slug taxonomy aligned to backend + ML
+  # ────────────────────────────────────────────────────────────────
+  # Pure-noise categories (marketing, content-writing, hr, sales, ops,
+  # finance, civil/mechanical/electrical, graphic-design, video-editing,
+  # social-media, ai-content-creator) are intentionally ABSENT.
   categories:
-    - web-development
+    # Backend / Python persona
     - backend-development
-    - frontend-development
+    - python-django-development     # django implies backend
     - software-development
     - full-stack-development
-    - python-django-development
-    - data-science
+    - web-development               # noisy but unavoidable for FS roles
+    - java-development              # IN market backend signal
+    - node-js-development           # node/Express backend
+    - devops
+    - cloud-computing
+    - database
+    - api-development
+    # Frontend kept ONLY for full-stack overlap
+    - frontend-development
+    - react-development             # high-signal vs generic frontend
+    # ML / Data persona
     - machine-learning
-    - product-management
+    - data-science
+    - data-analytics                # SQL-heavy, persona-aligned
+    - artificial-intelligence
+    - deep-learning                 # high intent, lower volume
+    - computer-vision
+    - natural-language-processing
+    - data-engineering              # backend ∩ ML overlap
+    # Adjacent technical (low-volume, high-intent)
+    - blockchain-development        # IN startup signal; backend-flavored
+    - cyber-security                # backend-flavored
+    - product-management            # backend-heavy startups pay above floor
 
-  # City slugs Internshala accepts in URLs. Lowercase, hyphen-separated.
-  # Empty list = no city dimension.
+  # ────────────────────────────────────────────────────────────────
+  # LOCATIONS — IN tech corridors
+  # ────────────────────────────────────────────────────────────────
+  # chennai (NEW): Zoho, Freshworks, Chargebee, Postman EU teams.
+  # ahmedabad (NEW): growing IN SaaS hub.
+  # kolkata intentionally OMITTED — low backend/ML internship volume
+  # above 30k.
+  # "remote" is handled via work_modes: [work-from-home], NOT as a slug.
   locations:
-    - mumbai
     - bangalore
     - hyderabad
     - pune
+    - mumbai
     - delhi
     - gurgaon
     - noida
+    - chennai
+    - ahmedabad
 
-  # Free-form keywords for Internshala's `/keyword-<word>` search. Each
-  # keyword becomes one URL. Good for company-name searches the
-  # category dimension can't express.
+  # ────────────────────────────────────────────────────────────────
+  # KEYWORDS — long-tail SEO terms (free-form /keyword-<X>/)
+  # ────────────────────────────────────────────────────────────────
+  # Dropped from prior list:
+  #   "ml"        — substring false-matches "html", "marketing"
+  #   "backend"   — covered by backend-development category; keyword
+  #                 search adds "backend operations" / "backend office"
+  #   "tcs"       — Tata Consultancy posts mostly non-tech rotations
+  #   "infosys"   — Infosys internships heavily ops/BPO
+  #
+  # Brand keywords listed below the technical block; existing crawler
+  # treats them as a single keywords axis (Phase 2: split into a
+  # brand_keywords axis with per-axis pages_per_url override).
   keywords:
-    - python
+    # — Backend persona, high-intent technical —
+    - python-developer
+    - django-developer
     - fastapi
-    - django
-    - backend
-    - ml
-    - infosys
-    - tcs
-    - microsoft
+    - flask
+    - golang
+    - rust-developer
+    - postgresql
+    - microservices
+    - rest-api
+    - graphql
+    # — ML persona, high-intent technical —
+    - pytorch
+    - tensorflow
+    - llm
+    - generative-ai
+    - transformers
+    - nlp-engineer
+    - computer-vision-engineer
+    - mlops
+    - data-engineer
+    - applied-ai
+    # — Cross-persona (DevOps / cloud) —
+    - kubernetes
+    - docker
+    - aws
+    - terraform
+    # — Brand keywords: IN employers consistently posting backend/ML
+    #   roles above ₹30k. Excluded brands historically heavy on
+    #   sales/ops/content (Byju's, Unacademy ops, Paytm sales,
+    #   Reliance, OYO).
+    # Fintech (backend-heavy, well-paid)
     - razorpay
+    - cred
+    - zerodha
+    - groww
+    - phonepe
+    - jupiter
+    # Consumer tech (large backend / ML teams)
+    - zomato
+    - swiggy
+    - flipkart
+    - meesho
+    - urban-company
+    # Global tech with IN internship programs
+    - microsoft
+    - adobe
+    - atlassian
+    - postman
+    - intuit
+    - salesforce
+    - oracle
+    # Indian SaaS / dev-tools (high backend signal)
+    - freshworks
+    - zoho
+    - chargebee
+    - browserstack
+    - hasura
+    - rapido
+    # AI / ML-first companies hiring interns in IN
+    - sarvam-ai
+    - krutrim
+    - ola-krutrim
+    - fractal-analytics
 
-  # Which axes to combine. Each combination becomes one set of URLs.
-  # Available axes: work_mode, category, location, keyword (mutually
-  # exclusive — only one of these per URL).
+  # ────────────────────────────────────────────────────────────────
+  # COMBINATIONS — persona-scoped, intent-targeted slices
+  # ────────────────────────────────────────────────────────────────
   combinations:
-    # work-from-home internships in each category
+    # Block 1: Backend persona, remote-first (~8 URLs)
     - axes: [work_mode, category]
       work_modes: [work-from-home]
-    # category-only (catches in-office positions)
-    - axes: [category]
-    # category × location (Mumbai backend, Bangalore Python, etc.)
+      categories:
+        - backend-development
+        - python-django-development
+        - full-stack-development
+        - node-js-development
+        - data-engineering
+        - devops
+        - api-development
+        - software-development
+
+    # Block 2: ML persona, remote-first (~6 URLs)
+    - axes: [work_mode, category]
+      work_modes: [work-from-home]
+      categories:
+        - machine-learning
+        - data-science
+        - artificial-intelligence
+        - deep-learning
+        - natural-language-processing
+        - computer-vision
+
+    # Block 3: Backend persona, top-3 IN cities on-site (~6 URLs)
+    # On-site backend roles in BLR/HYD/PUN clear the stipend floor.
     - axes: [category, location]
-      categories: [backend-development, web-development, data-science]
-    # raw keyword search
+      categories: [backend-development, full-stack-development]
+      locations: [bangalore, hyderabad, pune]
+
+    # Block 4: High-intent free-form keywords (no category lock)
+    # Internshala's keyword index pulls cross-category matches we'd
+    # miss otherwise (e.g. "Python Developer" miscategorized under
+    # "software-testing"). Uses the full keywords: block including
+    # brand keywords above.
     - axes: [keyword]

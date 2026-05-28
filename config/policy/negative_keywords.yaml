@@ -1,0 +1,195 @@
+# config/policy/negative_keywords.yaml
+#
+# Phase 4 v2.1 — post-crawl, pre-rank negative keyword filter.
+#
+# Match against the lowercased + whitespace-normalized union of
+#   (opp.title, opp.company, opp.description)
+# using WORD-BOUNDARY regex (\b<term>\b) — NEVER substring match.
+# Reason: substring kills legitimate roles ("ml" → "html",
+# "ca" → "cassandra", "hr" → "Khronos").
+#
+# Weighting (Phase 2 — not yet wired into policy.py):
+#   - title match: weight 1.0 → 1 hit triggers reject.
+#   - description match: weight 0.5 → require 2+ hits OR 1 title hit.
+# One stray "marketing" mention in a backend JD shouldn't kill the opp.
+#
+# Per-term reject counter (Prometheus, Phase 2):
+#   policy_reject_total{rule="negative_kw", term="<term>"}
+# → weekly review surfaces high-volume / low-precision terms for
+# demotion or removal.
+#
+# Categories below match the SEO Specialist recon 2026-05-29.
+
+negative_keywords:
+
+  # ── Domain mismatch (hard reject — never persona-relevant) ───────
+  domain_mismatch:
+    - civil
+    - civil engineering
+    - mechanical
+    - mechanical engineering
+    - electrical engineering
+    - electronics
+    - architecture
+    - architect intern
+    - interior design
+    - chemical engineering
+    - biotech
+    - pharma
+    - pharmaceutical
+    - medical
+    - nursing
+    - mbbs
+
+  # ── Non-technical role types (Internshala's biggest noise bucket) ─
+  marketing_content:
+    - content writer
+    - content writing
+    - content creator
+    - copywriter
+    - copywriting
+    - blog writer
+    - seo writer
+    # NOTE: `technical writer` deliberately omitted — borderline.
+    # Flip into this list if pure-backend focus, leave out if you
+    # want docs-engineering leads.
+    - social media
+    - social media marketing
+    - smm
+    - influencer
+    - instagram
+    - youtube
+    - digital marketing
+    - marketing intern
+    - seo intern
+    - sem
+    - ppc
+    - growth marketing
+    - brand
+    - branding
+
+  design:
+    - graphic design
+    - graphic designer
+    - ui designer       # NOTE: keep "ui/ux developer" — different role
+    - video editor
+    - video editing
+    - animation
+    - motion graphics
+    - photographer
+
+  sales_ops:
+    - sales
+    - sales intern
+    - business development
+    - bd intern
+    - bde
+    - inside sales
+    - field sales
+    - telecaller
+    - telesales
+    - telemarketing
+    - cold caller
+    - bpo
+    - kpo
+    - customer support
+    - customer service
+    - call center
+    - call centre
+    - operations intern
+    - ops intern
+    - admin intern
+    - office administration
+    - executive assistant
+
+  hr:
+    - hr
+    - human resources
+    - hr intern
+    - recruiter
+    - talent acquisition
+    - recruitment
+
+  finance_legal:
+    - finance intern
+    - accounting
+    - accountant
+    - taxation
+    - audit
+    - chartered accountant
+    - ca intern
+    - cs intern
+    - company secretary
+    # NOTE: `equity research` deliberately omitted — borderline; some
+    # fintech-quant adjacent roles are persona-relevant.
+    - legal intern
+    - law intern
+    - paralegal
+
+  education:
+    - teaching
+    - teacher
+    - tutor
+    - educator
+    - edtech sales
+    - academic counsellor
+    - academic counselor
+    - admission counsellor
+
+  # ── Post-LLM-boom AI content noise ──────────────────────────────
+  ai_content_noise:
+    - ai content
+    - ai content creator
+    - ai writer
+    # NOTE: `prompt engineer` deliberately omitted — some are real
+    # SDE roles. Combine-on-match logic: only reject when paired
+    # with content/writer/marketing — wire that into policy.py.
+    - chatgpt expert
+    - ai influencer
+    - ai marketing
+
+  # ── Sub-stipend defense (in case stipend URL filter leaks) ──────
+  sub_stipend:
+    - unpaid
+    - unpaid internship
+    - performance based
+    - commission based
+    - commission only
+    - "stipend: 0"
+    # NOTE: `stipend not disclosed` deliberately omitted — borderline
+    # (downgrade-not-reject candidate). Wire as soft-flag in policy.
+
+  # ── Stack mismatch (reject for backend/ML personas) ─────────────
+  stack_mismatch:
+    - wordpress developer
+    - wordpress
+    - shopify developer
+    - wix
+    - squarespace
+    # NOTE: `php developer` deliberately omitted — borderline; keep
+    # if Laravel-adjacent acceptable, drop for pure Python/Node.
+    - dotnet
+    - .net developer
+    - vb.net
+    - asp.net
+    - coldfusion
+    - mainframe
+    - cobol
+    - manual testing
+    - qa intern      # NOTE: keep "sdet" / "test automation" — separate
+
+  # ────────────────────────────────────────────────────────────────
+  # BORDERLINE — A/B candidates
+  # ────────────────────────────────────────────────────────────────
+  # Wire behind a config flag in policy.py. Toggle weekly based on
+  # reject-precision telemetry. Currently DISABLED (not in any of the
+  # category lists above). Listed here for reviewability + to keep
+  # the decision auditable.
+  borderline_disabled:
+    - technical writer
+    - prompt engineer
+    - php developer
+    - qa intern        # already in stack_mismatch — represented here
+                       # to track A/B decision separately
+    - equity research
+    - stipend not disclosed

@@ -1059,6 +1059,68 @@ dry-runs pass AND a 4th over-cap `/apply` logs `decision=refused_cap`.
 
 ---
 
+## Multi-persona auto-apply (deferred — design ratified 2026-05-29)
+
+**Status**: design approved, implementation deferred alongside the browser
+engine refresh. Ship together once both triggers fire.
+
+**Trigger conditions** for reopening:
+1. Internshala auto-apply running with negative-keyword filter active for 30+
+   days AND apply-to-response rate > 5% (current Phase 1 SEO config covers
+   the majority of noise without persona schema).
+2. OR user adds a second IN platform (Naukri / Cuvette) that needs its own
+   keyword/category taxonomy — multi-persona enables per-platform persona
+   sharing.
+
+**Design summary** (full discussion in conversation, no separate spec yet —
+write spec to `docs/superpowers/specs/2026-XX-XX-multi-persona-auto-apply-design.md`
+when build starts):
+
+- `config/profile/personas.yaml` — declarative persona schema. Each persona
+  has: name, enabled, daily_cap (sums to global max_per_day), min_score,
+  apply_methods, locations, min_comp_inr_month, title_must_contain_any,
+  description_must_contain_any, must_not_contain, internshala_urls.
+- V0XX migration: `opportunities.comp_max_inr REAL`, `applications.persona TEXT`,
+  extend `auto_apply_daily_count` PK with `persona TEXT`, extend
+  `auto_apply_audit.decision` CHECK with `refused_persona_mismatch`,
+  `refused_title`, `refused_description`, `refused_negative_keyword`.
+- Internshala extractor parses stipend ranges (`₹15,000 - 25,000`) into both
+  `comp_min` and `comp_max`. Today only `comp_min` is populated.
+- `src/application/persona.py` — `match_opp_to_persona(opp) → Persona | None`.
+  ILIKE title + description against persona positive/negative lists; first
+  hit wins (after honoring `enabled`).
+- `policy.should_auto_submit` persona-aware: calls `persona.match()` first,
+  gates against THAT persona's `min_score`, `min_comp_inr_month` (uses
+  `comp_max_inr >= floor` for range opps), `locations`, `apply_methods`.
+- `auto_apply_engine.find_eligible` fans out by persona, respects per-persona
+  daily caps.
+- Internshala plugin reads each persona's `internshala_urls` and merges with
+  `internshala_filters.yaml` (the latter stays as fallback for opps not
+  aligned with any persona).
+- `prefs.yaml auto_apply` simplifies — per-persona overrides move OUT.
+- `/auto-apply preview` shows `[persona]` attribution per row.
+- `/personas` slash (new) — list personas + per-persona daily counts.
+
+**Why deferred today**:
+1. Phase 1 SEO refresh of `internshala_filters.yaml` + `negative_keywords.yaml`
+   (post-crawl reject by category) covers the bulk of noise — most "civil
+   engineering" / "AI content creator" rejections were never going to pay
+   off the schema complexity for a single-platform single-user setup.
+2. Negative-keyword filter is wired post-crawl, pre-rank — it kills the
+   noise BEFORE the schema's per-persona match would run, so a chunk of
+   the persona work is already covered by the simpler config.
+3. Multi-persona pays off when there's a SECOND platform to share personas
+   across (Naukri, Cuvette). Today there's just Internshala.
+
+Reuses the same `BrowserEngine` Protocol from the deferred browser refresh —
+build them together so the schema migration is one ship, not two.
+
+**Build cost when triggered**: ~1.5 days (schema + extractor enhancement +
+persona module + policy refactor + engine update + plugin update + 2 new
+slashes + tests).
+
+---
+
 ## Browser engine refresh (deferred — keep edge across years)
 
 **Trigger conditions** for reopening:
