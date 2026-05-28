@@ -44,40 +44,55 @@ from src.common.logger import get_logger
 
 _log = get_logger(__name__)
 
-INTERNSHALA_SELECTORS_VERSION = "2026.05.28-recon-pending"
+INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v1"
 
 # Selector map — keys are stable internal names referenced by run_internshala_apply.
 # Values are the live CSS/XPath selectors. Recon the actual DOM on the spare
 # and patch these. Do NOT inline selectors in the run_*_apply body — the
 # whole point of the map is that drift is a one-line fix.
 INTERNSHALA_SELECTORS: dict[str, str] = {
-    # Easy Apply entry. Internshala renders this as a Bootstrap-style button
-    # with `cta_apply_button` id on detail pages; some flows surface a
-    # plain anchor with `data-action="apply"` instead. Try both.
-    "easy_apply_button": "#cta_apply_button, [data-action='apply'], button:has-text('Easy Apply')",
-    # Modal container — wait_for_selector before filling fields.
-    "modal": "#apply_now_dialog, [role='dialog']:has-text('Apply')",
-    # Resume upload — `input[type=file]` inside the modal. Internshala has
-    # ALSO supported a "use existing resume" radio set; PDF upload path is
-    # the auto-apply flow.
-    "resume_upload": "input[type='file'][name='resume'], input[type='file'][accept*='pdf']",
-    # Cover letter textarea — `name=cover_letter`.
+    # Apply entry on the internship detail page (top-right area per the
+    # 2026-05-29 recon). Fallback chain — Playwright tries each in order.
+    # The 2nd fallback handles the listing-card heading click pattern in
+    # case the apply_url points at the listing instead of the detail page.
+    "easy_apply_button": (
+        "#easy_apply_button, .easy_apply_button, .top_apply_now_cta, "
+        "button:has-text('Apply now'), input[value='Apply'], "
+        ".internship-heading-container"
+    ),
+    # Wrapper that's only present once the form is visible. Fallback chain
+    # covers both modal + inline form variants. First match wins.
+    "modal": (
+        "#application_form, .application-form-container, "
+        "form[action*='easy_apply'], form[action*='application'], "
+        "[role='dialog']:has-text('Apply')"
+    ),
+    # Resume upload — Internshala's "Use a custom resume" path. Three
+    # variants observed: file input by name, by accept type, or hidden
+    # under a `.custom-resume-label` <label>. Playwright's set_input_files
+    # works against the input even when it's hidden behind a label.
+    "resume_upload": (
+        "input[type='file'][name='custom_resume'], "
+        "input[type='file'][accept*='pdf'], "
+        ".custom-resume-label + input[type='file'], "
+        "input[type='file']"
+    ),
+    # Cover letter textarea — may not exist on every Internshala flow.
+    # If missing, _fill_form's _assert_present will fail; we'll patch.
     "cover_letter": "textarea[name='cover_letter'], textarea#cover_letter",
-    # Custom-question textareas — Internshala calls these "additional
-    # questions". The DOM uses `name="question_<id>"` per textarea. The
-    # qa_defaults dict in the task carries a {question_id_or_text: answer}
-    # map; we match by hashing the question label, NOT by index.
-    "custom_q_container": ".additional_questions, .questions_container",
-    # Submit button. Avoid generic "button:has-text('Submit')" — the modal
-    # has a separate "Save Draft" button.
-    "submit_button": "button#submit_application, button:has-text('Submit application')",
-    # Post-submit confirmation. Internshala shows a toast with the
-    # message "You have successfully applied" or a redirect to a "thanks"
-    # page; we wait for whichever fires first.
-    "success_banner": ".toast-success, .application_success_message, h1:has-text('successfully applied')",
-    # Error banner — visible when the submit fails (e.g. account banned,
-    # internship closed).
-    "error_banner": ".toast-error, .application_error_message",
+    # Wrapper around custom questions (confirm availability, months of
+    # experience, portfolio link, etc.). All <textarea>s inside this
+    # container get answered from config/profile/internshala_q_a.yaml.
+    "custom_q_container": (".additional_questions, .questions_container, .form-section, .application-questions"),
+    # Submit button. Confirmed via 2026-05-29 recon: id="submit" on the
+    # actual Submit input. Keep the text-based fallback for redesigns.
+    "submit_button": ("#submit, input#submit, input[type='submit'][value='Submit'], button:has-text('Submit application')"),
+    # Post-submit confirmation. Placeholder — first real submit will reveal
+    # the actual selector via selector_miss screenshot.
+    "success_banner": (".success_message, .toast-success, .application_success_message, h1:has-text('successfully applied')"),
+    # Error banner — visible when submit fails (account banned, internship
+    # closed, etc.).
+    "error_banner": ".toast-error, .application_error_message, .error_message",
 }
 
 
@@ -114,17 +129,26 @@ async def _screenshot_b64(page: Any) -> str:
 
 
 async def _fill_form(page: Any, task: dict[str, Any], pdf_path: Path) -> None:
-    """Upload PDF, fill cover letter, answer custom questions."""
+    """Upload PDF, fill cover letter (if present), answer custom questions."""
     upload_input = await _assert_present(page, "resume_upload")
     await upload_input.set_input_files(str(pdf_path))
     await _human_pause(400, 900)
 
-    cover = await _assert_present(page, "cover_letter")
+    # Cover letter is OPTIONAL — many Internshala flows skip it entirely
+    # and surface only custom questions instead. Try to find it; if absent
+    # we move on without complaining (vs. _assert_present which would fail
+    # the whole submission).
     cover_md = str(task.get("cover_letter_md") or "")
-    # Internshala's textarea accepts plain text; strip markdown emphasis.
-    cover_plain = cover_md.replace("**", "").replace("__", "").replace("*", "").replace("_", "")
-    await cover.fill(cover_plain)
-    await _human_pause(300, 700)
+    if cover_md:
+        try:
+            cover = await page.wait_for_selector(INTERNSHALA_SELECTORS["cover_letter"], timeout=2_000)
+        except Exception:
+            cover = None
+        if cover is not None:
+            # Internshala's textarea accepts plain text; strip markdown emphasis.
+            cover_plain = cover_md.replace("**", "").replace("__", "").replace("*", "").replace("_", "")
+            await cover.fill(cover_plain)
+            await _human_pause(300, 700)
 
     # Custom Q&A — best effort. Skip silently when no container is rendered
     # (some Internshala opps have zero custom questions, and the container
