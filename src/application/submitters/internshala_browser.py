@@ -44,55 +44,64 @@ from src.common.logger import get_logger
 
 _log = get_logger(__name__)
 
-INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v1"
+INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v2-listing-dom"
 
 # Selector map — keys are stable internal names referenced by run_internshala_apply.
 # Values are the live CSS/XPath selectors. Recon the actual DOM on the spare
 # and patch these. Do NOT inline selectors in the run_*_apply body — the
 # whole point of the map is that drift is a one-line fix.
 INTERNSHALA_SELECTORS: dict[str, str] = {
-    # Apply entry on the internship detail page (top-right area per the
-    # 2026-05-29 recon). Fallback chain — Playwright tries each in order.
-    # The 2nd fallback handles the listing-card heading click pattern in
-    # case the apply_url points at the listing instead of the detail page.
-    "easy_apply_button": (
-        "#easy_apply_button, .easy_apply_button, .top_apply_now_cta, "
-        "button:has-text('Apply now'), input[value='Apply'], "
-        ".internship-heading-container"
-    ),
-    # Wrapper that's only present once the form is visible. Fallback chain
-    # covers both modal + inline form variants. First match wins.
-    "modal": (
-        "#application_form, .application-form-container, "
-        "form[action*='easy_apply'], form[action*='application'], "
-        "[role='dialog']:has-text('Apply')"
-    ),
-    # Resume upload — Internshala's "Use a custom resume" path. Three
-    # variants observed: file input by name, by accept type, or hidden
-    # under a `.custom-resume-label` <label>. Playwright's set_input_files
-    # works against the input even when it's hidden behind a label.
+    # CONFIRMED 2026-05-29 from real listing-page DOM dump:
+    #
+    # Internshala uses an in-place modal flow. Each internship card on the
+    # listing page is a `<div class="individual_internship easy_apply
+    # button_easy_apply_t">` with `internshipid="<id>"` and
+    # `data-source_cta="easy_apply"`. CLICKING THE CARD opens
+    # `#easy_apply_modal`. The form fields then AJAX-load into
+    # `#application-form-container` inside the modal.
+    #
+    # apply_url stored by the extractor points at /internship/detail/<slug>
+    # — but the actual apply CTA on the detail page ALSO opens the same
+    # `#easy_apply_modal` (Internshala uses a global JS handler bound to
+    # any `[data-source_cta="easy_apply"]` element). So `.individual_internship`
+    # is the first fallback for the listing-page flow; the detail-page
+    # equivalent (`#cta_apply_button` / similar) is yet unverified — patch
+    # this list when the detail-page dump arrives.
+    "easy_apply_button": ("#cta_apply_button, .cta_apply_button, .individual_internship.easy_apply, [data-source_cta='easy_apply']"),
+    # CONFIRMED: #easy_apply_modal is the outer modal. It starts hidden
+    # (`style="display: none"`) and becomes visible after the click. We
+    # wait for visibility, not just presence — the modal exists in DOM
+    # even before any apply.
+    "modal": "#easy_apply_modal:visible, #easy_apply_modal.in",
+    # CONFIRMED: form fields land inside #application-form-container after
+    # the AJAX fetch. Wait for it to have children (non-empty).
+    "form_container": "#application-form-container:visible, #application-form-container > *",
+    # Resume upload — Internshala's "Use a custom resume" path. UNVERIFIED
+    # at AJAX time. Fallback chain — Playwright tries each in order.
     "resume_upload": (
         "input[type='file'][name='custom_resume'], "
+        "input[type='file'][name='resume'], "
         "input[type='file'][accept*='pdf'], "
-        ".custom-resume-label + input[type='file'], "
+        ".custom-resume-label input[type='file'], "
         "input[type='file']"
     ),
-    # Cover letter textarea — may not exist on every Internshala flow.
-    # If missing, _fill_form's _assert_present will fail; we'll patch.
+    # Cover letter — UNVERIFIED. Many Internshala flows skip it entirely.
+    # If selector misses, _fill_form's optional path silently skips.
     "cover_letter": "textarea[name='cover_letter'], textarea#cover_letter",
     # Wrapper around custom questions (confirm availability, months of
-    # experience, portfolio link, etc.). All <textarea>s inside this
-    # container get answered from config/profile/internshala_q_a.yaml.
+    # experience, portfolio link). UNVERIFIED — patch from next dump.
     "custom_q_container": (".additional_questions, .questions_container, .form-section, .application-questions"),
-    # Submit button. Confirmed via 2026-05-29 recon: id="submit" on the
-    # actual Submit input. Keep the text-based fallback for redesigns.
+    # CONFIRMED 2026-05-29: `<input id="submit" type="submit" name="submit" value="Submit">`
     "submit_button": ("#submit, input#submit, input[type='submit'][value='Submit'], button:has-text('Submit application')"),
-    # Post-submit confirmation. Placeholder — first real submit will reveal
-    # the actual selector via selector_miss screenshot.
+    # Modal close button (we DON'T click this — it cancels the application
+    # — but capture so dry-run flow can detect the cancel-confirm dialog
+    # `#easy_apply_modal_close_confirm` and avoid accidentally exiting.
+    "_modal_close_button": "#easy_apply_modal_close",
+    "_modal_close_confirm": "#easy_apply_modal_close_confirm:visible",
+    # Post-submit confirmation. UNVERIFIED — placeholder.
     "success_banner": (".success_message, .toast-success, .application_success_message, h1:has-text('successfully applied')"),
-    # Error banner — visible when submit fails (account banned, internship
-    # closed, etc.).
-    "error_banner": ".toast-error, .application_error_message, .error_message",
+    # Error banner — UNVERIFIED.
+    "error_banner": (".toast-error, .application_error_message, .error_message"),
 }
 
 
@@ -191,13 +200,20 @@ async def run_internshala_apply(
         await page.goto(apply_url, wait_until="networkidle", timeout=30_000)
         await _human_pause(500, 1200)
 
-        # Click Easy Apply. On some flows the button is a direct apply (no
-        # modal) — in that case the modal selector miss is the signal and
-        # the submitter bails so the user can patch the flow.
+        # Click the Easy Apply CTA. Internshala has a global JS handler
+        # bound to `[data-source_cta="easy_apply"]` that opens
+        # #easy_apply_modal. The modal exists in DOM even before the click
+        # (display: none); we wait for it to become visible and for the
+        # AJAX-loaded form to populate `#application-form-container`.
         easy = await _assert_present(page, "easy_apply_button")
         await easy.click()
         await _human_pause(400, 900)
         await _assert_present(page, "modal")
+        # Form fields are AJAX-injected AFTER the modal opens. Without
+        # this wait, _fill_form runs against an empty modal body and
+        # every input selector misses.
+        await _assert_present(page, "form_container")
+        await _human_pause(300, 700)
 
         await _fill_form(page, task, pdf_path)
 
