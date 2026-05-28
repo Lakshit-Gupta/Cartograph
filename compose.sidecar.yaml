@@ -1,12 +1,25 @@
 # Marked_Path / Cartograph — spare-machine sidecar compose file.
 #
-# Runs camoufox-worker replicas on a separate Linux x86_64 host that
-# connects to the Pi's Redis + Postgres via an SSH tunnel terminating on
-# the spare's localhost. The sidecar joins the existing g:crawlers
-# consumer group on stream:fetch and load-shares browser fetches with
-# the Pi's 3 native camoufox replicas. Different egress IP from the Pi
-# is the whole point — reduces Cloudflare fingerprint linkage to the
-# burned Pi IP.
+# Runs two camoufox-based services on the spare Pop OS 24.04 desktop
+# (user remote_lakshit_gupta, same WiFi as the Pi, LAN-reachable but
+# the Pi -> spare path is NEVER used — only spare -> Pi via autossh):
+#
+#   1. camoufox-worker-spare       — joins g:crawlers on stream:fetch.
+#                                     Off-load Pi browser crawls.
+#   2. apply-browser-worker        — Phase 4 auto-apply. Consumes
+#                                     stream:apply_browser, decrypts
+#                                     Internshala cookies locally
+#                                     (libsodium master key in env),
+#                                     drives camoufox to click Easy
+#                                     Apply, fills, screenshots, and
+#                                     either submits or stops (dry_run).
+#                                     Publishes results onto
+#                                     stream:apply_browser_result.
+#
+# Both connect to Pi's Redis + Postgres via SSH tunnel terminating on
+# the spare's localhost. Different egress IP from the Pi is the whole
+# point — keeps Cloudflare + Internshala fingerprints off the burned
+# Pi IP.
 #
 # Pre-reqs (see docs/runbooks/sidecar_setup.md for the full procedure):
 #   1. Pi compose redis + postgres publish 127.0.0.1:6379 / 127.0.0.1:5432.
@@ -44,6 +57,39 @@ services:
     mem_limit: 1500m
     memswap_limit: 1500m
     tmpfs:
+      - /tmp:size=512m
+      - /home/camoufox/.cache:size=256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  apply-browser-worker:
+    # Built natively on the spare (x86_64 Pop OS — no QEMU cross-compile).
+    # Extends the camoufox image so Firefox + Xvfb + ghost-cursor are
+    # already present; adds nothing but the new entrypoint module.
+    build:
+      context: .
+      dockerfile: docker/apply_browser.Dockerfile
+    image: marked_path-apply-browser:latest
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env.sidecar
+    environment:
+      WORKER_KIND: apply_browser
+    # Single replica — auto_apply.max_per_day default is 3. Scaling
+    # beyond 1 would risk concurrent Internshala submits against the
+    # same account, which trips their bot-detection cookie rotations.
+    # Hard cap until the per-platform rate-limit story matures.
+    mem_limit: 1500m
+    memswap_limit: 1500m
+    tmpfs:
+      # /tmp/apply is where the worker decodes base64 PDFs from
+      # stream:apply_browser before handing to Playwright's set_input_files.
+      # tmpfs (not bind mount) keeps PDFs off the spare's disk so a
+      # forensic snapshot of the spare can't recover them post-submit.
       - /tmp:size=512m
       - /home/camoufox/.cache:size=256m
     logging:

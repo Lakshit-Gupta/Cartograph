@@ -128,6 +128,16 @@ ignore = [
 "src/cli/main.py" = ["S608", "ASYNC240"]
 # Obsidian writer is sync-once-per-write; pathlib in async is acceptable.
 "src/notifiers/obsidian.py" = ["ASYNC240"]
+# Internshala submitter reads the compiled PDF + Q&A yaml ONCE per apply
+# (not in a hot loop). Switching to anyio.path/aiofiles for the one-shot
+# read at task assembly adds dep churn for no measurable win — same
+# justification as the obsidian writer above.
+"src/application/submitters/internshala.py" = ["ASYNC240"]
+# Sidecar apply-browser worker writes a single tmpfs PDF per task (and
+# deletes it post-submit). The path operations sit outside any hot loop;
+# anyio.path would buy nothing here. Hardcoded /tmp/.../apply is the
+# tmpfs target documented in compose.sidecar.yaml.
+"src/workers/apply_browser_worker.py" = ["ASYNC240", "S108"]
 # Identity warmup spawns pgrep on a system path; acceptable for Pi host.
 "src/fetchers/browser/scaler.py" = ["S607"]
 # Integration tests legitimately use pathlib + blocking subprocess.run for

@@ -19,6 +19,23 @@ CLAUDE.md hard rules preserved:
 6. ``applications`` UPSERT runs under ``current_tenant()``.
 7. ``applications.resume_compile_status`` written on every success.
 8. LLM cost ledger ``kind="llm_writer"`` (V001-compatible).
+
+Phase 4 auto-apply hook:
+
+The pipeline consults :mod:`src.application.policy` AFTER the PDF is
+compiled. If policy approves (and a submitter is registered for the
+opp's apply_method+source), the submitter takes over: it publishes a
+``BrowserApplyTask`` onto ``stream:apply_browser`` (Internshala flow) or
+performs whatever its method needs, then returns ``status='deferred'``.
+The pipeline then SKIPS the existing dispatch_email + publish_notify
+path — the ``apply-result-worker`` will publish the final ``auto_applied``
+or ``auto_apply_failed`` notify after the sidecar reports back.
+
+If policy refuses for ANY reason (disabled, source not whitelisted,
+score below threshold, daily cap hit, no submitter registered for the
+combo), behavior degrades to the existing path verbatim: EMAIL apps
+auto-send via Resend, IN_PLATFORM apps surface as ``manual_apply_ready``.
+The audit row records every decision regardless.
 """
 
 from __future__ import annotations
@@ -27,6 +44,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from src.application import policy, submitters
+from src.common.logger import get_logger
 from src.common.types import ApplyMethod
 
 from .dispatch import dispatch_email, publish_notify
@@ -38,6 +57,8 @@ from .phases import (
     prepare_blocks,
     record_application,
 )
+
+_log = get_logger(__name__)
 
 
 def _build_payload(
@@ -75,8 +96,16 @@ async def _finalize_apply(
     tailored_bullets: list[str],
     method: ApplyMethod,
     target: str | None,
+    publish_notify_now: bool = True,
 ) -> int:
-    """Build payload, upsert applications row, publish notify."""
+    """Build payload, upsert applications row, optionally publish notify.
+
+    ``publish_notify_now=False`` is the Phase 4 auto-apply branch — the
+    ``apply-result-worker`` will publish the final notify after the sidecar
+    reports back, so suppress the immediate ``manual_apply_ready`` /
+    ``applied`` card here. The applications row + state transition still
+    fire so the result worker has a target to UPDATE.
+    """
     payload = _build_payload(
         blocks,
         outcome,
@@ -94,18 +123,159 @@ async def _finalize_apply(
         source_hash=outcome.source_hash,
         compile_status=outcome.compile_status,
     )
-    await publish_notify(
-        application_id=application_id,
-        opp=opp,
-        opp_id=opp_id,
+    if publish_notify_now:
+        await publish_notify(
+            application_id=application_id,
+            opp=opp,
+            opp_id=opp_id,
+            user_id=user_id,
+            method=method,
+            target=target,
+            cover_md=cover_md,
+            tailored_bullets=tailored_bullets,
+            compile_status=outcome.compile_status,
+        )
+    return application_id
+
+
+async def _try_auto_apply(
+    opp: dict[str, Any],
+    opp_id: UUID,
+    user_id: int,
+    method: ApplyMethod,
+    blocks: PreparedBlocks,
+    outcome: CompileOutcome,
+    *,
+    cover_md: str,
+    tailored_bullets: list[str],
+    profile_summary: dict[str, Any],
+) -> tuple[bool, int | None]:
+    """Consult policy + invoke the matching submitter when allowed.
+
+    Returns ``(handled, application_id)``.
+      - ``handled=True`` means a submitter took over. Caller MUST SKIP
+        ``dispatch_email`` + ``publish_notify`` — the submitter's downstream
+        worker (``apply-result-worker``) will publish the final notify
+        once the sidecar reports back. ``application_id`` is the row we
+        already wrote so the result worker can locate it.
+      - ``handled=False`` means policy refused OR the submitter is not
+        registered for this combo OR the submitter itself returned a
+        ``failed`` outcome. Caller falls through to the existing path
+        and writes the audit row regardless.
+
+    Audit row is written here for both branches (single ``record_attempt``
+    call per ``/apply`` invocation).
+    """
+    decision = await policy.should_auto_submit(
+        opportunity_id=opp_id,
         user_id=user_id,
         method=method,
-        target=target,
+    )
+
+    if not decision.submit:
+        # Policy refused. Audit + fall through.
+        await policy.record_attempt(
+            user_id=user_id,
+            opportunity_id=opp_id,
+            application_id=None,
+            decision=decision,
+        )
+        return False, None
+
+    submitter = submitters.resolve(decision.submitter_key)
+    if submitter is None:
+        # Policy approved but no submitter registered (Phase 4.2+ entries).
+        # Override decision to refused_no_submitter for the audit row so the
+        # log accurately reflects the gap.
+        fallback_decision = policy.AutoApplyDecision(
+            submit=False,
+            dry_run=decision.dry_run,
+            decision="refused_no_submitter",
+            reason=f"no submitter registered for key '{decision.submitter_key}'",
+            score=decision.score,
+            method=decision.method,
+            source_slug=decision.source_slug,
+            submitter_key=None,
+            daily_count_before=decision.daily_count_before,
+            daily_cap=decision.daily_cap,
+        )
+        await policy.record_attempt(
+            user_id=user_id,
+            opportunity_id=opp_id,
+            application_id=None,
+            decision=fallback_decision,
+        )
+        return False, None
+
+    # Submitter exists + policy approved. Persist the applications row
+    # FIRST so the result worker has a target to UPDATE when the sidecar
+    # finishes. State transitions to 'applied' here (same as today's
+    # behaviour for user-clicked /apply). apply-result-worker rolls back
+    # to 'queued' + writes response_status='auto_apply_failed' on errors.
+    application_id = await _finalize_apply(
+        opp,
+        opp_id,
+        user_id,
+        blocks,
+        outcome,
         cover_md=cover_md,
         tailored_bullets=tailored_bullets,
-        compile_status=outcome.compile_status,
+        method=method,
+        target=opp.get("apply_url"),
+        publish_notify_now=False,  # apply-result-worker owns the final notify
     )
-    return application_id
+
+    submit_outcome = await submitter.prepare(
+        opp=opp,
+        profile_summary=profile_summary,
+        cover_md=cover_md,
+        tailored_bullets=tailored_bullets,
+        pdf_path=outcome.pdf_path,
+        dry_run=decision.dry_run,
+        user_id=user_id,
+    )
+
+    if submit_outcome.status == "failed":
+        # Submitter refused to publish (e.g. no PDF available). Roll the
+        # audit forward (count NOT bumped — record_attempt skips bumps on
+        # non-'submit' decisions) and let the caller surface the failure
+        # via the manual_apply_ready Discord card.
+        await policy.record_attempt(
+            user_id=user_id,
+            opportunity_id=opp_id,
+            application_id=application_id,
+            decision=policy.AutoApplyDecision(
+                submit=False,
+                dry_run=decision.dry_run,
+                decision="refused_no_submitter",
+                reason=f"submitter '{decision.submitter_key}' returned failed: {submit_outcome.error}",
+                score=decision.score,
+                method=decision.method,
+                source_slug=decision.source_slug,
+                submitter_key=None,
+                daily_count_before=decision.daily_count_before,
+                daily_cap=decision.daily_cap,
+            ),
+        )
+        return False, application_id
+
+    # Happy path: submit / submit_deferred_dryrun.
+    await policy.record_attempt(
+        user_id=user_id,
+        opportunity_id=opp_id,
+        application_id=application_id,
+        decision=decision,
+    )
+    _log.info(
+        "auto_apply_dispatched",
+        decision=decision.decision,
+        submitter=decision.submitter_key,
+        task_id=submit_outcome.task_id,
+        opp_id=str(opp_id),
+        application_id=application_id,
+        dry_run=decision.dry_run,
+    )
+    return True, application_id
 
 
 async def send_with_latex(
@@ -134,6 +304,38 @@ async def send_with_latex(
     outcome = await compile_with_fallback(blocks, opp_id, user_id, source_root=_resume_root())
     cover_md = override_cover_markdown or await write_cover(profile_summary, opp, blocks.variant_label)
     tailored_bullets = collect_surface_bullets(blocks.top_blocks, blocks.sanitized_edits)
+
+    # Resolve method early so policy.should_auto_submit can branch on it.
+    method = ApplyMethod(str(opp.get("apply_method") or ApplyMethod.EXTERNAL.value))
+
+    # Phase 4 auto-apply attempt. When a submitter takes over, dispatch_email
+    # + publish_notify are skipped; apply-result-worker fires the final notify.
+    handled, application_id = await _try_auto_apply(
+        opp,
+        opp_id,
+        user_id,
+        method,
+        blocks,
+        outcome,
+        cover_md=cover_md,
+        tailored_bullets=tailored_bullets,
+        profile_summary=profile_summary,
+    )
+    if handled:
+        return {
+            "application_id": application_id,
+            "method": method.value,
+            "cover_letter_markdown": cover_md,
+            "tailored_bullets": tailored_bullets,
+            "target": opp.get("apply_url"),
+            "resume_compile_status": outcome.compile_status,
+            "resume_artifact_sha256": outcome.artifact_sha256,
+            "auto_apply": True,
+        }
+
+    # Pre-Phase-4 path: dispatch_email + finalize. Unchanged from prior
+    # behaviour. EMAIL apps go through Resend; non-EMAIL apps land on
+    # ``manual_apply_ready`` via publish_notify.
     method, target = await dispatch_email(
         opp,
         cover_md=cover_md,
@@ -161,6 +363,7 @@ async def send_with_latex(
         "target": target,
         "resume_compile_status": outcome.compile_status,
         "resume_artifact_sha256": outcome.artifact_sha256,
+        "auto_apply": False,
     }
 
 

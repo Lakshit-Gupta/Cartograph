@@ -913,6 +913,152 @@ migrations V001–V021 applied; daily digest cron firing.
 
 ---
 
+## Auto-apply subsystem (Phase 4, Internshala first — shipped 2026-05-28)
+
+End-to-end "user clicks /apply → real Easy Apply submission" pipeline
+gated by `src/application/policy.py`. Phase 1 covers Internshala only;
+Naukri / Cuvette / Unstop / Contra / US ATS are sibling submitters
+added in subsequent phases. The ThinkPad-class spare Pop OS 24.04
+desktop (user `remote_lakshit_gupta`, same WiFi, LAN-reachable but the
+Pi never pulls — spare initiates outbound autossh tunnel only) hosts
+the browser-driven submitter so detection surface stays off the Pi IP.
+
+### Topology
+
+```
+Pi (existing services)              Spare Pop OS desktop
+    applier-worker                  apply-browser-worker
+        │                               │ (camoufox + ghost-cursor)
+        │ policy.should_auto_submit     │ consumes stream:apply_browser
+        │ submitters.internshala        │ decrypts cookies locally
+        ▼ publishes BrowserApplyTask    │
+    stream:apply_browser ──── autossh tunnel ──┐
+                                               ▼
+                              submitters.internshala_browser.run
+                                  ┌── dry_run → screenshot, STOP
+                                  └── live    → Submit, banner, screenshot
+                                               │
+    stream:apply_browser_result ◄──────────────┘
+        │
+    apply-result-worker (Pi)
+        │ UPDATE applications.payload
+        │ rollback opp state on failure
+        ▼
+    publish notify auto_applied / auto_apply_dry_run / auto_apply_failed
+        │
+    notifier-discord
+        │ post_auto_apply → embed + screenshot
+        ▼ #✅-applied / #🛠-source-health / #🔔-alerts
+```
+
+### Files
+
+| Role | File |
+|---|---|
+| Migration | `migrations/V022__auto_apply.sql` |
+| Policy gate | `src/application/policy.py` |
+| Submitter registry | `src/application/submitters/__init__.py` |
+| Pi-side Internshala publisher | `src/application/submitters/internshala.py` |
+| Sidecar Internshala driver | `src/application/submitters/internshala_browser.py` |
+| Sidecar worker | `src/workers/apply_browser_worker.py` |
+| Pi-side result drain | `src/workers/apply_result_worker.py` |
+| Discord handler | `src/notifiers/discord/handlers/notify_auto_apply.py` |
+| Pi router refactor | `src/application/sender_latex/pipeline.py` + `src/application/sender_legacy.py` (symmetric) |
+| Sidecar image | `docker/apply_browser.Dockerfile` |
+| Sidecar compose | `compose.sidecar.yaml` (revived + extended from `6516dff`) |
+| Pi compose service | `compose.yaml` `apply-result-worker` |
+| Bootstrap | `scripts/sidecar_bootstrap.sh` |
+| Runbooks | `docs/runbooks/sidecar_setup.md` §9 + `docs/runbooks/internshala_auto_apply_dryrun.md` |
+| Prefs schema | `config/profile/prefs.yaml` `auto_apply:` block |
+
+### Streams + groups
+
+```
+Streams.APPLY_BROWSER          Pi → spare    BrowserApplyTask (base64 PDF + cover + Q&A)
+Streams.APPLY_BROWSER_RESULT   spare → Pi   BrowserApplyResult (ok|failed|dry_run_captured)
+
+Groups.BROWSER_APPLIERS  consumed by sidecar apply-browser-worker
+Groups.APPLY_RESULTS     consumed by Pi apply-result-worker
+```
+
+MAXLEN: 500 / 1000 (byte-aware sizing in `src/common/queue.py`).
+
+### Hard rules — non-negotiable
+
+1. **Policy is consulted before every submitter call.** Pipeline never
+   short-circuits the policy — even on user-initiated `/apply`. Defaults
+   in `prefs.yaml` keep `enabled=false` so existing behaviour is unchanged
+   until the user opts in.
+2. **Per-source kill switch.** `sources.auto_apply_enabled` (V022) gates
+   every auto-submit even when the global flag is on. Default `false`;
+   flip per source after at least one clean dry-run.
+3. **Daily cap counts real submits only.** Dry-runs do NOT bump
+   `auto_apply_daily_count`. Default cap `max_per_day=3`. Bump only after
+   seven clean live submits.
+4. **Master libsodium key on the spare.** Cookies decrypted locally on
+   the sidecar; Pi never reads decrypted Internshala session material.
+   Spare is treated as Pi-equivalent for physical security (LUKS, no
+   untrusted workloads, restricted user `remote_lakshit_gupta`).
+5. **PDF transport = base64 in stream payload.** Cap on
+   `stream:apply_browser` is 500 entries × ~200KB ≈ 100MB ceiling. PDFs
+   decoded to tmpfs on the spare (`/tmp/apply/<task_id>.pdf`), wiped
+   after submit. Never hit persistent disk.
+6. **Sidecar runs single replica.** Internshala rotates the session
+   cookie on concurrent submits from one account, so the compose file
+   pins `apply-browser-worker` to one instance. Scale plan for
+   per-platform parallelism lives behind a different identity per
+   replica — Phase 4.2+.
+7. **Selectors live in one constant block.**
+   `INTERNSHALA_SELECTORS` in `internshala_browser.py` is the single
+   source of truth; `INTERNSHALA_SELECTORS_VERSION` bumps every time
+   anything in the block changes. Selector drift surfaces as
+   `status='failed'` with `error="selector_miss: <key>"` and a
+   screenshot the user can use to recon a new selector. **Do NOT scatter
+   selectors across helpers.**
+8. **Dry-run mode is the contract.** When `auto_apply.dry_run=true`,
+   the sidecar fills the modal then STOPS before clicking Submit and
+   screenshots the page. This is the verification gate; never weaken it
+   into "click submit but capture the response without submitting"
+   logic. Either you submit or you do not.
+9. **Failure rolls opp state back.** `apply-result-worker` rolls
+   `opportunities.state` from `applied` → `queued` on `status='failed'`
+   with an `opportunity_transitions` audit row tagged
+   `trigger='auto_apply_failed'`. User can `/apply` again to fall back
+   to manual.
+10. **PDF/screenshot rules.** PDF NEVER posted to Discord (CLAUDE.md
+    rule #5 stands). Screenshots ARE allowed — they're embedded via
+    `discord.File` for dry-run + failure cards. Screenshots contain
+    nothing the user hasn't already pasted into their resume.
+
+### Operations
+
+| Action | Command |
+|---|---|
+| Enable auto-apply (Internshala dry-run) | Edit `config/profile/prefs.yaml` `auto_apply.enabled: true` + restart applier-worker |
+| Whitelist Internshala source | `UPDATE sources SET auto_apply_enabled=true WHERE slug='in_internshala';` |
+| Watch dry-run captures | `#🛠-source-health` channel — screenshots ride the embed |
+| Inspect every decision | `SELECT * FROM auto_apply_audit ORDER BY id DESC LIMIT 20;` |
+| Tail sidecar | (on spare) `docker compose -f compose.sidecar.yaml logs -f apply-browser-worker` |
+| Tail Pi result drain | `docker compose logs -f apply-result-worker` |
+| Disable auto-apply (emergency) | Edit prefs: `enabled: false` → `docker compose restart applier-worker` |
+
+### Verification
+
+`docs/runbooks/internshala_auto_apply_dryrun.md` is the gated dry-run
+runbook. Do not flip `auto_apply.dry_run=false` until all three
+dry-runs pass AND a 4th over-cap `/apply` logs `decision=refused_cap`.
+
+### Deferred
+
+- Naukri / Cuvette / Unstop / Contra submitters (Phase 4.2+).
+- Greenhouse / Lever / Ashby / Workable ATS_FORM submitters (Phase 4.3+).
+- LLM-tailored per-opp custom Q&A (Phase 1 uses `internshala_q_a.yaml`
+  defaults).
+- Resend MCP for daily auto-apply summary email (loaded, unused —
+  useful once cap rises above 3/day).
+
+---
+
 ## Defer list (Phase 1 — DO NOT BUILD)
 
 - Upwork direct integration (use email digest only).

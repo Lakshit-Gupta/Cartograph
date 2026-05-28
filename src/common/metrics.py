@@ -89,6 +89,26 @@ outcome_events_total = Counter(
     registry=REGISTRY,
 )
 
+# Phase 4 auto-apply policy gate. Labels mirror the auto_apply_audit.decision
+# CHECK constraint so the metric set is grep-equivalent to the audit table:
+#   submit, submit_deferred_dryrun, refused_disabled, refused_method,
+#   refused_source, refused_score, refused_no_score, refused_cap,
+#   refused_no_submitter.
+auto_apply_decisions_total = Counter(
+    "auto_apply_decisions_total",
+    "policy.should_auto_submit() outcomes by decision label.",
+    labelnames=("decision", "method"),
+    registry=REGISTRY,
+)
+# Phase 4 auto-apply browser pipeline (sidecar drains stream:apply_browser_result).
+# `status` matches BrowserApplyResult.status: ok | failed | dry_run_captured.
+auto_apply_browser_results_total = Counter(
+    "auto_apply_browser_results_total",
+    "Browser-driven auto-apply results published by the sidecar.",
+    labelnames=("platform", "status"),
+    registry=REGISTRY,
+)
+
 # CF (7 critical signals)
 cf_clearance_solve_rate = Gauge(
     "cf_clearance_solve_rate",

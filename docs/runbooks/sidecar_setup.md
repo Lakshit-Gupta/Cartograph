@@ -50,7 +50,11 @@ the count cap is hit. Recommended order:
 
 ## 1. Spare-machine pre-requisites (install)
 
-Linux x86_64 (Ubuntu / Debian assumed; Fedora command set noted).
+Linux x86_64. This deployment targets **Pop OS 24.04 desktop**
+(Ubuntu 24.04 base, same WiFi as the Pi, dedicated user
+`remote_lakshit_gupta`). LAN-reachable but the Pi -> spare path is
+never used — only `spare -> Pi` outbound autossh tunnel. Ubuntu / Debian
+commands below apply verbatim; Fedora set noted at the end.
 
 ### 1.1 Sizing
 
@@ -91,8 +95,8 @@ sudo systemctl enable --now chrony
 chronyc tracking   # verify
 
 # Workload user in the docker group (use whatever you named the spare user)
-sudo usermod -aG docker carto-worker
-# log out + back in as carto-worker so the group takes effect
+sudo usermod -aG docker remote_lakshit_gupta
+# log out + back in as remote_lakshit_gupta so the group takes effect
 
 # Docker log rotation (avoids unbounded /var/lib/docker/containers/ growth)
 sudo tee /etc/docker/daemon.json <<'EOF'
@@ -204,7 +208,7 @@ spare must not hold the master decryption key.
 
 ## 3. Spare-machine setup
 
-As the workload user on the spare (`carto-worker` or whatever you named
+As the workload user on the spare (`remote_lakshit_gupta` or whatever you named
 it):
 
 ### 3.1 SSH key
@@ -260,8 +264,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=carto-worker
-Group=carto-worker
+User=remote_lakshit_gupta
+Group=remote_lakshit_gupta
 
 # Disable autossh's monitor port — rely on SSH keepalives instead.
 # They survive WiFi roams and NAT timeouts better than autossh's
@@ -274,9 +278,9 @@ ExecStart=/usr/bin/autossh -N \
   -o ServerAliveInterval=30 \
   -o ServerAliveCountMax=3 \
   -o StrictHostKeyChecking=yes \
-  -o UserKnownHostsFile=/home/carto-worker/.ssh/known_hosts \
+  -o UserKnownHostsFile=/home/remote_lakshit_gupta/.ssh/known_hosts \
   -o IdentitiesOnly=yes \
-  -i /home/carto-worker/.ssh/carto_tunnel_ed25519 \
+  -i /home/remote_lakshit_gupta/.ssh/carto_tunnel_ed25519 \
   -L 127.0.0.1:6379:127.0.0.1:6379 \
   -L 127.0.0.1:5432:127.0.0.1:5432 \
   carto-tunnel@192.168.1.240
@@ -287,7 +291,7 @@ RestartSec=10s
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/carto-worker/.ssh
+ReadWritePaths=/home/remote_lakshit_gupta/.ssh
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -297,7 +301,7 @@ ProtectControlGroups=true
 WantedBy=multi-user.target
 ```
 
-Substitute `carto-worker` and its `$HOME` path if your workload user has
+Substitute `remote_lakshit_gupta` and its `$HOME` path if your workload user has
 a different name.
 
 Activate:
@@ -466,3 +470,99 @@ is invisible to every other service.
   revisit when adding a third host.
 - **3+ replicas** require revisiting `mem_limit`, `pids_limit`, and the
   identity-vault pool size before scaling.
+
+---
+
+## 9. Phase 4 — `apply-browser-worker` (Internshala auto-apply)
+
+The same sidecar host also runs `apply-browser-worker` (defined in
+`compose.sidecar.yaml`). This service is the ThinkPad-side leg of the
+auto-apply pipeline. The Pi's `applier-worker` consults
+`src/application/policy.py:should_auto_submit()` and, for whitelisted
+`(method, source)` pairs, publishes a `BrowserApplyTask` onto
+`stream:apply_browser`. The sidecar consumes it from the SSH-tunneled
+Redis, decrypts the Internshala session cookie locally, drives
+camoufox to fill the Easy Apply modal, and either submits or stops
+(dry-run mode) and screenshots the result.
+
+### 9.1 Additional `.env.sidecar` requirement
+
+The sidecar now decrypts session cookies on its own. Step 2.4 already
+includes `LIBSODIUM_MASTER_KEY_HEX` — confirm it is set in
+`.env.sidecar`. Without it, `apply-browser-worker` boots, emits
+`identity_decrypt_failed`, and crash-loops.
+
+### 9.2 No additional Pi-side changes
+
+`stream:apply_browser` and `stream:apply_browser_result` are declared
+in `src/common/queue.py` (Phase 4). The Pi's existing `applier-worker`
+and the new `apply-result-worker` (added to `compose.yaml`) handle the
+producer + result-drain sides. No new SSH forwards are required — the
+two new streams ride the same `127.0.0.1:6379` tunnel.
+
+### 9.3 First-time recon (one-shot, before code lands)
+
+Before `src/application/submitters/internshala_browser.py` selectors
+are committed, sit on the spare and capture the live Easy Apply DOM
+from one manual application:
+
+```bash
+# As remote_lakshit_gupta, with a real browser (not the sidecar
+# container — devtools needed):
+xdg-open https://internshala.com/internship/detail/<some-internship-id>
+# Click Easy Apply → modal opens.
+# Devtools → Elements → record:
+#   - Easy Apply button selector
+#   - Resume upload input selector (input[type=file])
+#   - Cover letter textarea selector
+#   - Each custom-question textarea selector
+#   - Submit button selector
+#   - Success banner / toast selector
+# Devtools → Network → record the XHR endpoint + status code on submit
+# Paste all selectors into INTERNSHALA_SELECTORS in
+# src/application/submitters/internshala_browser.py.
+```
+
+This is intentionally manual and one-shot. Internshala changes their
+DOM ~once a quarter; selector drift surfaces as `apply_failed` results
+in Discord and is fixed by re-running this recon and patching the
+constant.
+
+### 9.4 Bring up the apply worker
+
+```bash
+cd ~/Marked_Path
+git pull
+docker compose -f compose.sidecar.yaml up -d --build apply-browser-worker
+docker compose -f compose.sidecar.yaml logs -f --tail 100 apply-browser-worker
+```
+
+Expect on first boot:
+- `redis_connected url=127.0.0.1`
+- `consumer_group_ready stream=stream:apply_browser group=g:browser_appliers`
+- Idle `xreadgroup_idle` heartbeat until the Pi publishes a task.
+
+### 9.5 Dry-run verification (after queue end-to-end is live)
+
+Drive through the steps in `docs/runbooks/internshala_auto_apply_dryrun.md`.
+
+### 9.6 Daily ops additions
+
+| Action | Command |
+|---|---|
+| Restart only the apply worker | `docker compose -f compose.sidecar.yaml restart apply-browser-worker` |
+| Tail apply worker | `docker compose -f compose.sidecar.yaml logs -f apply-browser-worker` |
+| See queue depth from spare | `redis-cli -h 127.0.0.1 -a "$REDIS_PASSWORD" --no-auth-warning XLEN stream:apply_browser` |
+
+### 9.7 Threat model addendum
+
+- `LIBSODIUM_MASTER_KEY_HEX` now lives on the spare. The spare must
+  therefore be treated as Pi-equivalent in terms of physical access,
+  full-disk encryption (LUKS recommended on the Pop OS install), and
+  network exposure. Do not run other untrusted workloads on the spare.
+- The base64 PDFs travelling in `stream:apply_browser` are inside the
+  SSH tunnel; once decoded on the spare they land in tmpfs `/tmp/apply/`
+  and are deleted after submit (or sidecar restart wipes tmpfs).
+- Screenshots in `stream:apply_browser_result` may contain the user's
+  name + Internshala UI; treat the Discord channel that surfaces them
+  (`#auto-apply-dryrun` and `#✅-applied`) as private.

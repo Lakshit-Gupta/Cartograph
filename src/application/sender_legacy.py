@@ -7,6 +7,14 @@ succeeds for a clean 7-day window (see CLAUDE.md "Hard rule #10 —
 
 Until then it remains the primary apply path and the LaTeX fallback
 when the LaTeX pipeline raises before reaching its own fallback PDF.
+
+Phase 4 auto-apply parity: same policy + submitter hook as the LaTeX
+path. When the LaTeX flag is off (or the LaTeX path raises pre-fallback)
+the legacy path still gets the auto-apply route — the submitter just
+receives ``pdf_path=None`` in that case, which for Internshala means
+the submitter refuses the task (no resume to upload). Cleaner once the
+JSON branch is removed; for now the symmetry matters so an experimental
+flag flip doesn't silently disable auto-apply.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from src.application import policy, submitters
 from src.common.logger import get_logger
 from src.common.metrics import applications_sent_total
 from src.common.queue import RedisQ, Streams
@@ -122,6 +131,125 @@ async def _publish_notify_legacy(
     )
 
 
+async def _try_auto_apply_legacy(
+    opp: dict[str, Any],
+    opp_id: UUID,
+    user_id: int,
+    method: ApplyMethod,
+    *,
+    cover_md: str,
+    bullets: list[str],
+    profile_summary: dict[str, Any],
+    variant_label: str,
+    template_name: str,
+) -> tuple[bool, int | None]:
+    """Phase 4 auto-apply hook for the legacy JSON path.
+
+    Mirrors :func:`src.application.sender_latex.pipeline._try_auto_apply` but
+    runs WITHOUT a compiled tailored PDF. The submitter receives
+    ``pdf_path=None``; for the Internshala flow that returns ``failed`` and
+    we fall through to the existing manual_apply_ready path. Audit row
+    written in every branch so the decision log stays grep-equivalent
+    regardless of which path executed.
+    """
+    from .sender import _transition_to_applied, _upsert_application
+
+    decision = await policy.should_auto_submit(
+        opportunity_id=opp_id,
+        user_id=user_id,
+        method=method,
+    )
+
+    if not decision.submit:
+        await policy.record_attempt(
+            user_id=user_id,
+            opportunity_id=opp_id,
+            application_id=None,
+            decision=decision,
+        )
+        return False, None
+
+    submitter = submitters.resolve(decision.submitter_key)
+    if submitter is None:
+        await policy.record_attempt(
+            user_id=user_id,
+            opportunity_id=opp_id,
+            application_id=None,
+            decision=policy.AutoApplyDecision(
+                submit=False,
+                dry_run=decision.dry_run,
+                decision="refused_no_submitter",
+                reason=f"no submitter registered for key '{decision.submitter_key}'",
+                score=decision.score,
+                method=decision.method,
+                source_slug=decision.source_slug,
+                submitter_key=None,
+                daily_count_before=decision.daily_count_before,
+                daily_cap=decision.daily_cap,
+            ),
+        )
+        return False, None
+
+    payload = {
+        "variant": variant_label,
+        "template": template_name,
+        "cover_letter_markdown": cover_md,
+        "tailored_bullets": bullets,
+        "target": opp.get("apply_url"),
+        "review_url": opp.get("apply_url"),
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    application_id = await _upsert_application(opp_id, method, payload)
+    await _transition_to_applied(opp_id, application_id, method)
+    applications_sent_total.labels(method=method.value).inc()
+
+    submit_outcome = await submitter.prepare(
+        opp={**opp, "id": opp_id},
+        profile_summary=profile_summary,
+        cover_md=cover_md,
+        tailored_bullets=bullets,
+        pdf_path=None,  # legacy path has no compiled PDF; submitter decides.
+        dry_run=decision.dry_run,
+        user_id=user_id,
+    )
+    if submit_outcome.status == "failed":
+        await policy.record_attempt(
+            user_id=user_id,
+            opportunity_id=opp_id,
+            application_id=application_id,
+            decision=policy.AutoApplyDecision(
+                submit=False,
+                dry_run=decision.dry_run,
+                decision="refused_no_submitter",
+                reason=f"submitter '{decision.submitter_key}' returned failed: {submit_outcome.error}",
+                score=decision.score,
+                method=decision.method,
+                source_slug=decision.source_slug,
+                submitter_key=None,
+                daily_count_before=decision.daily_count_before,
+                daily_cap=decision.daily_cap,
+            ),
+        )
+        return False, application_id
+
+    await policy.record_attempt(
+        user_id=user_id,
+        opportunity_id=opp_id,
+        application_id=application_id,
+        decision=decision,
+    )
+    _log.info(
+        "auto_apply_dispatched_legacy",
+        decision=decision.decision,
+        submitter=decision.submitter_key,
+        task_id=submit_outcome.task_id,
+        opp_id=str(opp_id),
+        application_id=application_id,
+        dry_run=decision.dry_run,
+    )
+    return True, application_id
+
+
 async def send_with_json_template(
     opp_id: UUID,
     opp: dict[str, Any],
@@ -130,6 +258,7 @@ async def send_with_json_template(
     prefs: dict[str, Any],
     *,
     override_cover_markdown: str | None = None,
+    user_id: int = 1,
 ) -> dict[str, Any]:
     """Pre-LaTeX apply flow. JSON resume template + tailored bullets."""
     from .sender import _transition_to_applied, _upsert_application
@@ -139,6 +268,32 @@ async def send_with_json_template(
 
     bullets = await tailor_bullets(profile_dict, opp, variant_label)
     cover_md = override_cover_markdown or await write_cover(profile_summary, opp, variant_label)
+
+    method_initial = ApplyMethod(str(opp.get("apply_method") or ApplyMethod.EXTERNAL.value))
+
+    # Phase 4 auto-apply attempt. On takeover, skip the existing Resend
+    # send + manual_apply_ready notify — apply-result-worker fires the
+    # final notify after the sidecar reports back.
+    handled, application_id = await _try_auto_apply_legacy(
+        opp,
+        opp_id,
+        user_id,
+        method_initial,
+        cover_md=cover_md,
+        bullets=bullets,
+        profile_summary=profile_summary,
+        variant_label=variant_label,
+        template_name=template_name,
+    )
+    if handled:
+        return {
+            "application_id": application_id,
+            "method": method_initial.value,
+            "cover_letter_markdown": cover_md,
+            "tailored_bullets": bullets,
+            "target": opp.get("apply_url"),
+            "auto_apply": True,
+        }
 
     method, target = await _send_email_for_legacy(
         opp,
@@ -178,6 +333,7 @@ async def send_with_json_template(
         "cover_letter_markdown": cover_md,
         "tailored_bullets": bullets,
         "target": target,
+        "auto_apply": False,
     }
 
 

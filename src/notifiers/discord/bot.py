@@ -30,6 +30,7 @@ from src.notifiers.discord.commands import register_all as register_all_commands
 from src.notifiers.discord.handlers.buttons import FollowupActionView, OppActionView, OppReviewView
 from src.notifiers.discord.handlers.notify_alert import post_alert
 from src.notifiers.discord.handlers.notify_applied import post_applied
+from src.notifiers.discord.handlers.notify_auto_apply import post_auto_apply
 from src.notifiers.discord.handlers.notify_digest import post_digest
 from src.notifiers.discord.handlers.notify_explain import post_explain_dm
 from src.notifiers.discord.handlers.notify_followup import post_followup_ready
@@ -74,6 +75,11 @@ _DISPATCH_TABLE: dict[str, _NotifyHandler] = {
     "manual_apply_ready": post_manual_apply,
     "followup_ready": post_followup_ready,
     "digest_schedule": _ack_digest_schedule,
+    # Phase 4 auto-apply — sidecar dispatch results. One handler routes by
+    # `payload.kind` to the right channel + colour + footer.
+    "auto_applied": post_auto_apply,
+    "auto_apply_dry_run": post_auto_apply,
+    "auto_apply_failed": post_auto_apply,
 }
 
 

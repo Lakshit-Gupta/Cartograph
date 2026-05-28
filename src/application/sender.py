@@ -206,6 +206,7 @@ async def _dispatch_send_path(
         profile_summary,
         prefs,
         override_cover_markdown=override_cover_markdown,
+        user_id=current_tenant(),
     )
 
 

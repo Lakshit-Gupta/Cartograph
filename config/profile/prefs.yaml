@@ -36,6 +36,31 @@ apply:
   require_user_confirm_above_score: 0.90   # below this, ask before applying
   resume_variant_default: "backend"
 
+# Phase 4 auto-apply — policy gate consulted by src/application/policy.py
+# before any submitter (Internshala browser, Greenhouse API, Resend email)
+# fires. Default DISABLED; flip `enabled: true` only after the relevant
+# sources are individually whitelisted via
+#   `UPDATE sources SET auto_apply_enabled=true WHERE slug=...`
+# and the chosen method is added to the `methods` whitelist below.
+# Hard caps are mirrored in src/application/policy.py defaults so a
+# missing block here degrades to disabled, not unbounded.
+auto_apply:
+  enabled: false                 # master kill switch
+  dry_run: true                  # pipeline + sidecar run; sidecar STOPS before final Submit click
+  min_score: 0.80                # opportunity_scores.score gate
+  max_per_day: 3                 # hard ceiling per UTC date — verification window default
+  methods:                       # whitelist; nothing fires unless method key listed
+    - in_platform_internshala    # Phase 4.1 — ThinkPad sidecar
+    # Phase 4.2+ entries land here:
+    # - in_platform_naukri
+    # - in_platform_cuvette
+    # - in_platform_unstop
+    # - in_platform_contra
+    # - ats_form_greenhouse
+    # - ats_form_lever
+    # - ats_form_ashby
+    # - ats_form_workable
+
 ranker:
   weights:
     kw_match: 0.25

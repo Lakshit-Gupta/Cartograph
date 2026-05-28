@@ -88,13 +88,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Loopback-only host port for SSH-tunneled remote workers. The spare
-    # machine in compose.sidecar.yaml reaches this through an `ssh -L
-    # 127.0.0.1:5432:127.0.0.1:5432 carto-tunnel@<pi>` forward — see
-    # docs/runbooks/sidecar_setup.md. NEVER widen to 0.0.0.0 / LAN IP:
-    # the only path in must remain SSH-authenticated port forwarding from
-    # the restricted carto-tunnel user. The CLAUDE.md "Docker network
-    # only" baseline holds for every other interface.
+    # Loopback-only host port for SSH-tunneled remote workers (sidecar on
+    # the spare Pop OS desktop). The spare reaches this through an
+    # `ssh -L 127.0.0.1:5432:127.0.0.1:5432 carto-tunnel@<pi>` forward —
+    # see docs/runbooks/sidecar_setup.md. NEVER widen to 0.0.0.0 / LAN IP:
+    # the only network path in must remain SSH-authenticated port
+    # forwarding from the restricted carto-tunnel user. The CLAUDE.md
+    # "Docker network only" baseline holds for every other interface.
     ports:
       - "127.0.0.1:5432:5432"
 
@@ -110,7 +110,9 @@ services:
       - --appendfsync
       - everysec
       - --maxmemory
-      - 200mb
+      # Pi runs 1gb after 2026-05-20 incident; dev sync. Per-stream byte caps
+      # in src/common/queue.py keep steady-state at ~340MB worst case.
+      - 1gb
       - --maxmemory-policy
       - noeviction
       - --rename-command
@@ -239,6 +241,29 @@ services:
       - /tmp:size=128m
     cap_drop: ["ALL"]
     mem_limit: 512m
+    pids_limit: 64
+    user: "1000"
+    networks:
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Phase 4 auto-apply result drain — consumes stream:apply_browser_result
+  # from the spare-machine sidecar (apply-browser-worker), UPDATEs the
+  # applications row, rolls opp state back on failure, and publishes the
+  # auto_applied / auto_apply_dry_run / auto_apply_failed notify kind for
+  # the Discord bot to surface. Lightweight — single replica, base image.
+  apply-result-worker:
+    <<: [*jobs-bot-image, *restart-policy]
+    command: ["python", "-m", "src.workers.apply_result_worker"]
+    environment: *env-common
+    volumes:
+      - /var/lib/agent/logs:/app/logs
+    cap_drop: ["ALL"]
+    mem_limit: 256m
     pids_limit: 64
     user: "1000"
     networks:

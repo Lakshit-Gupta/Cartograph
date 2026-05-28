@@ -28,6 +28,11 @@ class Streams:
     EMAIL_INBOUND = "stream:email_in"  # Gmail watcher → state writer
     ALERTS = "stream:alerts"  # system alerts
     DLQ = "stream:dlq"  # dead-letter for any handler
+    # Phase 4 auto-apply — Pi publishes BrowserApplyTask onto APPLY_BROWSER for
+    # the spare sidecar (ThinkPad) to consume. Sidecar publishes SubmitResult
+    # onto APPLY_BROWSER_RESULT, drained by apply-result-worker on the Pi.
+    APPLY_BROWSER = "stream:apply_browser"
+    APPLY_BROWSER_RESULT = "stream:apply_browser_result"
 
 
 # Consumer groups
@@ -38,6 +43,9 @@ class Groups:
     NOTIFIERS = "g:notifiers"
     APPLIERS = "g:appliers"
     EMAIL = "g:email"
+    # Phase 4 auto-apply consumer groups.
+    BROWSER_APPLIERS = "g:browser_appliers"  # ThinkPad sidecar consumes APPLY_BROWSER
+    APPLY_RESULTS = "g:apply_results"  # Pi worker consumes APPLY_BROWSER_RESULT
 
 
 @dataclass
@@ -176,6 +184,13 @@ class RedisQ:
         "stream:email_in": 2_000,
         "stream:alerts": 1_000,
         "stream:dlq": 2_000,
+        # Phase 4 auto-apply. apply_browser carries the base64-encoded tailored
+        # PDF (~200KB encoded) + cover letter + Q&A map; cap 500 keeps the
+        # stream under ~100MB even if the sidecar drains slowly.
+        # apply_browser_result carries a SubmitResult with optional screenshot
+        # (~200KB for dry-run captures); cap 1k keeps it under ~200MB.
+        "stream:apply_browser": 500,
+        "stream:apply_browser_result": 1_000,
     }
     _DEFAULT_MAXLEN = 2_000
 

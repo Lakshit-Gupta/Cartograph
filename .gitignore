@@ -38,10 +38,13 @@ htmlcov/
 .env
 .env.local
 .env.production
-.env.sidecar
 secrets.yaml.dec
 secrets.dec.yaml
 *.dec
+# Sidecar env file — pasted-decrypted secrets pulled from Pi's SOPS;
+# template `.env.sidecar.example` IS committed; the live `.env.sidecar`
+# never is. See docs/runbooks/sidecar_setup.md.
+.env.sidecar
 
 # Logs
 *.log
