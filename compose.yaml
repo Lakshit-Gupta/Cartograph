@@ -178,6 +178,12 @@ services:
     environment: *env-common
     volumes:
       - /var/lib/agent/logs:/app/logs
+      # Phase 4 v2 — host config/ bind so edits to prefs.yaml and
+      # internshala_filters.yaml propagate without rebuilding the image.
+      # Read-only so a runaway worker can't trample config. The COPY in
+      # jobs-bot.Dockerfile is still there for self-contained image builds
+      # / image registry pulls; the bind mount shadows it at runtime.
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -194,6 +200,7 @@ services:
       replicas: 3
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -206,6 +213,8 @@ services:
     <<: [*jobs-bot-image, *restart-policy]
     command: ["python", "-m", "src.workers.extractor_worker"]
     environment: *env-common
+    volumes:
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -229,6 +238,7 @@ services:
       MP_RESUME_LATEX_ENABLED: ${mp_resume_latex_enabled:-false}
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - ./config:/app/config:ro
       # Named volume (not host bind) so docker initialises perms from the
       # image's /var/lib/agent/resume_artifacts directory which we create
       # with chown 1000:1000 in docker/applier.Dockerfile. A host bind
@@ -262,6 +272,7 @@ services:
     environment: *env-common
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - ./config:/app/config:ro
     cap_drop: ["ALL"]
     mem_limit: 256m
     pids_limit: 64
@@ -280,6 +291,7 @@ services:
     environment: *env-common
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -292,6 +304,7 @@ services:
     environment: *env-common
     volumes:
       - models_cache:/app/.cache/models
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -319,6 +332,7 @@ services:
       DISCORD_CHANNEL_BOT_LOGS:      ${discord_channel_bot_logs}
     volumes:
       - ${obsidian_vault_path:-/mnt/storage/obsidian_vault}:/vault
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -331,6 +345,8 @@ services:
     <<: [*jobs-bot-image, *restart-policy]
     command: ["python", "-m", "src.workers.gmail_worker"]
     environment: *env-common
+    volumes:
+      - ./config:/app/config:ro
     networks:
       - internal
     depends_on:
@@ -356,6 +372,7 @@ services:
     volumes:
       - /var/lib/agent/logs:/app/logs
       - ./var/telegram:/var/lib/agent/telegram:rw
+      - ./config:/app/config:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m
@@ -384,6 +401,7 @@ services:
     environment: *env-common
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - ./config:/app/config:ro
     read_only: true
     tmpfs:
       - /tmp:size=64m
@@ -418,6 +436,7 @@ services:
       HUNTER_API_KEY: ${hunter_api_key:-}
     volumes:
       - /var/lib/agent/logs:/app/logs
+      - ./config:/app/config:ro
     cap_drop: ["ALL"]
     mem_limit: 256m
     pids_limit: 64
@@ -444,6 +463,7 @@ services:
       # If `./dashboard/index.html` is absent the api-service still boots —
       # see src/api/dashboard.py::mount_dashboard for the guard.
       - ./dashboard:/app/dashboard:ro
+      - ./config:/app/config:ro
     networks:
       - internal
       - public
