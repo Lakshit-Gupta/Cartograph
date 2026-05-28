@@ -44,64 +44,77 @@ from src.common.logger import get_logger
 
 _log = get_logger(__name__)
 
-INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v2-listing-dom"
+INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v3-form-dom"
 
 # Selector map — keys are stable internal names referenced by run_internshala_apply.
 # Values are the live CSS/XPath selectors. Recon the actual DOM on the spare
 # and patch these. Do NOT inline selectors in the run_*_apply body — the
 # whole point of the map is that drift is a one-line fix.
 INTERNSHALA_SELECTORS: dict[str, str] = {
-    # CONFIRMED 2026-05-29 from real listing-page DOM dump:
+    # CONFIRMED 2026-05-29 from raju's real listing + form DOM dumps.
     #
     # Internshala uses an in-place modal flow. Each internship card on the
-    # listing page is a `<div class="individual_internship easy_apply
-    # button_easy_apply_t">` with `internshipid="<id>"` and
-    # `data-source_cta="easy_apply"`. CLICKING THE CARD opens
-    # `#easy_apply_modal`. The form fields then AJAX-load into
-    # `#application-form-container` inside the modal.
+    # listing page is `<div class="individual_internship easy_apply">` with
+    # `data-source_cta="easy_apply"`. Clicking it opens `#easy_apply_modal`
+    # via a global JS handler. The form HTML AJAX-loads into
+    # `#application-form-container` shortly after. The form is a `<form
+    # id="application-form">` with hidden CSRF + internshipId inputs
+    # populated server-side.
     #
-    # apply_url stored by the extractor points at /internship/detail/<slug>
-    # — but the actual apply CTA on the detail page ALSO opens the same
-    # `#easy_apply_modal` (Internshala uses a global JS handler bound to
-    # any `[data-source_cta="easy_apply"]` element). So `.individual_internship`
-    # is the first fallback for the listing-page flow; the detail-page
-    # equivalent (`#cta_apply_button` / similar) is yet unverified — patch
-    # this list when the detail-page dump arrives.
+    # Form structure (confirmed):
+    #   #application-form-container > #form-container > #application-form
+    #     ├─ #assessment_questions_container
+    #     │   ├─ hidden inputs (csrf, internshipId, etc.)
+    #     │   ├─ #confirm_availability_container
+    #     │   │   └─ input[name="confirm_availability"][value="yes"]#radio1  ← pre-checked
+    #     │   │   └─ input[name="confirm_availability"][value="no"]#radio4
+    #     │   ├─ .questions-container  (custom questions, may be empty)
+    #     │   ├─ .custom-resume-container
+    #     │   │   ├─ input[type=file]#custom_resume[name=custom_resume]  ← display:none, set_input_files works
+    #     │   │   └─ input[type=hidden]#prefilled_custom_resume  ← server-side default
+    #     │   └─ (optional) textarea[name=cover_letter] when is_cover_letter_visible
+    #     └─ #submit  (input[type=submit])
     "easy_apply_button": ("#cta_apply_button, .cta_apply_button, .individual_internship.easy_apply, [data-source_cta='easy_apply']"),
-    # CONFIRMED: #easy_apply_modal is the outer modal. It starts hidden
-    # (`style="display: none"`) and becomes visible after the click. We
-    # wait for visibility, not just presence — the modal exists in DOM
-    # even before any apply.
-    "modal": "#easy_apply_modal:visible, #easy_apply_modal.in",
+    # Outer modal — opens via global JS handler. Starts display:none.
+    "modal": "#easy_apply_modal",
     # CONFIRMED: form fields land inside #application-form-container after
-    # the AJAX fetch. Wait for it to have children (non-empty).
-    "form_container": "#application-form-container:visible, #application-form-container > *",
-    # Resume upload — Internshala's "Use a custom resume" path. UNVERIFIED
-    # at AJAX time. Fallback chain — Playwright tries each in order.
-    "resume_upload": (
-        "input[type='file'][name='custom_resume'], "
-        "input[type='file'][name='resume'], "
-        "input[type='file'][accept*='pdf'], "
-        ".custom-resume-label input[type='file'], "
-        "input[type='file']"
-    ),
-    # Cover letter — UNVERIFIED. Many Internshala flows skip it entirely.
-    # If selector misses, _fill_form's optional path silently skips.
-    "cover_letter": "textarea[name='cover_letter'], textarea#cover_letter",
-    # Wrapper around custom questions (confirm availability, months of
-    # experience, portfolio link). UNVERIFIED — patch from next dump.
-    "custom_q_container": (".additional_questions, .questions_container, .form-section, .application-questions"),
-    # CONFIRMED 2026-05-29: `<input id="submit" type="submit" name="submit" value="Submit">`
-    "submit_button": ("#submit, input#submit, input[type='submit'][value='Submit'], button:has-text('Submit application')"),
-    # Modal close button (we DON'T click this — it cancels the application
-    # — but capture so dry-run flow can detect the cancel-confirm dialog
-    # `#easy_apply_modal_close_confirm` and avoid accidentally exiting.
+    # the AJAX fetch. The form itself is #application-form.
+    "form_container": "#application-form-container",
+    "form": "#application-form",
+    # CONFIRMED: input[type=file]#custom_resume name="custom_resume",
+    # style="display:none". Playwright's set_input_files() works on hidden
+    # inputs — we don't need to click the label to expose the file picker.
+    "resume_upload": "input#custom_resume[type='file'][name='custom_resume']",
+    # CONFIRMED: confirm_availability radio defaults to "yes" (#radio1
+    # checked="" in DOM). We re-affirm by explicit click to defend against
+    # JS re-renders that drop the default. The "no" radio triggers a textarea
+    # we don't want to fill.
+    "availability_yes_radio": "input[name='confirm_availability'][value='yes']#radio1",
+    # Cover letter — present only when JS var is_cover_letter_visible is
+    # truthy. Our flow detects via the textarea selector + skips when
+    # absent.
+    "cover_letter": "textarea[name='cover_letter']",
+    # Custom questions live inside .questions-container. Empty container
+    # means this opp has no custom Qs. When present, each question is
+    # typically a textarea / select / radio set keyed by question id.
+    "custom_q_container": ".questions-container",
+    # CONFIRMED 2026-05-29:
+    # `<input type="submit" name="submit" id="submit" class="btn btn-large" value="Submit">`
+    "submit_button": "input#submit[type='submit'][name='submit']",
+    # Modal close button — we never click it; capture so dry-run flow can
+    # detect the cancel-confirm dialog (#easy_apply_modal_close_confirm)
+    # if a UI race causes Internshala to ask "Are you sure?".
     "_modal_close_button": "#easy_apply_modal_close",
-    "_modal_close_confirm": "#easy_apply_modal_close_confirm:visible",
-    # Post-submit confirmation. UNVERIFIED — placeholder.
-    "success_banner": (".success_message, .toast-success, .application_success_message, h1:has-text('successfully applied')"),
-    # Error banner — UNVERIFIED.
-    "error_banner": (".toast-error, .application_error_message, .error_message"),
+    "_modal_close_confirm": "#easy_apply_modal_close_confirm",
+    # Post-submit confirmation. UNVERIFIED — Internshala likely shows a
+    # toast or transitions modal content. Patch on first real submit miss.
+    "success_banner": (
+        ".success_message, .toast-success, "
+        ".application_success_message, "
+        "h1:has-text('successfully applied'), "
+        "h2:has-text('Application sent')"
+    ),
+    "error_banner": (".toast-error, .application_error_message, .form-error:visible, .help-block.form-error:visible"),
 }
 
 
@@ -138,30 +151,31 @@ async def _screenshot_b64(page: Any) -> str:
 
 
 async def _fill_form(page: Any, task: dict[str, Any], pdf_path: Path) -> None:
-    """Upload PDF, fill cover letter (if present), answer custom questions."""
-    upload_input = await _assert_present(page, "resume_upload")
-    await upload_input.set_input_files(str(pdf_path))
-    await _human_pause(400, 900)
+    """Fill the AJAX-loaded Internshala application form.
 
-    # Cover letter is OPTIONAL — many Internshala flows skip it entirely
-    # and surface only custom questions instead. Try to find it; if absent
-    # we move on without complaining (vs. _assert_present which would fail
-    # the whole submission).
-    cover_md = str(task.get("cover_letter_md") or "")
-    if cover_md:
-        try:
-            cover = await page.wait_for_selector(INTERNSHALA_SELECTORS["cover_letter"], timeout=2_000)
-        except Exception:
-            cover = None
-        if cover is not None:
-            # Internshala's textarea accepts plain text; strip markdown emphasis.
-            cover_plain = cover_md.replace("**", "").replace("__", "").replace("*", "").replace("_", "")
-            await cover.fill(cover_plain)
-            await _human_pause(300, 700)
+    Real-DOM order (2026-05-29 recon):
+      1. Confirm availability — `#radio1` (value="yes") is pre-checked
+         by Internshala, but JS re-renders sometimes drop the default.
+         Explicit click defends.
+      2. Custom questions — `.questions-container` may be empty (this
+         opp had zero). When non-empty, each <textarea> answered from
+         `qa_defaults` in DOM order.
+      3. Cover letter — present only when JS `is_cover_letter_visible`
+         is truthy. Optional path; silently skipped if absent.
+      4. Custom resume — `input#custom_resume[type=file]`. Required even
+         though Internshala has a prefilled fallback — we want OUR
+         tailored PDF, not the generic one.
+    """
+    # 1. Availability — pre-checked, re-affirm.
+    try:
+        avail = await page.wait_for_selector(INTERNSHALA_SELECTORS["availability_yes_radio"], timeout=3_000)
+        if avail is not None:
+            await avail.check()
+            await _human_pause(200, 500)
+    except Exception as e:
+        _log.warning("internshala_availability_select_failed", err=str(e))
 
-    # Custom Q&A — best effort. Skip silently when no container is rendered
-    # (some Internshala opps have zero custom questions, and the container
-    # selector misses without raising).
+    # 2. Custom questions — best effort. Container often empty for short opps.
     qa_defaults = task.get("qa_defaults") or {}
     if qa_defaults:
         try:
@@ -169,10 +183,6 @@ async def _fill_form(page: Any, task: dict[str, Any], pdf_path: Path) -> None:
         except Exception:
             container = None
         if container is not None:
-            # Inside the container, every <textarea> is a custom question.
-            # Walk them in DOM order and pair with qa_defaults keys
-            # alphabetically. NOT robust — recon should replace this with a
-            # label-text-hash match. Phase 1 keeps it simple.
             textareas = await container.query_selector_all("textarea")
             keys = sorted(qa_defaults.keys())
             for textarea, key in zip(textareas, keys, strict=False):
@@ -181,6 +191,24 @@ async def _fill_form(page: Any, task: dict[str, Any], pdf_path: Path) -> None:
                     await _human_pause(150, 400)
                 except Exception as e:
                     _log.warning("internshala_custom_q_fill_failed", err=str(e), key=key)
+
+    # 3. Cover letter — optional. _assert_present would raise; use a short
+    # wait_for_selector with try/except so absent textarea is fine.
+    cover_md = str(task.get("cover_letter_md") or "")
+    if cover_md:
+        try:
+            cover = await page.wait_for_selector(INTERNSHALA_SELECTORS["cover_letter"], timeout=1_500)
+        except Exception:
+            cover = None
+        if cover is not None:
+            cover_plain = cover_md.replace("**", "").replace("__", "").replace("*", "").replace("_", "")
+            await cover.fill(cover_plain)
+            await _human_pause(300, 700)
+
+    # 4. Upload custom resume — hidden file input, Playwright handles it.
+    upload_input = await _assert_present(page, "resume_upload")
+    await upload_input.set_input_files(str(pdf_path))
+    await _human_pause(400, 900)
 
 
 async def run_internshala_apply(
