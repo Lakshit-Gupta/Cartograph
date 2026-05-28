@@ -4,14 +4,21 @@
 #
 # Why this exists: building the full image set ON the Pi takes >1h (uv sync
 # alone is ~25 min on ARM CPU). Building under QEMU emulation on the dev box
-# finishes in ~20 min and pushes ~10 GB of compressed images over LAN/Tailscale.
+# finishes in ~20 min and pushes ~10 GB of compressed images over LAN.
+#
+# Defaults target the live Pi 5: `dietpi@192.168.1.240`, repo at
+# `/home/dietpi/coding/Cartograph`. Override the env vars below to target
+# any other host.
 #
 # Usage:
-#   PI_HOST=user@pi-tailscale-name.tail-xxxx.ts.net \
-#   scripts/ship_to_pi.sh
+#   scripts/ship_to_pi.sh                              # use defaults
+#   PI_HOST=user@other.host \
+#     PI_REMOTE_DIR=/home/user/repo \
+#     scripts/ship_to_pi.sh                            # override per-run
 #
 # Optional env overrides:
-#   PI_REMOTE_DIR=/home/user/marked_path     # repo path on Pi, default below
+#   PI_HOST=dietpi@192.168.1.240             # SSH target, default below
+#   PI_REMOTE_DIR=/home/dietpi/coding/Cartograph  # repo path on Pi, default below
 #   BUILD_TAG=arm64                          # tag suffix, default below
 #   PARALLEL_LOAD=0                          # set to 1 to pipeline xz|load
 #   SKIP_BROWSER=1                           # skip camoufox image (it's heavy
@@ -22,13 +29,13 @@
 # Hard rules:
 #   * Never bake secrets into images. Pi's secrets.yaml stays on disk.
 #   * Never publish ports on the Pi side beyond what compose.yaml already does
-#     (Tailscale-only; no host bindings).
+#     (loopback-only for the carto-tunnel sidecar; no LAN bindings).
 #   * On failure, no partial state on the Pi: we `docker load` only after the
 #     full transfer succeeds, and we `compose up` only after all loads pass.
 set -euo pipefail
 
-PI_HOST="${PI_HOST:-}"
-PI_REMOTE_DIR="${PI_REMOTE_DIR:-/home/lakshit_gupta/coding/Marked_Path}"
+PI_HOST="${PI_HOST:-dietpi@192.168.1.240}"
+PI_REMOTE_DIR="${PI_REMOTE_DIR:-/home/dietpi/coding/Cartograph}"
 BUILD_TAG="${BUILD_TAG:-arm64}"
 PARALLEL_LOAD="${PARALLEL_LOAD:-0}"
 SKIP_BROWSER="${SKIP_BROWSER:-0}"
@@ -39,7 +46,7 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 if [[ -z "$PI_HOST" && "$SKIP_PUSH" != "1" ]]; then
-  echo "PI_HOST must be set (e.g. PI_HOST=lakshit@pi.tail-xxxx.ts.net) or SKIP_PUSH=1 for dry run." >&2
+  echo "PI_HOST must be set (e.g. PI_HOST=dietpi@192.168.1.240) or SKIP_PUSH=1 for dry run." >&2
   exit 2
 fi
 

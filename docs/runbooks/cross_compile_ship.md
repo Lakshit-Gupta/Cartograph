@@ -54,9 +54,9 @@ upstream. No cross-compile required.
 # without touching the Pi. Tarballs land in dist/.
 SKIP_PUSH=1 SKIP_BROWSER=1 scripts/ship_to_pi.sh
 
-# Full pipeline. Replace the host with your Pi's Tailscale name.
-PI_HOST=lakshit@pi-hop.tail-xxxxx.ts.net \
-PI_REMOTE_DIR=/home/lakshit/coding/Marked_Path \
+# Full pipeline. Defaults target the live Pi 5 — dietpi@192.168.1.240,
+# repo at /home/dietpi/coding/Cartograph. Override env vars below for
+# any other target.
 scripts/ship_to_pi.sh
 ```
 
@@ -64,8 +64,8 @@ scripts/ship_to_pi.sh
 
 | Env var | Default | Effect |
 | --- | --- | --- |
-| `PI_HOST` | unset | Required for non-dry-run. SSH target. |
-| `PI_REMOTE_DIR` | `/home/lakshit_gupta/coding/Marked_Path` | Pi-side repo root. |
+| `PI_HOST` | `dietpi@192.168.1.240` | SSH target. Override for a different host. |
+| `PI_REMOTE_DIR` | `/home/dietpi/coding/Cartograph` | Pi-side repo root. |
 | `BUILD_TAG` | `arm64` | Tag suffix on local images so the cross-built artefacts don't clobber the native amd64 `:latest`. |
 | `SKIP_BROWSER` | `0` | Set to `1` to skip the heavy camoufox image. |
 | `SKIP_BUILD` | `0` | Reuse images already in the local daemon under `:${BUILD_TAG}`. |
