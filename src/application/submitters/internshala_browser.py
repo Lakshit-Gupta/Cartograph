@@ -44,7 +44,7 @@ from src.common.logger import get_logger
 
 _log = get_logger(__name__)
 
-INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v4-detail-page+closed"
+INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v5-text-closed-detect"
 
 # Selector map — keys are stable internal names referenced by run_internshala_apply.
 # Values are the live CSS/XPath selectors. Recon the actual DOM on the spare
@@ -88,14 +88,14 @@ INTERNSHALA_SELECTORS: dict[str, str] = {
         ".individual_internship.easy_apply, "
         "[data-source_cta='easy_apply']"
     ),
-    # Closed-application banner — orange notice at the top of the detail
-    # page when applications are closed. Internshala removes the apply
-    # CTA in this state. Detect early + bail with status='closed' so the
-    # result worker marks state='expired' (not 'queued', which would
-    # immediately re-fire the cron and burn the daily cap).
-    "closed_banner": (
-        "text=Applications are closed for this internship, text=Applications closed, .closed_notice, .application_closed_notice"
-    ),
+    # Closed-application detection — replaced with a page.inner_text()
+    # substring check in run_internshala_apply because Playwright's
+    # `text=` selector engine cannot be comma-chained with CSS
+    # selectors, and the orange banner has no stable class anchor across
+    # Internshala redesigns. The substring "Applications are closed"
+    # appears verbatim in both screenshots (raju 2026-05-29). Kept here
+    # for documentation only — NOT used by _assert_present.
+    "_closed_banner_text_marker": "Applications are closed",
     # Outer modal — opens via global JS handler. Starts display:none.
     "modal": "#easy_apply_modal",
     # CONFIRMED: form fields land inside #application-form-container after
@@ -256,11 +256,18 @@ async def run_internshala_apply(
         # cron would immediately re-fire on the next pass and burn the
         # daily cap on a dead opp. status='closed' instead so the result
         # worker can transition state to `expired` once and for all.
+        # page.inner_text("body") substring check. The orange banner has
+        # no stable class anchor across Internshala redesigns, and
+        # Playwright's `text=` selector engine cannot be comma-chained
+        # with CSS. Substring on the body text is the most stable
+        # detection — Internshala used the exact phrase "Applications
+        # are closed for this internship" in both 2026-05-29 screenshots.
         try:
-            closed = await page.wait_for_selector(INTERNSHALA_SELECTORS["closed_banner"], timeout=1_500)
+            page_text = await page.inner_text("body")
         except Exception:
-            closed = None
-        if closed is not None:
+            page_text = ""
+        marker = INTERNSHALA_SELECTORS["_closed_banner_text_marker"].lower()
+        if marker in page_text.lower():
             shot = await _screenshot_b64(page)
             _log.info("internshala_application_closed", task_id=task.get("task_id"))
             return BrowserApplyResult(
