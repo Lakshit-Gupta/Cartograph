@@ -108,11 +108,13 @@ services:
     # space left on device` during page navigation or file input set.
     shm_size: '2gb'
     tmpfs:
-      # /tmp/apply is where the worker decodes base64 PDFs from
-      # stream:apply_browser before handing to Playwright's set_input_files.
+      # /tmp tmpfs bumped 512m -> 2g. Firefox + Playwright write large
+      # caches + screenshot scratch + PDF decode here during a single
+      # apply. 512m hit ENOSPC mid-page-load (screenshot + form data
+      # + Firefox session profile crammed into the same scratch).
       # tmpfs (not bind mount) keeps PDFs off the spare's disk so a
       # forensic snapshot of the spare can't recover them post-submit.
-      - /tmp:size=512m
+      - /tmp:size=2g
       # NOTE: /home/camoufox/.cache INTENTIONALLY NOT tmpfs.
       # See the matching block on camoufox-worker-spare above — tmpfs
       # shadows the pre-fetched Firefox binary baked into the camoufox
