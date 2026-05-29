@@ -56,6 +56,13 @@ services:
     # 8 GB. Spare runs only camoufox, so Firefox renders get more rope.
     mem_limit: 1500m
     memswap_limit: 1500m
+    # Firefox renderer uses /dev/shm extensively for IPC / shared memory
+    # buffers (media decoding, GPU surface buffers, page rendering). The
+    # docker default 64M /dev/shm hits ENOSPC on any non-trivial page,
+    # surfacing as `[Errno 28] No space left on device` during page.goto
+    # or page.set_input_files. 2g is the standard Chromium / Firefox
+    # in-Docker setting.
+    shm_size: '2gb'
     tmpfs:
       # /tmp tmpfs — base64 PDFs decode here; never hits persistent disk.
       - /tmp:size=512m
@@ -96,6 +103,10 @@ services:
     # Hard cap until the per-platform rate-limit story matures.
     mem_limit: 1500m
     memswap_limit: 1500m
+    # Same /dev/shm bump as camoufox-worker-spare. Firefox renderer needs
+    # 2GB+ shared memory; docker default 64M produces `[Errno 28] No
+    # space left on device` during page navigation or file input set.
+    shm_size: '2gb'
     tmpfs:
       # /tmp/apply is where the worker decodes base64 PDFs from
       # stream:apply_browser before handing to Playwright's set_input_files.
