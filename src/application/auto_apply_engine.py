@@ -103,6 +103,56 @@ def _resolve_min_score(source_slug: str, prefs: dict[str, Any]) -> float:
     return float(prefs.get("min_score", 0.30))
 
 
+def _load_negative_keywords() -> list[str]:
+    """Read `config/policy/negative_keywords.yaml` and flatten every
+    category-grouped list (except `borderline_disabled`) into a single
+    deduplicated list. Returns the lowercase terms ready for SQL ILIKE
+    pattern wrapping.
+
+    The borderline group is intentionally excluded so a future A/B
+    rollback only needs a config edit, not a code change.
+    """
+    settings = get_settings()
+    path = Path(settings.config_root) / "policy" / "negative_keywords.yaml"
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return []
+    except Exception as e:
+        _log.warning("auto_apply_negative_keywords_read_failed", err=str(e), path=str(path))
+        return []
+    block = loaded.get("negative_keywords") or {}
+    if not isinstance(block, dict):
+        return []
+    terms: set[str] = set()
+    for category, lst in block.items():
+        if category == "borderline_disabled":
+            continue
+        if not isinstance(lst, list):
+            continue
+        for term in lst:
+            if isinstance(term, str) and term.strip():
+                terms.add(term.strip().lower())
+    return sorted(terms)
+
+
+def _build_negative_clause(terms: list[str]) -> str | None:
+    """Render a NOT ILIKE-ANY clause across (title, description) for the
+    given negative-keyword list. Returns None when the list is empty
+    (no clause added)."""
+    if not terms:
+        return None
+    # asyncpg + Postgres ILIKE doesn't have an ANY-array shortcut for
+    # patterns, so we OR each term. Title weight = 1.0 (any match
+    # disqualifies); description weight = lower (require term ~ pattern
+    # OR title match). For phase-1 simplicity we OR on both with the
+    # same weight; the borderline flag in negative_keywords.yaml is the
+    # config-level dial for which terms even reach this SQL.
+    title_or = " OR ".join(f"lower(o.title) LIKE '%{t.replace('%', '').replace(chr(39), '')}%'" for t in terms)
+    desc_or = " OR ".join(f"lower(o.description) LIKE '%{t.replace('%', '').replace(chr(39), '')}%'" for t in terms)
+    return f"NOT ({title_or} OR {desc_or})"
+
+
 async def find_eligible(
     *,
     user_id: int,
@@ -143,7 +193,27 @@ async def find_eligible(
         f"(o.posted_at IS NULL OR o.posted_at > NOW() - INTERVAL '{max_age_days} days')",
     ]
     if isinstance(min_comp_inr, int | float) and min_comp_inr > 0:
-        where_clauses.append(f"(o.comp_min_inr IS NULL OR o.comp_min_inr >= {float(min_comp_inr)})")
+        # STRICT: drop the "OR comp_min_inr IS NULL" pass-through. Pre-V023
+        # opps with NULL comp_min_inr were leaking ALL ₹7k mechanical-
+        # engineering style noise past the ₹30k floor. Strict mode means
+        # the opp MUST have a populated comp value above the floor;
+        # ranker_worker writes comp_min_inr on score, so any opp scored
+        # after the V023 ship has a real number.
+        #
+        # Toggleable via prefs.auto_apply.filters.strict_comp (default true).
+        strict_comp = bool(filters.get("strict_comp", True))
+        if strict_comp:
+            where_clauses.append(f"(o.comp_min_inr IS NOT NULL AND o.comp_min_inr >= {float(min_comp_inr)})")
+        else:
+            where_clauses.append(f"(o.comp_min_inr IS NULL OR o.comp_min_inr >= {float(min_comp_inr)})")
+
+    # Negative-keyword filter — finally wired. Reject opps whose title or
+    # description matches any term in
+    # config/policy/negative_keywords.yaml (excluding the
+    # borderline_disabled group, which stays inert until A/B'd in).
+    neg_clause = _build_negative_clause(_load_negative_keywords())
+    if neg_clause:
+        where_clauses.append(neg_clause)
 
     sql = f"""
     SELECT o.id, os.score, s.slug, o.title, o.company, o.apply_url
