@@ -41,10 +41,11 @@ from pathlib import Path
 from typing import Any
 
 from src.common.logger import get_logger
+from src.fetchers.browser.behavioral import humanize_page
 
 _log = get_logger(__name__)
 
-INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v5-text-closed-detect"
+INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v6-div-apply-cta"
 
 # Selector map — keys are stable internal names referenced by run_internshala_apply.
 # Values are the live CSS/XPath selectors. Recon the actual DOM on the spare
@@ -74,20 +75,14 @@ INTERNSHALA_SELECTORS: dict[str, str] = {
     #     │   │   └─ input[type=hidden]#prefilled_custom_resume  ← server-side default
     #     │   └─ (optional) textarea[name=cover_letter] when is_cover_letter_visible
     #     └─ #submit  (input[type=submit])
-    # Detail-page CTAs (when apply_url points at /internship/detail/...)
-    # + listing-page card click (when apply_url points at /internships/...).
-    # Confirmed via 2026-05-29 detail-page screenshot: the active CTA on
-    # the detail page is the blue "Continue to application" button at the
-    # bottom of the right-hand info panel. The data-source_cta attribute
-    # is ONLY on listing cards and disappears on closed opps.
-    "easy_apply_button": (
-        "#continue_button, .continue_button, "
-        "button:has-text('Continue to application'), "
-        "a:has-text('Continue to application'), "
-        "#cta_apply_button, .cta_apply_button, "
-        ".individual_internship.easy_apply, "
-        "[data-source_cta='easy_apply']"
-    ),
+    # CONFIRMED 2026-05-29 via raju's detail-page DOM dump:
+    # The active apply CTA on the detail page is a STYLED DIV, not a
+    # <button>: `<div class="apply btn btn-primary">Apply</div>`. That's
+    # why every v5 selector targeting button/a elements missed.
+    # First fallback: the .apply.btn-primary div. Then listing-page card
+    # (when apply_url is a listing URL). Final fallback: anything with
+    # data-source_cta="easy_apply".
+    "easy_apply_button": ("div.apply.btn-primary, div.apply.btn, .individual_internship.easy_apply, [data-source_cta='easy_apply']"),
     # Closed-application detection — replaced with a page.inner_text()
     # substring check in run_internshala_apply because Playwright's
     # `text=` selector engine cannot be comma-chained with CSS
@@ -247,6 +242,13 @@ async def run_internshala_apply(
 
     try:
         await page.goto(apply_url, wait_until="networkidle", timeout=30_000)
+        # Behavioral humanization — mouse moves + scroll AFTER navigate +
+        # BEFORE any click. Mimics a human reading the page before
+        # deciding to apply. Camoufox handles fingerprint at C++ level
+        # (canvas hash, WebGL, navigator props); this closes the gap on
+        # the BEHAVIORAL signal Internshala bot detectors look at
+        # (mouse movement velocity profile, scroll patterns, dwell time).
+        await humanize_page(page)
         await _human_pause(500, 1200)
 
         # Early bail: applications-closed banner. Internshala removes the
@@ -277,13 +279,21 @@ async def run_internshala_apply(
             )
 
         # Click the Easy Apply CTA. Internshala has a global JS handler
-        # bound to `[data-source_cta="easy_apply"]` that opens
-        # #easy_apply_modal. The modal exists in DOM even before the click
-        # (display: none); we wait for it to become visible and for the
-        # AJAX-loaded form to populate `#application-form-container`.
+        # that opens #easy_apply_modal when this DIV is clicked. The
+        # modal exists in DOM at page load (display:none) but the form
+        # body is AJAX-injected only after the click.
         easy = await _assert_present(page, "easy_apply_button")
+        # Scroll the CTA into view before clicking — mimics human eye-track
+        # to the button. Playwright's element.click() does this internally
+        # but adding explicit scroll + dwell makes the timing profile
+        # more human.
+        try:
+            await easy.scroll_into_view_if_needed(timeout=2_000)
+        except Exception:
+            pass
+        await _human_pause(300, 700)
         await easy.click()
-        await _human_pause(400, 900)
+        await _human_pause(600, 1200)
         await _assert_present(page, "modal")
         # Form fields are AJAX-injected AFTER the modal opens. Without
         # this wait, _fill_form runs against an empty modal body and
