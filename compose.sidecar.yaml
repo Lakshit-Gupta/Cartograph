@@ -102,7 +102,14 @@ services:
       # tmpfs (not bind mount) keeps PDFs off the spare's disk so a
       # forensic snapshot of the spare can't recover them post-submit.
       - /tmp:size=512m
-      - /home/camoufox/.cache:size=256m
+      # NOTE: /home/camoufox/.cache INTENTIONALLY NOT tmpfs.
+      # See the matching block on camoufox-worker-spare above — tmpfs
+      # shadows the pre-fetched Firefox binary baked into the camoufox
+      # image by `python -m camoufox fetch` during docker build,
+      # producing `[Errno 13] Permission denied:
+      # '/home/camoufox/.cache/camoufox'`. Cache lives in the image's
+      # writable layer; persists for container lifetime; image rebuild
+      # refreshes.
     logging:
       driver: json-file
       options:
