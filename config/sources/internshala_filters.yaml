@@ -1,190 +1,164 @@
 # config/sources/internshala_filters.yaml
 #
-# Internshala URL-filter crawler config — refined 2026-05-29 via SEO
-# Specialist agent recon. URL slugs treated as Internshala's internal
-# ranking taxonomy; we crawl the slug paths that map cleanly to backend
-# + ML personas and let the policy gate's negative-keyword filter
-# (config/policy/negative_keywords.yaml) reject noise post-crawl.
+# Internshala URL-filter crawler config — RUTHLESS refit 2026-05-29.
 #
-# URL shapes:
+# Prior (v2026-05-29 morning) was too permissive: civil / mechanical /
+# content-creator opps still leaked into the candidate pool because
+# (a) frontend + product-management + cyber-security categories drag in
+#     adjacent-but-not-aligned roles, (b) generic 1-word keywords
+#     ("python", "aws", "docker") match BPO/ops listings whose JDs
+#     mention the tools in passing, (c) the keyword-only Block 4
+#     produced URLs with no location/work-mode lock, so on-site civil-
+#     engineering "Python data entry" listings leaked.
+#
+# New stance: lower volume, higher precision. Strict ₹30k+ enforced at
+# URL level on EVERY block (Internshala honors /stipend-<N>/). Backend +
+# Python + ML + Data Engineering ONLY. Everything else gone.
+#
+# URL shapes (unchanged from prior):
 #   /internships/<category>-internships/stipend-<N>
 #   /internships/work-from-home-<category>-internships/stipend-<N>
 #   /internships/<category>-internships-in-<city>/stipend-<N>
-#   /internships/keyword-<word>/stipend-<N>
+#   /internships/work-from-home-keyword-<word>-internships/stipend-<N>
 #
-# Multi-word keyword slugs use hyphens (python-developer, nlp-engineer).
-# Internshala accepts them literally — the URL generator MUST NOT
-# urlencode the hyphens.
-#
-# Persona-scoped combinations: each block targets ONE intent slice.
-# ~22 URLs/cycle × pages_per_url=3 = ~66 page fetches/cycle.
-# Approx steady-state: bumped down from 30 URLs with broader coverage.
+# Approx steady-state: ~18 URLs/cycle × pages_per_url=3 = ~54 fetches.
 
 internshala:
-  stipend_min_inr: 30000
+  stipend_min_inr: 30000        # hard floor — never lowered. URL-enforced.
   pages_per_url: 3
 
   # ────────────────────────────────────────────────────────────────
   # WORK MODES
   # ────────────────────────────────────────────────────────────────
-  # part-time dropped — too noisy on Internshala (content/marketing
-  # skew, sub-30k stipends). Default (no work-mode prefix) covers
-  # on-site listings via the `[category, location]` block.
+  # work-from-home only at the axis level. On-site is reintroduced
+  # ONLY for the top-3 backend hubs via the [category, location] block
+  # below — never as a free-form axis.
   work_modes:
     - work-from-home
 
   # ────────────────────────────────────────────────────────────────
-  # CATEGORIES — Internshala slug taxonomy aligned to backend + ML
+  # CATEGORIES — backend + ML core ONLY
   # ────────────────────────────────────────────────────────────────
-  # Pure-noise categories (marketing, content-writing, hr, sales, ops,
-  # finance, civil/mechanical/electrical, graphic-design, video-editing,
-  # social-media, ai-content-creator) are intentionally ABSENT.
+  # DROPPED (vs prior):
+  #   web-development          — pulls WordPress / Shopify / HTML-only listings
+  #   frontend-development     — frontend-only overlap too weak for persona
+  #   react-development        — same; React listings without backend = skip
+  #   product-management       — PM internships at non-tech IN startups
+  #                              still slip through, pay below floor
+  #   cyber-security           — low backend overlap; mostly SOC-analyst ops
+  #   blockchain-development   — low volume + recurring crypto-scam noise
+  #   data-analytics           — too many "MS Excel analyst" listings
+  #   java-development         — IN java internships skew enterprise BPO/SI
+  #   node-js-development      — covered via full-stack-development;
+  #                              standalone node category is MERN-frontend-heavy
+  #   cloud-computing          — sysadmin-flavored, low backend role density
+  #   database                 — DBA-flavored, low intern volume above floor
+  #   software-development     — too generic; pulls QA + manual testing
   categories:
     # Backend / Python persona
     - backend-development
-    - python-django-development     # django implies backend
-    - software-development
-    - full-stack-development
-    - web-development               # noisy but unavoidable for FS roles
-    - java-development              # IN market backend signal
-    - node-js-development           # node/Express backend
+    - python-django-development
+    - full-stack-development        # kept — proxy for "real backend" full-stack
     - devops
-    - cloud-computing
-    - database
     - api-development
-    # Frontend kept ONLY for full-stack overlap
-    - frontend-development
-    - react-development             # high-signal vs generic frontend
     # ML / Data persona
     - machine-learning
     - data-science
-    - data-analytics                # SQL-heavy, persona-aligned
     - artificial-intelligence
-    - deep-learning                 # high intent, lower volume
+    - deep-learning
     - computer-vision
     - natural-language-processing
-    - data-engineering              # backend ∩ ML overlap
-    # Adjacent technical (low-volume, high-intent)
-    - blockchain-development        # IN startup signal; backend-flavored
-    - cyber-security                # backend-flavored
-    - product-management            # backend-heavy startups pay above floor
+    - data-engineering
 
   # ────────────────────────────────────────────────────────────────
-  # LOCATIONS — IN tech corridors
+  # LOCATIONS — backend hubs only
   # ────────────────────────────────────────────────────────────────
-  # chennai (NEW): Zoho, Freshworks, Chargebee, Postman EU teams.
-  # ahmedabad (NEW): growing IN SaaS hub.
-  # kolkata intentionally OMITTED — low backend/ML internship volume
-  # above 30k.
-  # "remote" is handled via work_modes: [work-from-home], NOT as a slug.
+  # Cut to top-3 IN backend cities for on-site Block. Mumbai/Delhi/
+  # Gurgaon/Noida/Chennai/Ahmedabad dropped — backend intern density
+  # above ₹30k is materially lower than BLR/HYD/PUN. Re-add later if
+  # response-rate data justifies expansion.
   locations:
     - bangalore
     - hyderabad
     - pune
-    - mumbai
-    - delhi
-    - gurgaon
-    - noida
-    - chennai
-    - ahmedabad
 
   # ────────────────────────────────────────────────────────────────
-  # KEYWORDS — long-tail SEO terms (free-form /keyword-<X>/)
+  # KEYWORDS — high-intent technical role keywords ONLY
   # ────────────────────────────────────────────────────────────────
-  # Dropped from prior list:
-  #   "ml"        — substring false-matches "html", "marketing"
-  #   "backend"   — covered by backend-development category; keyword
-  #                 search adds "backend operations" / "backend office"
-  #   "tcs"       — Tata Consultancy posts mostly non-tech rotations
-  #   "infosys"   — Infosys internships heavily ops/BPO
-  #
-  # Brand keywords listed below the technical block; existing crawler
-  # treats them as a single keywords axis (Phase 2: split into a
-  # brand_keywords axis with per-axis pages_per_url override).
+  # DROPPED (vs prior):
+  #   python, aws, docker, flask, kubernetes, llm, generative-ai,
+  #   transformers, postgresql, microservices, rest-api, graphql,
+  #   rust-developer, computer-vision-engineer, applied-ai, terraform
+  # Rationale: every dropped term is 1-word or a tool name that
+  # appears in JDs for civil/ops/data-entry "we use Excel and a bit
+  # of Python" roles. Replaced with multi-word ROLE titles which
+  # Internshala's keyword index treats as intent signals.
   keywords:
-    # — Backend persona, high-intent technical —
+    # Backend persona — technical ROLE titles, not tool names
     - python-developer
     - django-developer
     - fastapi
-    - flask
     - golang
-    - rust-developer
-    - postgresql
-    - microservices
-    - rest-api
-    - graphql
-    # — ML persona, high-intent technical —
+    # ML persona — technical ROLE titles
     - pytorch
     - tensorflow
-    - llm
-    - generative-ai
-    - transformers
-    - nlp-engineer
-    - computer-vision-engineer
     - mlops
     - data-engineer
-    - applied-ai
-    # — Cross-persona (DevOps / cloud) —
-    - kubernetes
-    - docker
-    - aws
-    - terraform
-    # — Brand keywords: IN employers consistently posting backend/ML
-    #   roles above ₹30k. Excluded brands historically heavy on
-    #   sales/ops/content (Byju's, Unacademy ops, Paytm sales,
-    #   Reliance, OYO).
+    - nlp-engineer
+    - machine-learning-engineer
+
+  # ────────────────────────────────────────────────────────────────
+  # BRAND KEYWORDS — IN dev-shops where backend/ML interns clear ₹30k+
+  # ────────────────────────────────────────────────────────────────
+  # DROPPED (vs prior):
+  #   zomato / swiggy / flipkart / meesho — IS listings skew to non-tech
+  #     ops + delivery + brand-marketing for these brands
+  #   microsoft — mixed bag, lots of evangelism + community-manager roles
+  #   salesforce / oracle / intuit — pay below their global standard on IS
+  #   urban-company / rapido / freshworks / zoho / chargebee / jupiter —
+  #     low recent backend-intern volume above floor; revisit Phase 2
+  #   ola-krutrim — kept as `krutrim` only (canonical brand slug)
+  brand_keywords:
     # Fintech (backend-heavy, well-paid)
     - razorpay
     - cred
     - zerodha
     - groww
     - phonepe
-    - jupiter
-    # Consumer tech (large backend / ML teams)
-    - zomato
-    - swiggy
-    - flipkart
-    - meesho
-    - urban-company
-    # Global tech with IN internship programs
-    - microsoft
-    - adobe
-    - atlassian
+    # Dev-tools / SaaS (high backend signal)
     - postman
-    - intuit
-    - salesforce
-    - oracle
-    # Indian SaaS / dev-tools (high backend signal)
-    - freshworks
-    - zoho
-    - chargebee
     - browserstack
     - hasura
-    - rapido
-    # AI / ML-first companies hiring interns in IN
+    # Global with reliable IN backend internships
+    - atlassian
+    - adobe
+    # AI/ML-first IN companies
     - sarvam-ai
     - krutrim
-    - ola-krutrim
     - fractal-analytics
 
   # ────────────────────────────────────────────────────────────────
-  # COMBINATIONS — persona-scoped, intent-targeted slices
+  # COMBINATIONS — every block URL-enforces ₹30k AND a constraint
+  #                that locks out non-tech noise
   # ────────────────────────────────────────────────────────────────
   combinations:
-    # Block 1: Backend persona, remote-first (~8 URLs)
+    # Block 1: Backend persona, remote (~5 URLs)
     - axes: [work_mode, category]
       work_modes: [work-from-home]
       categories:
         - backend-development
         - python-django-development
         - full-stack-development
-        - node-js-development
         - data-engineering
-        - devops
         - api-development
-        - software-development
 
-    # Block 2: ML persona, remote-first (~6 URLs)
+    # Block 2: DevOps persona, remote (~1 URL)
+    - axes: [work_mode, category]
+      work_modes: [work-from-home]
+      categories:
+        - devops
+
+    # Block 3: ML persona, remote (~6 URLs)
     - axes: [work_mode, category]
       work_modes: [work-from-home]
       categories:
@@ -195,15 +169,40 @@ internshala:
         - natural-language-processing
         - computer-vision
 
-    # Block 3: Backend persona, top-3 IN cities on-site (~6 URLs)
-    # On-site backend roles in BLR/HYD/PUN clear the stipend floor.
+    # Block 4: Backend persona, top-3 IN cities on-site (~6 URLs)
+    # On-site backend roles in BLR/HYD/PUN reliably clear ₹30k.
     - axes: [category, location]
       categories: [backend-development, full-stack-development]
       locations: [bangalore, hyderabad, pune]
 
-    # Block 4: High-intent free-form keywords (no category lock)
-    # Internshala's keyword index pulls cross-category matches we'd
-    # miss otherwise (e.g. "Python Developer" miscategorized under
-    # "software-testing"). Uses the full keywords: block including
-    # brand keywords above.
-    - axes: [keyword]
+    # Block 5: High-intent technical-role keywords, REMOTE-LOCKED.
+    # Prior config used `axes: [keyword]` which produced URLs with no
+    # location / work-mode constraint — that's where civil-engineering
+    # "needs Python" listings leaked in. `[work_mode, keyword]` forces
+    # /work-from-home-keyword-<X>-internships/stipend-30000/ which
+    # Internshala's index treats as remote-only.
+    - axes: [work_mode, keyword]
+      work_modes: [work-from-home]
+      # keywords axis reads the top-level keywords: list (technical
+      # roles only, brand_keywords kept separate to avoid 4-axis
+      # cross-product blow-up)
+
+    # Block 6: Brand keywords, REMOTE-LOCKED.
+    # Same rationale — never crawl brand keywords without a work-mode
+    # lock; otherwise we get on-site BD/sales internships at fintech
+    # brands.
+    - axes: [work_mode, brand_keyword]
+      work_modes: [work-from-home]
+      # brand_keyword axis reads brand_keywords: list above.
+
+# ────────────────────────────────────────────────────────────────────
+# previous_session_notes (2026-05-29)
+# ────────────────────────────────────────────────────────────────────
+# v1 (broad)        → too much noise, civil/mech/content leaked
+# v2 (morning fix)  → still leaked: frontend/PM/cybersec categories +
+#                     1-word keywords + unconstrained keyword block
+# v3 (this file)    → ruthless cut. Backend + ML ONLY. All keyword
+#                     blocks work-mode-locked. ~18 URLs/cycle.
+# If response-rate data Phase 2 shows under-volume, the FIRST levers
+# to relax are: re-add `data-analytics` category, re-add `chennai`
+# location to Block 4. Do NOT re-add 1-word keywords.

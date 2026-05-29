@@ -233,24 +233,50 @@ async def _transition_to_ranked(opportunity_id: str) -> None:
         )
 
 
-async def _persist_comp_min_inr(opportunity_id: str, comp_min: float | None, comp_currency: str | None) -> None:
-    """Populate `opportunities.comp_min_inr` (V023) with the INR-normalized
-    comp value for the auto-apply filter to read without per-row Python.
+async def _persist_comp_min_inr(
+    opportunity_id: str,
+    comp_min: float | None,
+    comp_max: float | None,
+    comp_currency: str | None,
+    comp_period: str | None,
+) -> None:
+    """Populate `opportunities.comp_min_inr` (V023) with the INR-PER-MONTH
+    normalized comp value for the auto-apply filter to read without
+    per-row Python.
 
-    Best-effort — failures here are logged but never break ranking; the
-    auto-apply filter treats NULL comp_min_inr as "no comp signal" (passes).
+    Two normalizations applied (versus the prior version):
+      1. Currency → INR via the snapshot rate table.
+      2. Period → /month via _PERIOD_TO_MONTH (hour*160, year/12, etc.).
+
+    Stored value semantics: "the OPPORTUNITY pays at LEAST this many INR
+    per month" when comp_max is populated; falls back to comp_min when
+    only the lower bound is present. Using comp_max means range stipends
+    like '₹15k - ₹25k' are admitted into a 'min_comp_inr_month=15000'
+    filter (the opp COULD pay at least 25k), and rejected by a 30k
+    filter (the opp's ceiling is below 30k). Matches the user's stated
+    intent: 'I want at least 30k; ranges where the ceiling is below 30k
+    are out.'
+
+    Best-effort — failures logged but never break ranking; the
+    auto-apply filter treats NULL comp_min_inr as 'no comp signal'.
+    Whether NULL passes the filter is decided by
+    prefs.auto_apply.filters.strict_comp (default TRUE).
     """
-    from src.common.currency import to_inr
+    from src.common.currency import to_inr_per_month
 
-    inr = to_inr(comp_min, comp_currency)
-    if inr is None:
+    # Prefer comp_max for the stored INR figure when present so range
+    # stipends pass on their UPPER bound. Falls back to comp_min when
+    # only a single value was extracted.
+    raw_amount = comp_max if comp_max is not None else comp_min
+    inr_per_month = to_inr_per_month(raw_amount, comp_currency, comp_period)
+    if inr_per_month is None:
         return
     try:
         async with acquire() as conn:
             await conn.execute(
                 "UPDATE opportunities SET comp_min_inr = $2 WHERE id = $1",
                 opportunity_id,
-                float(inr),
+                float(inr_per_month),
             )
     except Exception as e:
         _log.warning("ranker_comp_min_inr_persist_failed", err=str(e), opp_id=opportunity_id)
@@ -305,7 +331,13 @@ async def _score_one(q: RedisQ, opportunity_id: str, ctx: _ScoreContext) -> None
     )
 
     await _persist_score(opportunity_id, out)
-    await _persist_comp_min_inr(opportunity_id, rec["comp_min"], rec["comp_currency"])
+    await _persist_comp_min_inr(
+        opportunity_id,
+        rec["comp_min"],
+        rec["comp_max"],
+        rec["comp_currency"],
+        rec["comp_period"],
+    )
     await _transition_to_ranked(opportunity_id)
 
     score_latency_seconds.observe(time.perf_counter() - t0)

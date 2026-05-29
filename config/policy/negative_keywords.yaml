@@ -193,3 +193,56 @@ negative_keywords:
                        # to track A/B decision separately
     - equity research
     - stipend not disclosed
+
+  # ── Internshala-specific noise patterns (added 2026-05-29 v3) ──
+  # Targets the exact leak vectors the URL filter can't reject:
+  #   1. "We use Python" data-entry / Excel roles — they pass category
+  #      filters because the JD mentions Python once.
+  #   2. Lead-gen / outbound-calling roles posted under "Business
+  #      Analyst" or "Growth" categories.
+  #   3. Manual market-research roles (cold-calling primary respondents).
+  #   4. AI-content / GPT-prompt farming roles posted under "AI" cat.
+  #   5. Edtech sales disguised as "Technical Counselor" / "Coding Mentor".
+  #   6. IS-recurring scam / bait patterns ("training provided" = paid training).
+  internshala_specific:
+    # Data-entry / Excel disguised as analytics
+    - data entry
+    - data entry operator
+    - manual data entry
+    - excel intern
+    - ms excel intern
+    - ms office intern
+    - copy paste
+    - copy-paste
+    - transcription
+    - typing work
+    # Lead-gen / outbound calling
+    - lead generation
+    - lead gen
+    - outbound calling
+    - outbound caller
+    - cold calling
+    - customer success intern
+    # Manual market research (call-people kind)
+    - market research intern
+    - primary research
+    - survey collection
+    - field survey
+    # AI-content / prompt farming patterns Internshala posts heavily
+    - gpt prompt
+    - prompt writer
+    - ai trainer
+    - annotation intern
+    # Edtech sales hiding behind technical-sounding titles
+    - coding mentor
+    - technical counselor
+    - technical counsellor
+    - admission advisor
+    - career advisor
+    # IS-recurring scam / bait patterns
+    - earn from home
+    - work from home guaranteed
+    - no experience required
+    - training provided
+    - registration fee
+    - refundable deposit

@@ -137,20 +137,40 @@ def _load_negative_keywords() -> list[str]:
 
 
 def _build_negative_clause(terms: list[str]) -> str | None:
-    """Render a NOT ILIKE-ANY clause across (title, description) for the
-    given negative-keyword list. Returns None when the list is empty
-    (no clause added)."""
+    r"""Render a NOT (title ~* '\m(term1|term2|...)\M' OR description ...)
+    clause using Postgres POSIX WORD-BOUNDARY regex.
+
+    Why word-boundary (`\m`/`\M`):
+      LIKE substring matches kill legitimate roles — `"hr"` would catch
+      "Khronos" / "Chronicle", `"ca"` catches "California" / "scaling",
+      `"ml"` catches "html" / "Mall". POSIX \m / \M anchor word boundaries
+      so only standalone terms match.
+
+    Why no parameterization here:
+      asyncpg's parameter substitution doesn't compose well with
+      dynamically-built WHERE clause strings + per-term escaping for
+      the regex alt-list is bounded (terms come from a YAML the operator
+      controls, not user input). Defense: each term gets backslash +
+      regex metachar stripped so a maliciously-edited YAML can't
+      inject SQL.
+    """
     if not terms:
         return None
-    # asyncpg + Postgres ILIKE doesn't have an ANY-array shortcut for
-    # patterns, so we OR each term. Title weight = 1.0 (any match
-    # disqualifies); description weight = lower (require term ~ pattern
-    # OR title match). For phase-1 simplicity we OR on both with the
-    # same weight; the borderline flag in negative_keywords.yaml is the
-    # config-level dial for which terms even reach this SQL.
-    title_or = " OR ".join(f"lower(o.title) LIKE '%{t.replace('%', '').replace(chr(39), '')}%'" for t in terms)
-    desc_or = " OR ".join(f"lower(o.description) LIKE '%{t.replace('%', '').replace(chr(39), '')}%'" for t in terms)
-    return f"NOT ({title_or} OR {desc_or})"
+    safe_terms: list[str] = []
+    for t in terms:
+        # Strip every char that's either a SQL-quote risk or a regex
+        # metacharacter that would change semantics. Conservative — we
+        # accept dropping a stray "&" rather than risk injection.
+        cleaned = "".join(c for c in t.lower() if c.isalnum() or c in " -")
+        cleaned = cleaned.strip()
+        if cleaned:
+            safe_terms.append(cleaned)
+    if not safe_terms:
+        return None
+    # Sort + dedupe for deterministic SQL — easier to diff in logs.
+    safe_terms = sorted(set(safe_terms))
+    alts = "|".join(safe_terms)
+    return f"NOT (o.title ~* '\\m({alts})\\M' OR COALESCE(o.description, '') ~* '\\m({alts})\\M')"
 
 
 async def find_eligible(
@@ -190,7 +210,13 @@ async def find_eligible(
         f"o.apply_method = ANY(ARRAY[{','.join(repr(m) for m in apply_methods)}]::apply_method_enum[])",
         "o.state IN ('queued','ranked','digested','seen')",
         f"os.score >= {min_score_expr}",
-        f"(o.posted_at IS NULL OR o.posted_at > NOW() - INTERVAL '{max_age_days} days')",
+        # COALESCE(posted_at, first_seen): the Internshala extractor sets
+        # posted_at = now() for every opp (extractor bug C5 in 2026-05-29
+        # audit), so the raw posted_at filter is a no-op. first_seen is
+        # set by the crawler at ingest time and IS a real freshness
+        # signal. Other sources (ATS, RSS) populate posted_at correctly,
+        # so the COALESCE prefers it when present.
+        f"COALESCE(o.posted_at, o.first_seen) > NOW() - INTERVAL '{max_age_days} days'",
     ]
     if isinstance(min_comp_inr, int | float) and min_comp_inr > 0:
         # STRICT: drop the "OR comp_min_inr IS NULL" pass-through. Pre-V023
