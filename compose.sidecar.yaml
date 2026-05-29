@@ -57,8 +57,19 @@ services:
     mem_limit: 1500m
     memswap_limit: 1500m
     tmpfs:
+      # /tmp tmpfs — base64 PDFs decode here; never hits persistent disk.
       - /tmp:size=512m
-      - /home/camoufox/.cache:size=256m
+      # NOTE: /home/camoufox/.cache is INTENTIONALLY NOT tmpfs.
+      # The camoufox image pre-fetches the Firefox binary into
+      # /home/camoufox/.cache/camoufox during `docker build` via
+      # `python -m camoufox fetch`. A tmpfs mount on that directory
+      # shadows the baked binary + creates a root-owned 1777 empty
+      # mount, producing `[Errno 13] Permission denied:
+      # '/home/camoufox/.cache/camoufox'` when the camoufox python lib
+      # tries to access its own install. Letting the cache live in the
+      # image's writable layer means firefox + xvfb come up clean on
+      # every container start. Cache persists for the container's
+      # lifetime; image rebuild refreshes it.
     logging:
       driver: json-file
       options:
