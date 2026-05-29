@@ -44,6 +44,11 @@ _NOTIFY_KIND_BY_STATUS = {
     "ok": "auto_applied",
     "dry_run_captured": "auto_apply_dry_run",
     "failed": "auto_apply_failed",
+    # `closed` = Internshala detected the listing is no longer accepting
+    # applications. Result-worker transitions opp to `expired` so the
+    # cron never re-fires on it. Notifier surfaces with the same colour
+    # bucket as `failed` (red) but distinct subject line.
+    "closed": "auto_apply_failed",
 }
 
 
@@ -63,6 +68,7 @@ async def _persist_result(result: dict[str, Any]) -> int | None:
         "ok": "auto_apply_dispatched",
         "dry_run_captured": "auto_apply_dry_run",
         "failed": "auto_apply_failed",
+        "closed": "auto_apply_closed",
     }.get(status, "auto_apply_failed")
 
     payload_update = {
@@ -106,6 +112,23 @@ async def _persist_result(result: dict[str, Any]) -> int | None:
                     INSERT INTO opportunity_transitions
                         (opportunity_id, from_state, to_state, trigger, metadata)
                     VALUES ($1, 'applied', 'queued', 'auto_apply_failed', $2::jsonb)
+                    """,
+                    opp_id,
+                    json.dumps({"task_id": result.get("task_id"), "error": result.get("error")}),
+                )
+            elif status == "closed":
+                # Internshala marked the listing closed. Transition to
+                # `expired` and audit — the cron will never re-fire on
+                # `expired` state, so this opp is locked out for good.
+                await conn.execute(
+                    "UPDATE opportunities SET state='expired' WHERE id=$1 AND state IN ('applied','queued','ranked','digested','seen')",
+                    opp_id,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO opportunity_transitions
+                        (opportunity_id, from_state, to_state, trigger, metadata)
+                    VALUES ($1, 'applied', 'expired', 'auto_apply_closed', $2::jsonb)
                     """,
                     opp_id,
                     json.dumps({"task_id": result.get("task_id"), "error": result.get("error")}),

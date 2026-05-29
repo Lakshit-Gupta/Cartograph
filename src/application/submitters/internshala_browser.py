@@ -44,7 +44,7 @@ from src.common.logger import get_logger
 
 _log = get_logger(__name__)
 
-INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v3-form-dom"
+INTERNSHALA_SELECTORS_VERSION = "2026.05.29-raju-recon-v4-detail-page+closed"
 
 # Selector map — keys are stable internal names referenced by run_internshala_apply.
 # Values are the live CSS/XPath selectors. Recon the actual DOM on the spare
@@ -74,7 +74,28 @@ INTERNSHALA_SELECTORS: dict[str, str] = {
     #     │   │   └─ input[type=hidden]#prefilled_custom_resume  ← server-side default
     #     │   └─ (optional) textarea[name=cover_letter] when is_cover_letter_visible
     #     └─ #submit  (input[type=submit])
-    "easy_apply_button": ("#cta_apply_button, .cta_apply_button, .individual_internship.easy_apply, [data-source_cta='easy_apply']"),
+    # Detail-page CTAs (when apply_url points at /internship/detail/...)
+    # + listing-page card click (when apply_url points at /internships/...).
+    # Confirmed via 2026-05-29 detail-page screenshot: the active CTA on
+    # the detail page is the blue "Continue to application" button at the
+    # bottom of the right-hand info panel. The data-source_cta attribute
+    # is ONLY on listing cards and disappears on closed opps.
+    "easy_apply_button": (
+        "#continue_button, .continue_button, "
+        "button:has-text('Continue to application'), "
+        "a:has-text('Continue to application'), "
+        "#cta_apply_button, .cta_apply_button, "
+        ".individual_internship.easy_apply, "
+        "[data-source_cta='easy_apply']"
+    ),
+    # Closed-application banner — orange notice at the top of the detail
+    # page when applications are closed. Internshala removes the apply
+    # CTA in this state. Detect early + bail with status='closed' so the
+    # result worker marks state='expired' (not 'queued', which would
+    # immediately re-fire the cron and burn the daily cap).
+    "closed_banner": (
+        "text=Applications are closed for this internship, text=Applications closed, .closed_notice, .application_closed_notice"
+    ),
     # Outer modal — opens via global JS handler. Starts display:none.
     "modal": "#easy_apply_modal",
     # CONFIRMED: form fields land inside #application-form-container after
@@ -227,6 +248,26 @@ async def run_internshala_apply(
     try:
         await page.goto(apply_url, wait_until="networkidle", timeout=30_000)
         await _human_pause(500, 1200)
+
+        # Early bail: applications-closed banner. Internshala removes the
+        # apply CTA when applications are closed; without this check the
+        # selector_miss further down throws on `easy_apply_button` and
+        # the result worker bounces state back to `queued` — which the
+        # cron would immediately re-fire on the next pass and burn the
+        # daily cap on a dead opp. status='closed' instead so the result
+        # worker can transition state to `expired` once and for all.
+        try:
+            closed = await page.wait_for_selector(INTERNSHALA_SELECTORS["closed_banner"], timeout=1_500)
+        except Exception:
+            closed = None
+        if closed is not None:
+            shot = await _screenshot_b64(page)
+            _log.info("internshala_application_closed", task_id=task.get("task_id"))
+            return BrowserApplyResult(
+                status="closed",
+                error="applications closed for this internship",
+                screenshot_b64=shot,
+            )
 
         # Click the Easy Apply CTA. Internshala has a global JS handler
         # bound to `[data-source_cta="easy_apply"]` that opens
