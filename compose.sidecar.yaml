@@ -83,6 +83,61 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  internshala-discovery-worker:
+    # Phase 4 browser discovery. Drives Internshala's dropdown UI via camoufox,
+    # scrapes listing cards, post-filters to >= INTERNSHALA_COMP_FLOOR_INR
+    # (default 30,000/month), dedups against Redis, and publishes survivors onto
+    # stream:rank via persist_and_publish. Loop-with-sleep (no cron). One cycle
+    # report per cycle to discovery_cycle_log + stream:notify. Selectors
+    # hot-reload on SIGHUP (kill -HUP <pid>) from the bind-mounted config dir.
+    #
+    # Single replica — one consumer per Internshala identity. Built natively on
+    # the spare (x86_64). Extends the apply-browser image so Firefox + Xvfb are
+    # already present.
+    build:
+      context: .
+      dockerfile: docker/discovery.Dockerfile
+    image: marked_path-discovery:latest
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env.sidecar
+    environment:
+      INTERNSHALA_IDLE_SEC: "180"            # 3 min testing cadence; raise to 1800 in prod
+      INTERNSHALA_BACKOFF_SEC: "600"
+      INTERNSHALA_COMP_FLOOR_INR: "30000"
+      INTERNSHALA_MAX_CYCLES_PER_ENGINE: "10"
+      INTERNSHALA_SELECTORS_PATH: /app/config/sources/internshala_selectors.yaml
+      INTERNSHALA_MATRIX_PATH: /app/config/sources/internshala_dropdown_matrix.yaml
+      INTERNSHALA_IDENTITY_LABEL: raju_internshala
+    # Bind-mount config read-only so a SIGHUP selector reload picks up host edits
+    # without an image rebuild.
+    volumes:
+      - ./config:/app/config:ro
+    # Same /dev/shm + /tmp story as the camoufox workers above — Firefox renderer
+    # needs 2GB+ shared memory; selector-miss screenshots + DOM clips scratch on
+    # the /tmp tmpfs and never hit the spare's persistent disk.
+    mem_limit: 1500m
+    memswap_limit: 1500m
+    shm_size: '2gb'
+    tmpfs:
+      - /tmp:size=2g
+    healthcheck:
+      # Liveness = a fresh heartbeat key in Redis. The worker SETs
+      # discovery:heartbeat every 30s with a 90s TTL; if it is absent the worker
+      # has stalled. redis-cli ships in the redis package present in the image's
+      # base; fall back to exit 0 is intentionally NOT used — a missing key MUST
+      # fail the check.
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -a \"$REDIS_PASSWORD\" --no-auth-warning get discovery:heartbeat | grep -q . || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
   apply-browser-worker:
     # Built natively on the spare (x86_64 Pop OS — no QEMU cross-compile).
     # Extends the camoufox image so Firefox + Xvfb + ghost-cursor are

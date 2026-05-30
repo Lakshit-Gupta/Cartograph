@@ -1,0 +1,866 @@
+[
+  {
+    "raw": "₹15,000 /month",
+    "expected_min_inr_per_month": 15000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹10,000 /month",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹20,000 /month",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 20000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹30,000 /month",
+    "expected_min_inr_per_month": 30000.0,
+    "expected_max_inr_per_month": 30000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹40,000 /month",
+    "expected_min_inr_per_month": 40000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹50,000 /month",
+    "expected_min_inr_per_month": 50000.0,
+    "expected_max_inr_per_month": 50000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹12,000 /month",
+    "expected_min_inr_per_month": 12000.0,
+    "expected_max_inr_per_month": 12000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹8,000 /month",
+    "expected_min_inr_per_month": 8000.0,
+    "expected_max_inr_per_month": 8000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹25,000 /month",
+    "expected_min_inr_per_month": 25000.0,
+    "expected_max_inr_per_month": 25000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹35,000 /month",
+    "expected_min_inr_per_month": 35000.0,
+    "expected_max_inr_per_month": 35000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹ 18,000 /month",
+    "expected_min_inr_per_month": 18000.0,
+    "expected_max_inr_per_month": 18000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹45,000/month",
+    "expected_min_inr_per_month": 45000.0,
+    "expected_max_inr_per_month": 45000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs. 15,000 /month",
+    "expected_min_inr_per_month": 15000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs 20,000 /month",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 20000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs. 30000 /month",
+    "expected_min_inr_per_month": 30000.0,
+    "expected_max_inr_per_month": 30000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs 12,000 per month",
+    "expected_min_inr_per_month": 12000.0,
+    "expected_max_inr_per_month": 12000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs.10,000/month",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "INR 25,000 /month",
+    "expected_min_inr_per_month": 25000.0,
+    "expected_max_inr_per_month": 25000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "INR 40000 per month",
+    "expected_min_inr_per_month": 40000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "15000",
+    "expected_min_inr_per_month": 15000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "20000",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 20000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "30000",
+    "expected_min_inr_per_month": 30000.0,
+    "expected_max_inr_per_month": 30000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "45000",
+    "expected_min_inr_per_month": 45000.0,
+    "expected_max_inr_per_month": 45000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "10,000 /month",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "32,000",
+    "expected_min_inr_per_month": 32000.0,
+    "expected_max_inr_per_month": 32000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "50,000 per month",
+    "expected_min_inr_per_month": 50000.0,
+    "expected_max_inr_per_month": 50000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹10,000-15,000 /month",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹20,000-30,000 /month",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 30000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹30,000-40,000 /month",
+    "expected_min_inr_per_month": 30000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹15,000 - 25,000 /month",
+    "expected_min_inr_per_month": 15000.0,
+    "expected_max_inr_per_month": 25000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹10,000 – 15,000 /month",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹25,000 — 35,000 /month",
+    "expected_min_inr_per_month": 25000.0,
+    "expected_max_inr_per_month": 35000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs. 20,000-40,000 /month",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Rs 8,000-12,000",
+    "expected_min_inr_per_month": 8000.0,
+    "expected_max_inr_per_month": 12000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "10000-20000",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 20000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹30,000 to 50,000 /month",
+    "expected_min_inr_per_month": 30000.0,
+    "expected_max_inr_per_month": 50000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹40,000-60,000 /month",
+    "expected_min_inr_per_month": 40000.0,
+    "expected_max_inr_per_month": 60000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹35,000-45,000",
+    "expected_min_inr_per_month": 35000.0,
+    "expected_max_inr_per_month": 45000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹2,000 /week",
+    "expected_min_inr_per_month": 8000.0,
+    "expected_max_inr_per_month": 8000.0,
+    "expected_currency": "INR",
+    "expected_period": "week"
+  },
+  {
+    "raw": "₹5,000 /week",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 20000.0,
+    "expected_currency": "INR",
+    "expected_period": "week"
+  },
+  {
+    "raw": "₹3,000 per week",
+    "expected_min_inr_per_month": 12000.0,
+    "expected_max_inr_per_month": 12000.0,
+    "expected_currency": "INR",
+    "expected_period": "week"
+  },
+  {
+    "raw": "Rs. 4,000 /week",
+    "expected_min_inr_per_month": 16000.0,
+    "expected_max_inr_per_month": 16000.0,
+    "expected_currency": "INR",
+    "expected_period": "week"
+  },
+  {
+    "raw": "₹2,500 /wk",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "week"
+  },
+  {
+    "raw": "₹6,000-8,000 /week",
+    "expected_min_inr_per_month": 24000.0,
+    "expected_max_inr_per_month": 32000.0,
+    "expected_currency": "INR",
+    "expected_period": "week"
+  },
+  {
+    "raw": "₹1,500 /day",
+    "expected_min_inr_per_month": 33000.0,
+    "expected_max_inr_per_month": 33000.0,
+    "expected_currency": "INR",
+    "expected_period": "day"
+  },
+  {
+    "raw": "₹1,000 /day",
+    "expected_min_inr_per_month": 22000.0,
+    "expected_max_inr_per_month": 22000.0,
+    "expected_currency": "INR",
+    "expected_period": "day"
+  },
+  {
+    "raw": "₹2,000 per day",
+    "expected_min_inr_per_month": 44000.0,
+    "expected_max_inr_per_month": 44000.0,
+    "expected_currency": "INR",
+    "expected_period": "day"
+  },
+  {
+    "raw": "Rs. 1,200 /day",
+    "expected_min_inr_per_month": 26400.0,
+    "expected_max_inr_per_month": 26400.0,
+    "expected_currency": "INR",
+    "expected_period": "day"
+  },
+  {
+    "raw": "₹800-1,200 /day",
+    "expected_min_inr_per_month": 17600.0,
+    "expected_max_inr_per_month": 26400.0,
+    "expected_currency": "INR",
+    "expected_period": "day"
+  },
+  {
+    "raw": "₹2,500 /day",
+    "expected_min_inr_per_month": 55000.0,
+    "expected_max_inr_per_month": 55000.0,
+    "expected_currency": "INR",
+    "expected_period": "day"
+  },
+  {
+    "raw": "₹500 /hour",
+    "expected_min_inr_per_month": 80000.0,
+    "expected_max_inr_per_month": 80000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "₹300 /hour",
+    "expected_min_inr_per_month": 48000.0,
+    "expected_max_inr_per_month": 48000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "₹200 /hr",
+    "expected_min_inr_per_month": 32000.0,
+    "expected_max_inr_per_month": 32000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "₹250 per hour",
+    "expected_min_inr_per_month": 40000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "Rs. 400 /hour",
+    "expected_min_inr_per_month": 64000.0,
+    "expected_max_inr_per_month": 64000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "₹150-250 /hour",
+    "expected_min_inr_per_month": 24000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "₹600 /hr",
+    "expected_min_inr_per_month": 96000.0,
+    "expected_max_inr_per_month": 96000.0,
+    "expected_currency": "INR",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "₹2,00,000 /year",
+    "expected_min_inr_per_month": 16666.6667,
+    "expected_max_inr_per_month": 16666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "2,00,000 /year",
+    "expected_min_inr_per_month": 16666.6667,
+    "expected_max_inr_per_month": 16666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹6,00,000 /year",
+    "expected_min_inr_per_month": 50000.0,
+    "expected_max_inr_per_month": 50000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "6 LPA",
+    "expected_min_inr_per_month": 50000.0,
+    "expected_max_inr_per_month": 50000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "4 LPA",
+    "expected_min_inr_per_month": 33333.3333,
+    "expected_max_inr_per_month": 33333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹3.5 LPA",
+    "expected_min_inr_per_month": 29166.6667,
+    "expected_max_inr_per_month": 29166.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "2.5 LPA",
+    "expected_min_inr_per_month": 20833.3333,
+    "expected_max_inr_per_month": 20833.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹2.5L",
+    "expected_min_inr_per_month": 20833.3333,
+    "expected_max_inr_per_month": 20833.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "3L",
+    "expected_min_inr_per_month": 25000.0,
+    "expected_max_inr_per_month": 25000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "2.5 lakh",
+    "expected_min_inr_per_month": 20833.3333,
+    "expected_max_inr_per_month": 20833.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹5 lakh /year",
+    "expected_min_inr_per_month": 41666.6667,
+    "expected_max_inr_per_month": 41666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "12 LPA",
+    "expected_min_inr_per_month": 100000.0,
+    "expected_max_inr_per_month": 100000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹8,00,000 per annum",
+    "expected_min_inr_per_month": 66666.6667,
+    "expected_max_inr_per_month": 66666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹4,50,000 p.a.",
+    "expected_min_inr_per_month": 37500.0,
+    "expected_max_inr_per_month": 37500.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "5-8 LPA",
+    "expected_min_inr_per_month": 41666.6667,
+    "expected_max_inr_per_month": 66666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹3,00,000-5,00,000 /year",
+    "expected_min_inr_per_month": 25000.0,
+    "expected_max_inr_per_month": 41666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹6.5 LPA",
+    "expected_min_inr_per_month": 54166.6667,
+    "expected_max_inr_per_month": 54166.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "10 LPA",
+    "expected_min_inr_per_month": 83333.3333,
+    "expected_max_inr_per_month": 83333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "1Cr",
+    "expected_min_inr_per_month": 833333.3333,
+    "expected_max_inr_per_month": 833333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "1 Cr /year",
+    "expected_min_inr_per_month": 833333.3333,
+    "expected_max_inr_per_month": 833333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹1.2Cr",
+    "expected_min_inr_per_month": 1000000.0,
+    "expected_max_inr_per_month": 1000000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "2 crore",
+    "expected_min_inr_per_month": 1666666.6667,
+    "expected_max_inr_per_month": 1666666.6667,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹1.5 crore /year",
+    "expected_min_inr_per_month": 1250000.0,
+    "expected_max_inr_per_month": 1250000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "15k",
+    "expected_min_inr_per_month": 15000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "20k /month",
+    "expected_min_inr_per_month": 20000.0,
+    "expected_max_inr_per_month": 20000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "10K",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "25k /month",
+    "expected_min_inr_per_month": 25000.0,
+    "expected_max_inr_per_month": 25000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "30K /month",
+    "expected_min_inr_per_month": 30000.0,
+    "expected_max_inr_per_month": 30000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "12k-18k /month",
+    "expected_min_inr_per_month": 12000.0,
+    "expected_max_inr_per_month": 18000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "40k",
+    "expected_min_inr_per_month": 40000.0,
+    "expected_max_inr_per_month": 40000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "8k-10k",
+    "expected_min_inr_per_month": 8000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹15k /month",
+    "expected_min_inr_per_month": 15000.0,
+    "expected_max_inr_per_month": 15000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹50k /month",
+    "expected_min_inr_per_month": 50000.0,
+    "expected_max_inr_per_month": 50000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "$2000 /month",
+    "expected_min_inr_per_month": 166000.0,
+    "expected_max_inr_per_month": 166000.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "$1500 /month",
+    "expected_min_inr_per_month": 124500.0,
+    "expected_max_inr_per_month": 124500.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "$3000 /month",
+    "expected_min_inr_per_month": 249000.0,
+    "expected_max_inr_per_month": 249000.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "$2,000 /month",
+    "expected_min_inr_per_month": 166000.0,
+    "expected_max_inr_per_month": 166000.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "USD 2500 /month",
+    "expected_min_inr_per_month": 207500.0,
+    "expected_max_inr_per_month": 207500.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "$50000 /year",
+    "expected_min_inr_per_month": 345833.3333,
+    "expected_max_inr_per_month": 345833.3333,
+    "expected_currency": "USD",
+    "expected_period": "year"
+  },
+  {
+    "raw": "$80,000 /year",
+    "expected_min_inr_per_month": 553333.3333,
+    "expected_max_inr_per_month": 553333.3333,
+    "expected_currency": "USD",
+    "expected_period": "year"
+  },
+  {
+    "raw": "$25 /hour",
+    "expected_min_inr_per_month": 332000.0,
+    "expected_max_inr_per_month": 332000.0,
+    "expected_currency": "USD",
+    "expected_period": "hour"
+  },
+  {
+    "raw": "$2000-3000 /month",
+    "expected_min_inr_per_month": 166000.0,
+    "expected_max_inr_per_month": 249000.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "US$1800 /month",
+    "expected_min_inr_per_month": 149400.0,
+    "expected_max_inr_per_month": 149400.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "  ₹22,000 /MONTH  ",
+    "expected_min_inr_per_month": 22000.0,
+    "expected_max_inr_per_month": 22000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "RS. 28,000 /Month",
+    "expected_min_inr_per_month": 28000.0,
+    "expected_max_inr_per_month": 28000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "inr 33,000 per Month",
+    "expected_min_inr_per_month": 33000.0,
+    "expected_max_inr_per_month": 33000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "₹  19,000  /month",
+    "expected_min_inr_per_month": 19000.0,
+    "expected_max_inr_per_month": 19000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "10K /MONTH",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "2.5 lpa",
+    "expected_min_inr_per_month": 20833.3333,
+    "expected_max_inr_per_month": 20833.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹2.5l",
+    "expected_min_inr_per_month": 20833.3333,
+    "expected_max_inr_per_month": 20833.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "1cr",
+    "expected_min_inr_per_month": 833333.3333,
+    "expected_max_inr_per_month": 833333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹1,00,000 /year",
+    "expected_min_inr_per_month": 8333.3333,
+    "expected_max_inr_per_month": 8333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹2,50,000 /year",
+    "expected_min_inr_per_month": 20833.3333,
+    "expected_max_inr_per_month": 20833.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹10,00,000 /year",
+    "expected_min_inr_per_month": 83333.3333,
+    "expected_max_inr_per_month": 83333.3333,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "₹1,20,000 /year",
+    "expected_min_inr_per_month": 10000.0,
+    "expected_max_inr_per_month": 10000.0,
+    "expected_currency": "INR",
+    "expected_period": "year"
+  },
+  {
+    "raw": "Unpaid",
+    "expected": null
+  },
+  {
+    "raw": "unpaid",
+    "expected": null
+  },
+  {
+    "raw": "UNPAID",
+    "expected": null
+  },
+  {
+    "raw": "Negotiable",
+    "expected": null
+  },
+  {
+    "raw": "negotiable",
+    "expected": null
+  },
+  {
+    "raw": "Performance based",
+    "expected": null
+  },
+  {
+    "raw": "Performance-based",
+    "expected": null
+  },
+  {
+    "raw": "performance based",
+    "expected": null
+  },
+  {
+    "raw": "Competitive",
+    "expected": null
+  },
+  {
+    "raw": "competitive",
+    "expected": null
+  },
+  {
+    "raw": "",
+    "expected": null
+  },
+  {
+    "raw": "   ",
+    "expected": null
+  },
+  {
+    "raw": "Stipend: 0",
+    "expected": null
+  },
+  {
+    "raw": "₹0 /month",
+    "expected": null
+  },
+  {
+    "raw": "0",
+    "expected": null
+  },
+  {
+    "raw": "Rs. 0 /month",
+    "expected": null
+  },
+  {
+    "raw": "As per industry standards",
+    "expected": null
+  },
+  {
+    "raw": "Not disclosed",
+    "expected": null
+  },
+  {
+    "raw": "To be decided",
+    "expected": null
+  },
+  {
+    "raw": "TBD",
+    "expected": null
+  }
+]

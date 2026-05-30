@@ -1,0 +1,29 @@
+# Internshala dropdown combo matrix. Each entry expands to one dropdown click
+# sequence (stipend -> category -> work_mode chip) and one listing scrape.
+#
+# `stipend` is implicitly always the dropdown's max-supported value
+# ("above 10,000"); the real >=INTERNSHALA_COMP_FLOOR_INR (default 30,000)
+# enforcement happens in code against each parsed card stipend. Setting the
+# dropdown to its max value merely thins the server-side result set.
+#
+# Bump `version` on every edit — it is recorded in discovery_cycle_log and the
+# worker re-reads this file on SIGHUP. 12 work-from-home combos in Phase 1;
+# on-site combos (BLR / HYD / PUN) are deferred to Phase 1.5 once the remote
+# pool is verified.
+version: "2026.05.29.v1"
+
+matrix:
+  # Backend / Python persona x remote.
+  - { category: "Backend Development", work_mode: "wfh" }
+  - { category: "Python/Django Development", work_mode: "wfh" }
+  - { category: "Full Stack Development", work_mode: "wfh" }
+  - { category: "DevOps", work_mode: "wfh" }
+  - { category: "API Development", work_mode: "wfh" }
+  - { category: "Data Engineering", work_mode: "wfh" }
+  # ML persona x remote.
+  - { category: "Machine Learning", work_mode: "wfh" }
+  - { category: "Data Science", work_mode: "wfh" }
+  - { category: "Artificial Intelligence (AI)", work_mode: "wfh" }
+  - { category: "Deep Learning", work_mode: "wfh" }
+  - { category: "Natural Language Processing (NLP)", work_mode: "wfh" }
+  - { category: "Computer Vision", work_mode: "wfh" }

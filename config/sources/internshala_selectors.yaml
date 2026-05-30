@@ -1,0 +1,61 @@
+# Internshala browser-discovery selector store — SIGHUP-reloadable.
+#
+# RECON-FIRST INVARIANT. Every selector below is a RECON PLACEHOLDER lifted
+# from the legacy tier-1 module + the design spec's best-guess of Internshala's
+# current DOM. They are NOT verified against a live page. Before first deploy,
+# capture the real selectors from a live, logged-in Internshala session on the
+# ThinkPad (devtools -> inspect each dropdown trigger, each jQuery-Chosen option
+# list, each listing-card field, the Load-more button, and the login-redirect /
+# captcha markers). Internshala uses the jQuery **Chosen** plugin for
+# category/location (`*_chosen` containers with `.chosen-results li` options),
+# and the stipend control may render as a slider rather than a radio group.
+#
+# The worker REFUSES TO BOOT while `version` is still "RECON_PENDING" unless the
+# env var INTERNSHALA_ALLOW_RECON_PENDING=1 is set (so `--dry-run` smoke can run
+# against placeholders). After live recon, bump `version` to e.g.
+# "2026.05.29.v1" and the worker boots normally. Bump `version` on EVERY edit —
+# the worker logs old -> new on each SIGHUP reload.
+version: "RECON_PENDING"
+
+selectors:
+  # Whole-page root + the onboarding modal that Internshala throws on first load.
+  page_root: "body"
+  modal_dismiss: "#newonboardpage_modal .close, .newonboardpage_modal_close, .modal-header .close"
+
+  # Dropdown / chip triggers + their option nodes. Category + location are
+  # jQuery-Chosen widgets (the `*_chosen` container renders `.chosen-results li`
+  # option rows once the trigger is clicked). Stipend exposes a single
+  # "above 10,000" option — the real >=30k floor is enforced in code on the
+  # parsed card stipend, not here.
+  dropdown:
+    stipend_button: "#select_stipend, #stipend_filter"
+    stipend_option_above_10000: "label[for='stipend_radio_4']"
+    category_button: "#select_category_chosen, #category_chosen .chosen-single"
+    category_options: "#select_category_chosen .chosen-results li, #category_chosen .chosen-results li"
+    work_mode_wfh_chip: "label[for='work_from_home']"
+    work_mode_partime_chip: "label[for='part_time']"
+    location_button: "#select_location_chosen, #city_chosen .chosen-single"
+    location_options: "#select_location_chosen .chosen-results li, #city_chosen .chosen-results li"
+
+  # Listing card field selectors. `card_root` splits the page into individual
+  # cards; the remaining keys are resolved per-card by the shared
+  # `internshala_card_parser.parse_card` (which also keeps its own fallbacks).
+  listing:
+    card_root: "div.individual_internship"
+    card_title: ".heading_4_5.profile, .job-internship-name"
+    card_company: ".company_and_premium .company-name, p.company a"
+    card_location: ".locations span a, .location_link"
+    card_stipend: ".stipend, .stipend_container_table_cell"
+    card_apply_link: "a.view_detail_button"
+    card_posted_relative: ".posted-by, .status-success"
+
+  # Pagination. The worker clicks `load_more_button` between pages and stops
+  # early when `list_end_marker` appears.
+  paginate:
+    load_more_button: "#load_more_internships_button, a.click_source"
+    list_end_marker: ".no-search-results, .empty-listing"
+
+  # Failure markers. A login redirect or a captcha/interstitial aborts the
+  # cycle healthy=False — the worker NEVER attempts to solve a challenge.
+  login_marker: "#login-modal, form[action*='login'], .login-cta"
+  captcha_marker: "iframe[src*='captcha'], .cf-challenge, #px-captcha, .g-recaptcha"

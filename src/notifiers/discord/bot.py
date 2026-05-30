@@ -32,6 +32,7 @@ from src.notifiers.discord.handlers.notify_alert import post_alert
 from src.notifiers.discord.handlers.notify_applied import post_applied
 from src.notifiers.discord.handlers.notify_auto_apply import post_auto_apply
 from src.notifiers.discord.handlers.notify_digest import post_digest
+from src.notifiers.discord.handlers.notify_discovery_cycle import post_discovery_cycle
 from src.notifiers.discord.handlers.notify_explain import post_explain_dm
 from src.notifiers.discord.handlers.notify_followup import post_followup_ready
 from src.notifiers.discord.handlers.notify_manual_apply import post_manual_apply
@@ -80,6 +81,8 @@ _DISPATCH_TABLE: dict[str, _NotifyHandler] = {
     "auto_applied": post_auto_apply,
     "auto_apply_dry_run": post_auto_apply,
     "auto_apply_failed": post_auto_apply,
+    # Phase 4 Internshala browser discovery — one cycle-report card per cycle.
+    "discovery_cycle_report": post_discovery_cycle,
 }
 
 

@@ -1166,6 +1166,114 @@ Research sources captured 2026-05-29:
 
 ---
 
+## Internshala browser discovery (Phase 4 — shipped 2026-05-30)
+
+ThinkPad-resident camoufox worker that drives Internshala's own dropdown
+UI (category, stipend, work-mode), scrapes the listing cards, post-filters
+in code against `INTERNSHALA_COMP_FLOOR_INR` (default ₹30,000/month — the
+floor Internshala's "above ₹10,000" dropdown cannot enforce), dedups
+against Redis `SET internshala:seen:<sha256(canonical_url)>` (24 h TTL,
+NX), and calls `extractors.persist.persist_and_publish` to upsert + emit on
+`stream:rank` — producer-parity with the extractor path, no extractor in
+the loop. This **replaces** the Pi-side `curl_cffi` URL crawler for
+Internshala; the Pi scheduler stops emitting `stream:fetch` for it via
+`sources.discovery_method = 'camoufox_dropdown'` (V025). The old URL
+crawler stays in the tree, dormant, re-armed by flipping that column back
+to `'http_curl'` (deletion deferred 7 clean days).
+
+Runs on the spare Pop OS ThinkPad only (the same host as
+`apply-browser-worker`), over the existing autossh tunnel to the Pi's
+loopback Redis + Postgres. Cookies are decrypted locally on the spare; the
+Pi never browses Internshala and never reads decrypted session material.
+
+Loop-with-sleep, NOT cron: after each cycle sleeps
+`max(IDLE_SEC - elapsed, 0)`. `IDLE_SEC=180` (testing) → `1800` (prod).
+Per-combo `asyncio.wait_for(timeout=30)`; whole-cycle failure backs off
+exponentially from `BACKOFF_SEC=600` (capped 1800). Heartbeat
+`SET discovery:heartbeat <ts> EX 90` every 30 s. `engine.restart()` every
+`MAX_CYCLES_PER_ENGINE=10` cycles (camoufox memory drift). Readiness gates
+on `wait_for_selector(card_root, 8s)`, **never** `networkidle` (Internshala
+telemetry keeps the connection busy indefinitely). Selectors hot-reload on
+SIGHUP. One `discovery_cycle_report` per cycle → `discovery_cycle_log`
+(V026) + `stream:notify` → `#🛠-source-health` (healthy = one quiet line;
+degraded = red embed + screenshot, hard failures also paged to
+`#🔔-alerts`).
+
+### Files
+
+| Role | File |
+|---|---|
+| Migration — discovery_method enum + scheduler gate | `migrations/V025__discovery_method.sql` |
+| Migration — per-cycle log table | `migrations/V026__discovery_cycle_log.sql` |
+| Worker entrypoint (loop, heartbeat, identity lease, signals) | `src/workers/internshala_discovery_worker.py` |
+| Worker helper package (split to stay <300 lines/file) | `src/workers/internshala_discovery/` — `config.py` (env+prefs+YAML load, RECON_PENDING guard, SIGHUP reload), `cycle.py` (`run_cycle`/`run_combo`/`_ingest_card`), `browser_ops.py` (dropdown drive, challenge detect, miss capture), `report.py` (`DiscoveryCycleReport`, `passes_floor`, `dedup_key`, notify payload), `persistence.py` (`discovery_cycle_log` INSERT + notify) |
+| Stipend string → INR/month (corpus-tested) | `src/common/stipend_parser.py` |
+| DOM card → Opportunity (single source of truth; tier-1 re-imports it) | `src/sources/india/internshala_card_parser.py` |
+| Swappable engine Protocol | `src/fetchers/browser/engine.py` |
+| Camoufox engine impl (only Phase 1 impl) | `src/fetchers/browser/camoufox_engine.py` |
+| Selector store (SIGHUP-reloadable, RECON_PENDING on ship) | `config/sources/internshala_selectors.yaml` |
+| Dropdown combo matrix (12 wfh combos) | `config/sources/internshala_dropdown_matrix.yaml` |
+| Ad-hoc CLI (`mp internshala-discover`) | `src/cli/internshala_discover.py` |
+| Discord cycle-report handler | `src/notifiers/discord/handlers/notify_discovery_cycle.py` |
+| Sidecar image (extends apply-browser image) | `docker/discovery.Dockerfile` |
+| Sidecar compose service | `compose.sidecar.yaml` `internshala-discovery-worker` |
+| Prefs overrides (idle_sec / comp_floor_inr / max_cycles_per_engine) | `config/profile/prefs.yaml` `discovery.internshala:` |
+| Runbook | `docs/runbooks/internshala_discovery.md` |
+
+Discord dispatch: `src/notifiers/discord/bot.py` routes the
+`discovery_cycle_report` notify kind to
+`notify_discovery_cycle.post_discovery_cycle`. Image tag is
+`marked_path-discovery:latest`, built `--build-arg
+BASE_IMAGE=cartograph-apply-browser:latest`. The CLI's `--combo` takes the
+**generated** combo name (e.g. `backend-development-wfh`), not the bare
+category. `INTERNSHALA_ONCE=1` makes the long-running entrypoint run a
+single cycle (the CLI always implies `--once`).
+
+### Hard rules — non-negotiable
+
+1. **Pi never browses Internshala.** Both discovery and auto-apply browse
+   only from the ThinkPad. The Pi holds no Internshala browse surface and
+   never reads decrypted Internshala cookies.
+2. **Pre-publish floor enforcement.** Sub-floor cards are rejected in the
+   scraper (`report.passes_floor` against `comp_floor_inr`) and NEVER reach
+   `stream:rank` or Postgres. The dropdown is set to its max ("above
+   ₹10,000") only to thin the server-side set; the real ≥30k floor is
+   code-level.
+3. **Redis dedup before persist.** Every surviving card hits
+   `SET internshala:seen:<sha> EX 86400 NX` before any `persist_and_publish`
+   — no raw card reaches Postgres without a 24 h uniqueness check. Dry-run
+   stops before both the dedup write and persist.
+4. **Selectors live in YAML, not Python constants.**
+   `config/sources/internshala_{selectors,dropdown_matrix}.yaml` are the
+   single source of truth, SIGHUP-reloadable (`kill -HUP`), versioned. A
+   bad reload keeps the old values and logs `selectors_reload_failed` —
+   never takes discovery offline.
+5. **RECON_PENDING boot-guard.** `load_config` refuses to boot while
+   `selectors.version == "RECON_PENDING"` unless
+   `INTERNSHALA_ALLOW_RECON_PENDING=1` (dry-run smoke only). Live selector
+   recon on the ThinkPad is mandatory before the first production deploy.
+6. **`BrowserEngine` Protocol mandatory.** No direct camoufox import in
+   worker code — all browser work routes through
+   `src/fetchers/browser/engine.py:BrowserEngine` so Nodriver / Patchright
+   can slot in by config when the browser-engine refresh triggers.
+7. **Loop-with-sleep, not cron.** One consumer per Internshala identity,
+   no tick-collision risk. Readiness on `wait_for_selector`, never
+   `networkidle`.
+8. **Challenges abort, never solved.** A login redirect or captcha marker
+   aborts the cycle `healthy=False` and screenshots; the worker NEVER
+   attempts to solve a challenge. Recovery = cool-off / identity warmup.
+9. **URL crawler kept dormant via `discovery_method`.** Rollback is the
+   single flip `UPDATE sources SET discovery_method='http_curl'` (resumes
+   the URL crawler within one scheduler tick). Do NOT delete
+   `src/sources/india/internshala.py` or
+   `config/sources/internshala_filters.yaml` until 7 clean days of
+   `camoufox_dropdown` operation.
+
+Operations: `docs/runbooks/internshala_discovery.md` (RECON-first,
+deploy, ops table, verification window, troubleshooting, rollback).
+
+---
+
 ## Defer list (Phase 1 — DO NOT BUILD)
 
 - Upwork direct integration (use email digest only).

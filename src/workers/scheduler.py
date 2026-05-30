@@ -26,6 +26,12 @@ async def emit_for_active_sources(q: RedisQ) -> None:
             SELECT id, slug, base_url, crawler_strategy, fetch_freq_minutes, tier_chain
             FROM sources
             WHERE status = 'active'
+              -- Only emit fetch tasks for HTTP-crawled sources. Sources whose
+              -- discovery_method is 'camoufox_dropdown' (V025) are crawled
+              -- out-of-band by the ThinkPad camoufox discovery worker, never
+              -- by the Pi scheduler — emitting them here would double-crawl
+              -- via a path that can't enumerate Internshala's JS dropdowns.
+              AND discovery_method = 'http_curl'
               AND (last_successful_crawl_at IS NULL
                    OR last_successful_crawl_at < NOW() - (fetch_freq_minutes || ' minutes')::interval)
             """

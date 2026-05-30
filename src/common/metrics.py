@@ -109,6 +109,56 @@ auto_apply_browser_results_total = Counter(
     registry=REGISTRY,
 )
 
+# Phase 4 Internshala browser-discovery worker (ThinkPad sidecar). One cycle =
+# the full dropdown matrix; counters are per-combo where a combo label helps the
+# operator localise a selector break or a slow combo.
+discovery_cycles_total = Counter(
+    "discovery_cycles_total",
+    "Discovery cycles completed, by health.",
+    labelnames=("healthy",),
+    registry=REGISTRY,
+)
+discovery_cycle_failures_total = Counter(
+    "discovery_cycle_failures_total",
+    "Whole-cycle failures (cycle raised before producing a report).",
+    registry=REGISTRY,
+)
+discovery_combo_timeouts_total = Counter(
+    "discovery_combo_timeouts_total",
+    "Per-combo 30s wall-clock timeouts.",
+    labelnames=("combo",),
+    registry=REGISTRY,
+)
+discovery_selector_miss_total = Counter(
+    "discovery_selector_miss_total",
+    "Per-combo selector misses (combo screenshotted + skipped).",
+    labelnames=("combo", "key"),
+    registry=REGISTRY,
+)
+discovery_cards_published_total = Counter(
+    "discovery_cards_published_total",
+    "Cards that cleared floor + dedup and were persisted/published.",
+    registry=REGISTRY,
+)
+discovery_cards_rejected_total = Counter(
+    "discovery_cards_rejected_total",
+    "Cards dropped pre-publish, by reason (parse|subfloor|dedup).",
+    labelnames=("reason",),
+    registry=REGISTRY,
+)
+discovery_combo_duration_seconds = Histogram(
+    "discovery_combo_duration_seconds",
+    "Per-combo wall time (dropdown drive + scrape).",
+    labelnames=("combo",),
+    buckets=(1, 2, 5, 10, 15, 20, 30, 60),
+    registry=REGISTRY,
+)
+discovery_heartbeat_timestamp = Gauge(
+    "discovery_heartbeat_timestamp",
+    "Unix ts of the last discovery worker heartbeat (mirrors Redis discovery:heartbeat).",
+    registry=REGISTRY,
+)
+
 # CF (7 critical signals)
 cf_clearance_solve_rate = Gauge(
     "cf_clearance_solve_rate",
