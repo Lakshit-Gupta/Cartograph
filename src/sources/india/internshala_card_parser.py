@@ -83,9 +83,19 @@ def parse_card(card_html: str, *, source_id: int, selectors: dict[str, str]) -> 
     company = _text(card, _sel(selectors, "card_company"))
     location = _text(card, _sel(selectors, "card_location"))
 
-    link_node = card.css_first(_sel(selectors, "card_apply_link")) or card.css_first("a")
-    href = link_node.attributes.get("href", "") if link_node else ""
-    href = href or ""
+    # Internshala carries the canonical listing link on the card root's
+    # `data-href` attribute (verified live 2026-05-30); the inner
+    # `a.view_detail_button` the parser read before is ABSENT on the real
+    # listing page, so reading it alone produced a bare base-URL link. Prefer
+    # data-href, fall back to the configured anchor / title anchor / any <a>.
+    href = (card.attributes.get("data-href") or "").strip()
+    if not href:
+        link_node = (
+            card.css_first(_sel(selectors, "card_apply_link"))
+            or card.css_first("a.job-title-href")
+            or card.css_first("a")
+        )
+        href = (link_node.attributes.get("href", "") if link_node else "") or ""
     absolute = href if href.startswith("http") else f"{_BASE_URL}{href}"
 
     is_remote = "work from home" in (card.text() or "").lower()
