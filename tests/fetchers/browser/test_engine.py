@@ -42,11 +42,33 @@ class _FakeContext:
         self.closed = True
 
 
+class _FakeBrowser:
+    """Stand-in for the Playwright `Browser` that `AsyncCamoufox.__aenter__`
+    RETURNS. Critically a *separate* object from the CM — `new_context` lives
+    here, NOT on the CM — so a regression that stores the CM in `self._browser`
+    (the real bug this mirrors) raises AttributeError under test, just as it
+    does against real camoufox."""
+
+    def __init__(self) -> None:
+        self.contexts: list[_FakeContext] = []
+        self.last_context_kwargs: dict | None = None
+
+    async def new_context(self, **kwargs: object) -> _FakeContext:
+        self.last_context_kwargs = kwargs
+        ctx = _FakeContext()
+        self.contexts.append(ctx)
+        return ctx
+
+
 class _FakeAsyncCamoufox:
-    """Fake `AsyncCamoufox` — records lifecycle without launching Firefox.
+    """Fake `AsyncCamoufox` context-manager — records lifecycle without
+    launching Firefox.
 
     Instances are tracked on the class so tests can assert how many browser
-    processes were spawned / entered / exited across a restart.
+    processes were spawned / entered / exited across a restart. Mirrors real
+    camoufox: `__aenter__` returns a SEPARATE `_FakeBrowser`, and this CM has
+    NO `new_context` of its own. `contexts` / `last_context_kwargs` are proxied
+    to the yielded browser so existing assertions read through unchanged.
     """
 
     instances: list[_FakeAsyncCamoufox] = []
@@ -55,21 +77,23 @@ class _FakeAsyncCamoufox:
         self.kwargs = kwargs
         self.entered = False
         self.exited = False
-        self.contexts: list[_FakeContext] = []
+        self.browser = _FakeBrowser()
         _FakeAsyncCamoufox.instances.append(self)
 
-    async def __aenter__(self) -> _FakeAsyncCamoufox:
+    async def __aenter__(self) -> _FakeBrowser:
         self.entered = True
-        return self
+        return self.browser
 
     async def __aexit__(self, *exc: object) -> None:
         self.exited = True
 
-    async def new_context(self, **kwargs: object) -> _FakeContext:
-        self.last_context_kwargs = kwargs
-        ctx = _FakeContext()
-        self.contexts.append(ctx)
-        return ctx
+    @property
+    def contexts(self) -> list[_FakeContext]:
+        return self.browser.contexts
+
+    @property
+    def last_context_kwargs(self) -> dict | None:
+        return self.browser.last_context_kwargs
 
 
 class _FakeEngine:
