@@ -366,8 +366,7 @@ INSERT INTO opportunities (
 )
 ON CONFLICT (canonical_url) DO UPDATE SET
     last_seen = NOW(), comp_min = EXCLUDED.comp_min,
-    comp_max = EXCLUDED.comp_max, comp_min_inr = EXCLUDED.comp_min_inr,
-    state = 'queued'
+    comp_max = EXCLUDED.comp_max, comp_min_inr = EXCLUDED.comp_min_inr
 RETURNING id, (xmax = 0) AS inserted
 """
 
@@ -383,14 +382,16 @@ INSERT INTO opportunities (
 )
 ON CONFLICT (canonical_url) DO UPDATE SET
     last_seen = NOW(), comp_min = EXCLUDED.comp_min,
-    comp_max = EXCLUDED.comp_max, state = 'queued'
+    comp_max = EXCLUDED.comp_max
 RETURNING id, (xmax = 0) AS inserted
 """
 
+# Only SEED a score when none exists -- never clobber the real ranker-worker's
+# score (or a previous bootstrap) on a re-crawl. DO NOTHING on conflict.
 _SCORE_UPSERT = """
 INSERT INTO opportunity_scores (user_id, opportunity_id, score, score_components, ranker_version)
 VALUES ($1, $2, $3, '{"bootstrap": true}'::jsonb, 'ingest_bootstrap')
-ON CONFLICT (user_id, opportunity_id) DO UPDATE SET score = EXCLUDED.score
+ON CONFLICT (user_id, opportunity_id) DO NOTHING
 """
 
 
@@ -493,25 +494,36 @@ async def run(dry_run: bool, max_pages: int) -> None:
             remote = "remote" if s["is_wfh"] or "work-from-home" in s["category"] else "onsite"
             desc = f"{s['title']} @ {s['company']} :: {s['stipend']} :: {s['location']}"
             fph = _fp(s["company"] or "", s["title"], s["location"] or "")
-            if has_inr:
-                row = await conn.fetchrow(
-                    _UPSERT_WITH_INR, source_id, s["url"], s["title"], s["company"], desc,
-                    s["cmin"], s["cmax"], s["cmin"], "INR", "month",
-                    s["location"], remote, "internship", s["url"], "in_platform",
-                    fph, 1, 0.8,
-                )
-            else:
-                row = await conn.fetchrow(
-                    _UPSERT_NO_INR, source_id, s["url"], s["title"], s["company"], desc,
-                    s["cmin"], s["cmax"], "INR", "month",
-                    s["location"], remote, "internship", s["url"], "in_platform",
-                    fph, 1, 0.8,
-                )
-            if row is None:
-                continue
-            stats["inserted" if row["inserted"] else "updated"] += 1
-            await conn.execute(_SCORE_UPSERT, _USER_ID, row["id"], _bootstrap_score(s["cmin"]))
-            stats["scored"] += 1
+            # Each opp gets its own transaction so one bad row (e.g. a state
+            # the machine won't accept) can NEVER abort the others -- asyncpg
+            # poisons the whole connection transaction on the first error
+            # otherwise, which is why only one row used to update.
+            try:
+                async with conn.transaction():
+                    if has_inr:
+                        row = await conn.fetchrow(
+                            _UPSERT_WITH_INR, source_id, s["url"], s["title"], s["company"], desc,
+                            s["cmin"], s["cmax"], s["cmin"], "INR", "month",
+                            s["location"], remote, "internship", s["url"], "in_platform",
+                            fph, 1, 0.8,
+                        )
+                    else:
+                        row = await conn.fetchrow(
+                            _UPSERT_NO_INR, source_id, s["url"], s["title"], s["company"], desc,
+                            s["cmin"], s["cmax"], "INR", "month",
+                            s["location"], remote, "internship", s["url"], "in_platform",
+                            fph, 1, 0.8,
+                        )
+                    if row is None:
+                        continue
+                    stats["inserted" if row["inserted"] else "updated"] += 1
+                    # Don't reset an already-applied/ranked opp's score either;
+                    # only seed a score when none exists yet.
+                    await conn.execute(_SCORE_UPSERT, _USER_ID, row["id"], _bootstrap_score(s["cmin"]))
+                    stats["scored"] += 1
+            except Exception as exc:
+                stats["errors"] = stats.get("errors", 0) + 1
+                print(f"  ! db write skipped ({s['title'][:30]}): {exc}")
     finally:
         await conn.close()
 
