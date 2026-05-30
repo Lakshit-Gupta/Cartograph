@@ -53,6 +53,7 @@ import os
 import random
 import re
 import sys
+import time
 
 import asyncpg
 from curl_cffi import requests as cr
@@ -68,6 +69,11 @@ _USER_ID = int(os.environ.get("APPLY_USER_ID", "1"))
 # Honoured SINGULAR category slugs (verified live 2026-05-30 via the heading
 # oracle -- the <h1> reads "125 Backend Development Internships" when honoured,
 # "6443 Total Internships" when ignored). Live totals in comments.
+# Categories matched to the user's resume (parsed 2026-05-30 from
+# config/profile/my_resume/): Backend (FastAPI/Python/Node), AI/ML agents
+# (LangChain/LangGraph/RAG/LLM, TFT/ONNX, Qdrant embeddings), Cloud/DevOps
+# (AWS EC2/S3/Lambda/EKS/ECR, GCP Cloud Run, Docker, Kubernetes), and
+# React/Next/React-Native full-stack. Counts are the live <h1> totals at recon.
 _CATEGORIES = [
     "backend-development-internship",          # 125
     "python-django-internship",                # 61
@@ -81,6 +87,10 @@ _CATEGORIES = [
     "natural-language-processing-internship",  # 40
     "computer-vision-internship",              # 12
     "sql-internship",                          # 75
+    "devops-internship",                       # resume: AWS/GCP/Docker/K8s
+    "cloud-computing-internship",              # resume: EC2/S3/Lambda/Cloud Run
+    "react-native-internship",                 # resume: React Native mobile app
+    "node-js-development-internship",          # resume: Node/Express backend
 ]
 _WFH_CATEGORIES = [
     "work-from-home-backend-development-internship",
@@ -89,21 +99,37 @@ _WFH_CATEGORIES = [
     "work-from-home-machine-learning-internship",
     "work-from-home-data-science-internship",
     "work-from-home-artificial-intelligence-internship",
+    "work-from-home-devops-internship",
+    "work-from-home-full-stack-development-internship",
 ]
 
 # Resume-derived positive role/tech keywords. A card title MUST contain one.
+# Mirrors the user's actual stack: backend, AI/ML-agents, cloud/devops,
+# React/Next full-stack. (config/profile/my_resume parsed 2026-05-30.)
 _POSITIVE = [
+    # Backend
     "backend", "back end", "back-end", "python", "django", "fastapi", "flask",
     "api develop", "rest api", "golang", "go developer", "rust",
-    "node", "nodejs", "node.js", "full stack", "fullstack", "full-stack",
+    "node", "nodejs", "node.js", "express",
+    # Full-stack + frontend (resume: React, Next.js, React Native, TS)
+    "full stack", "fullstack", "full-stack", "react", "next.js", "nextjs",
+    "react native", "typescript", "web develop", "mern", "mobile app develop",
+    # Generic SDE
     "software develop", "software engineer", "software development engineer", "sde",
+    "programming", "developer", "engineer", "automation", "web scraping", "scraping",
+    # AI / ML / agents (resume's core: LangChain, LangGraph, RAG, LLM, MCP)
     "machine learning", "ml engineer", "ml intern", "deep learning",
     "data science", "data scientist", "data engineer", "data engineering",
+    "data analyst", "analytics engineer",
     "nlp", "natural language", "llm", "generative ai", "genai", "gen ai",
-    "computer vision", "pytorch", "tensorflow", "ai engineer", "ai/ml",
-    "ai intern", "artificial intelligence", "devops", "sql develop",
-    "programming", "developer", "engineer", "automation", "web scraping",
-    "scraping", "data analyst", "analytics engineer", "web develop",
+    "computer vision", "pytorch", "tensorflow", "ai engineer", "ai/ml", "ai intern",
+    "artificial intelligence", "langchain", "langgraph", "rag", "agentic",
+    "ai agent", "agent develop", "prompt", "mlops", "ml ops",
+    # Cloud / DevOps (resume: AWS, GCP, Docker, Kubernetes)
+    "devops", "dev ops", "cloud", "aws", "gcp", "azure", "docker", "kubernetes",
+    "k8s", "sre", "site reliability", "platform engineer", "infrastructure",
+    # DB
+    "sql develop", "database",
 ]
 
 # Negative tokens -- reject the title outright.
@@ -119,9 +145,34 @@ _NEGATIVE = [
     "lead generation", "lead gen", "field sales", "data entry", "ms excel",
     "ms office", "branding", "influencer", "market research", "survey",
     "architect", "civil", "mechanical", "electrical",
+    # Guard the broadened positive list: "cloud kitchen" is a food-delivery
+    # role (matches bare "cloud"); "salesforce" admin/sales roles match
+    # nothing technical here; "ui/ux" pulls design.
+    "cloud kitchen", "salesforce", "ui/ux", "ux/ui", "wordpress", "shopify",
 ]
 
-_IMPERSONATE = ["chrome124", "chrome120", "chrome131", "chrome116"]
+# One impersonation profile is picked ONCE per run and reused for every request
+# on the same Session -- rotating the JA3/UA mid-session is itself a bot tell
+# (a real browser keeps one fingerprint for the whole visit). Each tuple is
+# (curl_cffi impersonate target, matching real UA string, Sec-CH-UA header)
+# so the TLS fingerprint, User-Agent, and client-hints all agree.
+_PROFILES = [
+    (
+        "chrome124",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    ),
+    (
+        "chrome120",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    ),
+    (
+        "chrome131",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    ),
+]
 
 _NON_NUMERIC = ("unpaid", "negotiable", "performance", "competitive", "not disclosed", "as per")
 _NUM_RE = re.compile(r"[\d,]+(?:\.\d+)?")
@@ -166,33 +217,103 @@ def _bootstrap_score(cmin: float) -> float:
     return round(min(0.99, 0.60 + cmin / 300000.0), 4)
 
 
-def _headers() -> dict[str, str]:
+def _platform_token(ua: str) -> str:
+    if "Windows" in ua:
+        return '"Windows"'
+    if "Mac OS" in ua:
+        return '"macOS"'
+    return '"Linux"'
+
+
+def _base_headers(ua: str, sec_ch_ua: str) -> dict[str, str]:
+    """Realistic navigation headers consistent with the chosen UA. Sec-Fetch-*
+    and the client-hints match what Chrome actually sends on a top-level
+    document navigation; the platform hint is derived from the UA so they never
+    disagree (a mismatch is a classic headless tell)."""
     return {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-        "Referer": f"{_BASE}/internships/",
-        "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-IN,en-GB;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "Sec-Ch-Ua": sec_ch_ua,
         "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Linux"',
+        "Sec-Ch-Ua-Platform": _platform_token(ua),
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-User": "?1",
         "Upgrade-Insecure-Requests": "1",
     }
 
 
-def _fetch(url: str) -> str | None:
-    """curl_cffi GET with a rotating Chrome TLS/JA3 fingerprint."""
-    imp = random.choice(_IMPERSONATE)
-    try:
-        r = cr.get(url, impersonate=imp, headers=_headers(), timeout=25)
-    except Exception as exc:
-        print(f"  ! fetch error {url}: {exc}")
+def _sleep(seconds: float) -> None:
+    """Blocking sleep -- used inside the synchronous _Fetcher (HTTP I/O is sync)."""
+    time.sleep(seconds)
+
+
+class _Fetcher:
+    """Stateful HTTP fetcher with browser-like evasion.
+
+    Holds a single ``curl_cffi.Session`` so cookies persist across the whole run
+    (Internshala sets ``ci_session`` etc. on the first hit -- carrying them
+    forward is exactly what a real browser does). One impersonation profile is
+    chosen per run and never rotated. A warm-up GET of the listing root primes
+    cookies and gives every later request a same-origin ``Referer``; ``Sec-Fetch-
+    Site`` flips from ``none`` (first navigation) to ``same-origin`` thereafter.
+    403/429 trigger exponential backoff with one re-warm before giving up.
+    """
+
+    def __init__(self) -> None:
+        self.imp, self.ua, self.sec_ch_ua = random.choice(_PROFILES)
+        self.session = cr.Session(impersonate=self.imp)
+        self._last_url = f"{_BASE}/"
+        self._warmed = False
+
+    def _headers(self, *, first: bool) -> dict[str, str]:
+        h = _base_headers(self.ua, self.sec_ch_ua)
+        h["Referer"] = self._last_url
+        h["Sec-Fetch-Site"] = "none" if first else "same-origin"
+        return h
+
+    def warmup(self) -> bool:
+        """Hit the listing root once to acquire cookies + a real referer."""
+        url = f"{_BASE}/internships/"
+        try:
+            r = self.session.get(url, headers=self._headers(first=True), timeout=25)
+        except Exception as exc:
+            print(f"  ! warmup error: {exc}")
+            return False
+        ok = r.status_code == 200
+        if ok:
+            self._last_url = url
+            self._warmed = True
+            print(f"  [warmup] {self.imp} cookies={len(self.session.cookies)} ok")
+        else:
+            print(f"  ! warmup HTTP {r.status_code}")
+        return ok
+
+    def get(self, url: str) -> str | None:
+        """GET with up to 3 attempts; exponential backoff + one re-warm on 403/429."""
+        for attempt in range(3):
+            try:
+                r = self.session.get(url, headers=self._headers(first=not self._warmed), timeout=25)
+            except Exception as exc:
+                print(f"  ! fetch error {url}: {exc}")
+                _sleep(2.0 * (attempt + 1))
+                continue
+            if r.status_code == 200:
+                self._last_url = url
+                return r.text
+            if r.status_code in (403, 429, 503):
+                back = 5.0 * (2**attempt) + random.uniform(0, 3)
+                print(f"  ! HTTP {r.status_code} {url} -> backoff {back:.1f}s (attempt {attempt + 1}/3)")
+                _sleep(back)
+                if attempt == 0:  # one re-warm after the first block
+                    self._warmed = False
+                    self.warmup()
+                continue
+            print(f"  ! HTTP {r.status_code} {url}")
+            return None
         return None
-    if r.status_code != 200:
-        print(f"  ! HTTP {r.status_code} {url}")
-        return None
-    return r.text
 
 
 def _title_ok(title: str) -> bool:
@@ -307,10 +428,14 @@ async def run(dry_run: bool, max_pages: int) -> None:
     survivors: list[dict] = []
     seen: set[str] = set()
 
+    fetcher = _Fetcher()
+    fetcher.warmup()
+    await _jitter(1.0, 2.5)
+
     for cat in cats:
         for page in range(1, max_pages + 1):
             url = f"{_BASE}/internships/{cat}/page-{page}/" if page > 1 else f"{_BASE}/internships/{cat}/"
-            html = _fetch(url)
+            html = fetcher.get(url)
             stats["fetched"] += 1
             if not html:
                 break
