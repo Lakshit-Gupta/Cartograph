@@ -44,12 +44,19 @@ class CamoufoxEngine:
         # `Any` because the camoufox type is only importable lazily; keeping the
         # annotation loose avoids a module-load import of camoufox.
         self._browser: Any | None = None
+        # The AsyncCamoufox context-manager is held separately from the Browser
+        # it yields: `__aenter__()` RETURNS the launched Playwright Browser, and
+        # teardown must call `__aexit__` on the CM (the Browser has none).
+        self._camoufox_cm: Any | None = None
 
     async def start(self) -> None:
         """Launch the underlying camoufox browser if it is not already up.
 
-        Mirrors `BrowserPool._spawn`: instantiate `AsyncCamoufox` then drive its
-        async context-manager `__aenter__` by hand so we own the lifecycle.
+        Mirrors `CamoufoxFetcher`'s use of `AsyncCamoufox`: instantiate it, then
+        drive its async context-manager `__aenter__` by hand so we own the
+        lifecycle. **`__aenter__()` RETURNS the launched Playwright `Browser`** —
+        the `AsyncCamoufox` CM object itself has no `new_context`, so we store the
+        returned browser (not the CM) and call `new_context` on it.
         `headless="virtual"` runs Firefox under Xvfb (the ThinkPad/Pi pattern);
         `humanize=True` enables camoufox's built-in timing jitter.
         """
@@ -61,9 +68,9 @@ class CamoufoxEngine:
         from camoufox.async_api import AsyncCamoufox
 
         headless_mode: bool | str = "virtual" if self._headless else False
-        browser = AsyncCamoufox(humanize=True, headless=headless_mode)
-        await browser.__aenter__()
-        self._browser = browser
+        cm = AsyncCamoufox(humanize=True, headless=headless_mode)
+        self._browser = await cm.__aenter__()
+        self._camoufox_cm = cm
         _log.info("camoufox_engine_started", headless=headless_mode)
 
     def is_alive(self) -> bool:
@@ -122,8 +129,12 @@ class CamoufoxEngine:
         _log.info("camoufox_engine_shutdown")
 
     async def _teardown(self) -> None:
-        browser = self._browser
+        # Tear down via the CM that launched the browser — `__aexit__` lives on
+        # the AsyncCamoufox CM, not on the Browser it yielded. Clear both handles
+        # first so a relaunch starts clean even if teardown raises.
+        cm = self._camoufox_cm
         self._browser = None
-        if browser is not None:
+        self._camoufox_cm = None
+        if cm is not None:
             with contextlib.suppress(Exception):
-                await browser.__aexit__(None, None, None)
+                await cm.__aexit__(None, None, None)
