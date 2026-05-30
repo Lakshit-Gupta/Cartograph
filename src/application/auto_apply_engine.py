@@ -1,8 +1,10 @@
 """Pick top-N opps that meet ALL filter criteria and dispatch them.
 
 Used by:
-  - /auto-apply slash command (user-triggered batch)
-  - nightly auto-apply cron (08:30 IST, src/workers/scheduler.py)
+  - the lane-split slash commands `/auto-apply-inter` (category=internship) and
+    `/auto-apply-job` (category=fulltime), which pass `category=` to scope the
+    pool to one vertical (user-triggered batch)
+  - nightly auto-apply cron (08:30 IST, src/workers/scheduler.py), un-scoped
 
 Filter pipeline (executed entirely in SQL — no per-row Python):
 
@@ -177,6 +179,7 @@ async def find_eligible(
     *,
     user_id: int,
     limit: int,
+    category: str | None = None,
 ) -> list[EligibleOpp]:
     """SQL query — returns up to `limit` opps that pass every hard filter.
 
@@ -184,6 +187,11 @@ async def find_eligible(
     raise) goes live the moment prefs.yaml is edited + applier reloads,
     without restarting any worker. The engine consults prefs on every
     call.
+
+    `category` scopes the pool to one OppCategory ('internship' / 'fulltime')
+    so the lane-split slash commands (`/auto-apply-inter`, `/auto-apply-job`)
+    never mix internships and jobs. None = every whitelisted source (legacy
+    behaviour, used by the cron path).
     """
     prefs = _load_prefs_block()
     if not prefs.get("enabled", False):
@@ -217,6 +225,10 @@ async def find_eligible(
         # signal. Other sources (ATS, RSS) populate posted_at correctly,
         # so the COALESCE prefers it when present.
         f"COALESCE(o.posted_at, o.first_seen) > NOW() - INTERVAL '{max_age_days} days'",
+        # Skip listings past their apply-by deadline. The discovery worker
+        # populates expires_at from the Internshala card's "Apply By" date;
+        # NULL (no deadline captured) passes through (fail-open).
+        "(o.expires_at IS NULL OR o.expires_at > NOW())",
     ]
     if isinstance(min_comp_inr, int | float) and min_comp_inr > 0:
         # STRICT: drop the "OR comp_min_inr IS NULL" pass-through. Pre-V023
@@ -241,6 +253,13 @@ async def find_eligible(
     if neg_clause:
         where_clauses.append(neg_clause)
 
+    # Lane scope. Bound as $2 (the only non-literal filter besides user_id) so
+    # the enum value is never string-interpolated into the SQL.
+    args: list[Any] = [user_id]
+    if category is not None:
+        where_clauses.append("o.category = $2")
+        args.append(category)
+
     sql = f"""
     SELECT o.id, os.score, s.slug, o.title, o.company, o.apply_url
     FROM opportunities o
@@ -251,7 +270,7 @@ async def find_eligible(
     LIMIT {int(limit)}
     """
     try:
-        rows = await fetch_all(sql, user_id)
+        rows = await fetch_all(sql, *args)
     except Exception as e:
         _log.exception("auto_apply_engine_query_failed", err=str(e))
         return []
@@ -281,6 +300,7 @@ async def dispatch(
     user_id: int,
     requested_count: int | None = None,
     source: str = "auto_cron",
+    category: str | None = None,
 ) -> DispatchSummary:
     """Find eligible opps and enqueue them onto Streams.APPLY.
 
@@ -309,7 +329,7 @@ async def dispatch(
 
     # Over-fetch a small margin so we still hit `target` even if a few
     # opps fail the per-opp policy gate inside applier-worker.
-    candidates = await find_eligible(user_id=user_id, limit=target * 3)
+    candidates = await find_eligible(user_id=user_id, limit=target * 3, category=category)
     if not candidates:
         return DispatchSummary(
             candidates_found=0,

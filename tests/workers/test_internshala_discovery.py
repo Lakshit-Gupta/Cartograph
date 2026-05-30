@@ -13,6 +13,7 @@ No browser / Redis / Postgres. Covers the side-effect-free pieces:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ from src.workers.internshala_discovery.report import (
     build_summary,
     dedup_key,
     passes_floor,
+    passes_validity,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -200,6 +202,23 @@ def test_env_used_when_prefs_absent(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.smoke
+def test_max_age_days_default_and_prefs_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sel = tmp_path / "sel.yaml"
+    mat = tmp_path / "mat.yaml"
+    _write_selectors(sel, "v1")
+    _write_matrix(mat)
+    monkeypatch.setenv("INTERNSHALA_SELECTORS_PATH", str(sel))
+    monkeypatch.setenv("INTERNSHALA_MATRIX_PATH", str(mat))
+    # No prefs, no env -> hardcoded default of 14.
+    monkeypatch.setattr(cfg_mod, "_prefs_overrides", dict)
+    monkeypatch.delenv("INTERNSHALA_MAX_AGE_DAYS", raising=False)
+    assert load_config().max_age_days == 14
+    # prefs wins.
+    monkeypatch.setattr(cfg_mod, "_prefs_overrides", lambda: {"max_age_days": 7})
+    assert load_config().max_age_days == 7
+
+
+@pytest.mark.smoke
 def test_combo_filter_selects_single_combo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     sel = tmp_path / "sel.yaml"
     mat = tmp_path / "mat.yaml"
@@ -239,6 +258,40 @@ def test_passes_floor_table(comp_min, comp_max, currency, period, expected) -> N
 
 
 # --------------------------------------------------------------------------- #
+# Validity gate table — deadline primary, posted-age backstop, fail-open.
+# --------------------------------------------------------------------------- #
+_VNOW = datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC)
+
+
+def _opp_dates(*, expires_at=None, posted_at=None) -> Opportunity:
+    opp = _opp(comp_min=40_000)
+    opp.expires_at = expires_at
+    opp.posted_at = posted_at
+    return opp
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize(
+    ("expires_at", "posted_at", "expected"),
+    [
+        # Explicit deadline is authoritative when present.
+        (_VNOW + timedelta(days=5), None, True),  # future deadline -> keep
+        (_VNOW - timedelta(seconds=1), None, False),  # just-past deadline -> drop
+        (_VNOW + timedelta(days=5), _VNOW - timedelta(days=90), True),  # future deadline beats stale post
+        # No deadline -> posted-age backstop (max_age_days=14).
+        (None, _VNOW - timedelta(days=3), True),  # fresh post -> keep
+        (None, _VNOW - timedelta(days=14), True),  # exactly at the window edge -> keep
+        (None, _VNOW - timedelta(days=20), False),  # stale post -> drop
+        # No signal at all -> fail-open keep.
+        (None, None, True),
+    ],
+)
+def test_passes_validity_table(expires_at, posted_at, expected) -> None:
+    opp = _opp_dates(expires_at=expires_at, posted_at=posted_at)
+    assert passes_validity(opp, _VNOW, 14) is expected
+
+
+# --------------------------------------------------------------------------- #
 # Dedup key purity.
 # --------------------------------------------------------------------------- #
 @pytest.mark.smoke
@@ -272,6 +325,8 @@ def _report() -> DiscoveryCycleReport:
         cards_rejected_subfloor=50,
         cards_rejected_dedup=20,
         cards_rejected_parse=3,
+        cards_rejected_expired=7,
+        cards_rejected_experience=4,
         healthy=True,
         selectors_version="2026.05.29.v1",
         matrix_version="2026.05.29.v1",
@@ -295,6 +350,8 @@ _EXPECTED_ROW_KEYS = {
     "cards_rejected_subfloor",
     "cards_rejected_dedup",
     "cards_rejected_parse",
+    "cards_rejected_expired",
+    "cards_rejected_experience",
     "healthy",
     "selectors_version",
     "matrix_version",

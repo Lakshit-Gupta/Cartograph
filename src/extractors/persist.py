@@ -37,9 +37,10 @@ async def persist_and_publish(q: RedisQ, opp: Opportunity, *, user_id: int = 1) 
                 location, remote_type, category,
                 posted_at, expires_at, apply_url, apply_method,
                 fingerprint_hash, extraction_tier, extraction_confidence,
+                years_experience_min,
                 state
             )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::remote_type_enum,$12,$13,$14,$15,$16::apply_method_enum,$17,$18,$19,'queued')
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::remote_type_enum,$12,$13,$14,$15,$16::apply_method_enum,$17,$18,$19,$20,'queued')
             ON CONFLICT (canonical_url) DO UPDATE SET last_seen = NOW()
             RETURNING id
             """,
@@ -62,6 +63,7 @@ async def persist_and_publish(q: RedisQ, opp: Opportunity, *, user_id: int = 1) 
             opp.fingerprint_hash,
             opp.extraction_tier,
             opp.extraction_confidence,
+            opp.years_experience_min,
         )
     if rec is None:
         return None

@@ -39,17 +39,28 @@ docker run -d --rm \
     -e POSTGRES_USER=postgres \
     "$IMAGE" >/dev/null
 
+# Require N CONSECUTIVE ready checks before declaring the server up. The
+# pgvector entrypoint boots a temporary init server (which flashes ready), then
+# shuts it down to start the real one — a single pg_isready can pass during that
+# window and the next psql connection then races the bounce. Demanding 5 in a
+# row (2.5s settled) clears the init-bounce reliably.
 echo -n "→ waiting for postgres ready"
-for _ in $(seq 1 60); do
+ready_streak=0
+for _ in $(seq 1 120); do
     if docker exec "$CONTAINER" pg_isready -U postgres -q 2>/dev/null; then
-        echo " ✓"
-        break
+        ready_streak=$((ready_streak + 1))
+        if [ "$ready_streak" -ge 5 ]; then
+            echo " ✓"
+            break
+        fi
+    else
+        ready_streak=0
     fi
     echo -n "."
     sleep 0.5
 done
 
-if ! docker exec "$CONTAINER" pg_isready -U postgres -q; then
+if [ "$ready_streak" -lt 5 ]; then
     echo " ✗ postgres never became ready" >&2
     docker logs "$CONTAINER" >&2 || true
     exit 1

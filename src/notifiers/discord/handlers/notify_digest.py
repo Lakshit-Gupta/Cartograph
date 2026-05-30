@@ -60,6 +60,7 @@ async def _load_top_opps(tenant_id: int) -> list[dict[str, Any]]:
         WHERE s.user_id = $1
           AND o.state = 'ranked'
           AND o.first_seen > NOW() - INTERVAL '36 hours'
+          AND (o.expires_at IS NULL OR o.expires_at > NOW())
         ORDER BY s.score DESC
         LIMIT 10
         """,

@@ -108,7 +108,9 @@ def _build_degraded_embed(payload: dict[str, Any]) -> discord.Embed:
         value=(
             f"sub-floor {details.get('cards_rejected_subfloor', 0)} · "
             f"dedup {details.get('cards_rejected_dedup', 0)} · "
-            f"parse {details.get('cards_rejected_parse', 0)}"
+            f"parse {details.get('cards_rejected_parse', 0)} · "
+            f"expired {details.get('cards_rejected_expired', 0)} · "
+            f"experience {details.get('cards_rejected_experience', 0)}"
         ),
         inline=False,
     )

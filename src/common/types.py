@@ -108,6 +108,7 @@ class Opportunity(BaseModel):
     category: OppCategory = OppCategory.UNKNOWN
     posted_at: datetime | None = None
     expires_at: datetime | None = None
+    years_experience_min: int | None = None
     apply_url: str | None = None
     apply_method: ApplyMethod | None = None
     raw_payload_s3_key: str | None = None

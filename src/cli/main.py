@@ -20,6 +20,7 @@ import click
 
 from src.cli.identity import identity_group
 from src.cli.internshala_discover import internshala_discover
+from src.cli.internshala_jobs_discover import internshala_jobs_discover
 from src.cli.opps import opps_group
 from src.cli.routes import routes_group
 from src.cli.sources import sources_group, targets_group
@@ -129,6 +130,7 @@ cli.add_command(targets_group)
 cli.add_command(tenant_group)
 cli.add_command(routes_group)
 cli.add_command(internshala_discover)
+cli.add_command(internshala_jobs_discover)
 
 
 if __name__ == "__main__":

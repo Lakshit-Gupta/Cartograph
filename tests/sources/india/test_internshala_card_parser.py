@@ -9,6 +9,7 @@ parser built concurrently (Agent B). A separate test confirms the real
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -138,6 +139,61 @@ def test_apply_by_suffix_does_not_corrupt_fields(stub_stipend):
     # "Apply By" date text lives outside the stipend node — comp stays clean.
     assert opp.comp_min == 32000
     assert opp.comp_period == "month"
+
+
+def test_apply_by_populates_expires_at(stub_stipend):
+    """The card's "Apply By 30 Jun' 26" is parsed into an inclusive end-of-day
+    expires_at (the validity gate keys off this)."""
+    opp = parse_card(
+        _load("listing_card_05_apply_by_suffix.html"),
+        source_id=1,
+        selectors=DEFAULT_CARD_SELECTORS,
+        now=datetime(2026, 5, 1, tzinfo=UTC),
+    )
+    assert opp is not None
+    assert opp.expires_at == datetime(2026, 6, 30, 23, 59, 59, tzinfo=UTC)
+
+
+def test_missing_apply_by_leaves_dates_none(stub_stipend):
+    """A card with no apply-by / posted node leaves both date fields None
+    (fail-open: the gate keeps it)."""
+    opp = parse_card(
+        _load("listing_card_01_remote_single.html"),
+        source_id=1,
+        selectors=DEFAULT_CARD_SELECTORS,
+        now=datetime(2026, 5, 1, tzinfo=UTC),
+    )
+    assert opp is not None
+    assert opp.expires_at is None
+    assert opp.posted_at is None
+
+
+def test_past_deadline_card_still_parses(stub_stipend):
+    """A past-deadline card parses successfully with a past expires_at — the
+    parser never drops it; the validity gate does."""
+    now = datetime(2026, 5, 31, tzinfo=UTC)
+    opp = parse_card(
+        _load("listing_card_13_past_deadline.html"),
+        source_id=1,
+        selectors=DEFAULT_CARD_SELECTORS,
+        now=now,
+    )
+    assert opp is not None
+    assert opp.expires_at is not None
+    assert opp.expires_at < now
+
+
+def test_posted_relative_populates_posted_at(stub_stipend):
+    """A "Posted 4 days ago" node becomes an absolute posted_at."""
+    now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC)
+    opp = parse_card(
+        _load("listing_card_14_posted_relative.html"),
+        source_id=1,
+        selectors=DEFAULT_CARD_SELECTORS,
+        now=now,
+    )
+    assert opp is not None
+    assert opp.posted_at == datetime(2026, 5, 27, 12, 0, 0, tzinfo=UTC)
 
 
 def test_multi_skill_card(stub_stipend):

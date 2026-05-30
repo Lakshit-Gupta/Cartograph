@@ -17,9 +17,11 @@ INR normalisation happens downstream in the ranker.
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 
 from selectolax.parser import HTMLParser
 
+from src.common.internshala_posted_parser import parse_apply_by, parse_posted_relative
 from src.common.stipend_parser import parse_stipend
 from src.common.types import ApplyMethod, OppCategory, Opportunity, RemoteType
 
@@ -35,6 +37,8 @@ DEFAULT_CARD_SELECTORS: dict[str, str] = {
     "card_location": ".locations span a, .location_link",
     "card_stipend": ".stipend, .stipend_container_table_cell",
     "card_apply_link": "a.view_detail_button",
+    "card_apply_by": ".apply_by .item_body, .other_detail_item.apply_by .item_body",
+    "card_posted_relative": ".posted-by, .status-success",
 }
 
 
@@ -54,17 +58,31 @@ def _text(card: HTMLParser, selector: str) -> str | None:
     return node.text(strip=True) if node else None
 
 
-def parse_card(card_html: str, *, source_id: int, selectors: dict[str, str]) -> Opportunity | None:
+def parse_card(
+    card_html: str,
+    *,
+    source_id: int,
+    selectors: dict[str, str],
+    now: datetime | None = None,
+) -> Opportunity | None:
     """Parse one Internshala listing card into an Opportunity.
 
     `card_html` is the outerHTML of a single `div.individual_internship`
     element. `selectors` carries CSS selectors under the keys `card_title`,
-    `card_company`, `card_location`, `card_stipend`, `card_apply_link`; any
-    missing key falls back to `DEFAULT_CARD_SELECTORS`.
+    `card_company`, `card_location`, `card_stipend`, `card_apply_link`,
+    `card_apply_by`, `card_posted_relative`; any missing key falls back to
+    `DEFAULT_CARD_SELECTORS`.
+
+    `now` (default `datetime.now(UTC)`) anchors the relative-date parsing so
+    the caller can pass one clock shared with the validity gate. The card's
+    "Apply By" deadline populates `expires_at` and the "Posted X ago" text
+    populates `posted_at`; both stay None when the card omits or garbles them
+    (fail-open — the gate keeps such cards).
 
     Returns None when the title is empty or the stipend is unparseable — the
     caller drops the card in both cases.
     """
+    now = now or datetime.now(UTC)
     tree = HTMLParser(card_html)
     # The fixture / outerHTML wraps a single card; reach into it when present
     # so selectors that assume the card root resolve, but degrade to the whole
@@ -100,6 +118,9 @@ def parse_card(card_html: str, *, source_id: int, selectors: dict[str, str]) -> 
 
     is_remote = "work from home" in (card.text() or "").lower()
 
+    expires_at = parse_apply_by(_text(card, _sel(selectors, "card_apply_by")), now=now)
+    posted_at = parse_posted_relative(_text(card, _sel(selectors, "card_posted_relative")), now=now)
+
     return Opportunity(
         source_id=source_id,
         canonical_url=absolute or _BASE_URL,
@@ -113,6 +134,8 @@ def parse_card(card_html: str, *, source_id: int, selectors: dict[str, str]) -> 
         location=location,
         remote_type=RemoteType.REMOTE if is_remote else RemoteType.ONSITE,
         category=OppCategory.INTERNSHIP,
+        posted_at=posted_at,
+        expires_at=expires_at,
         apply_url=absolute or _BASE_URL,
         apply_method=ApplyMethod.IN_PLATFORM,
         fingerprint_hash=_fp(company or "", title, location or ""),

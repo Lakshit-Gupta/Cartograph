@@ -349,7 +349,7 @@ LIMIT 20;
 | T+5 min | First `discovery_cycle_log` row inserted; first `discovery_cycle_report` card in `#🛠-source-health` |
 | T+15 min | ≥ 3 cycles completed; at least one with ≥ 10 cards published (testing cadence) |
 | T+1 h | `opportunities.comp_min` for Internshala skewed ≥ 30k; no civil / mechanical / marketing noise |
-| T+4 h | `/auto-apply preview 10` returns backend / ML candidates with declared ≥ 30k stipend |
+| T+4 h | `/auto-apply-inter preview 10` returns backend / ML candidates with declared ≥ 30k stipend |
 | T+24 h | No `discovery_dry_streak` and no `internshala_session_expired` alerts in `#🔔-alerts` |
 
 Spot-check the floor enforcement directly (Pi):

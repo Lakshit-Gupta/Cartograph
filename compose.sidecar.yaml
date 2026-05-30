@@ -138,6 +138,55 @@ services:
         max-size: "50m"
         max-file: "3"
 
+  internshala-jobs-discovery-worker:
+    # Phase 4.x JOBS vertical — sibling of internshala-discovery-worker for
+    # full-time roles. Navigates the /jobs/ + /fresher-jobs/ URL variants
+    # (cities/work-from-home/salary in the path; NO dropdowns), scrapes cards,
+    # post-filters to a 12 LPA STRICT comp_min floor + an experience cap, dedups
+    # against Redis (shared keyspace), and publishes survivors onto stream:rank.
+    # Reuses the same marked_path-discovery image; only the entrypoint module
+    # differs (overridden below). Single replica — shares the Internshala
+    # identity with the internship worker. Distinct heartbeat key so the two
+    # healthchecks don't clobber each other. Same image as
+    # internshala-discovery-worker — building either tags marked_path-discovery.
+    build:
+      context: .
+      dockerfile: docker/discovery.Dockerfile
+    image: marked_path-discovery:latest
+    entrypoint: ["python", "-m", "src.workers.internshala_jobs_discovery_worker"]
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env.sidecar
+    environment:
+      INTERNSHALA_JOBS_IDLE_SEC: "180"            # 3 min testing cadence; raise to 1800 in prod
+      INTERNSHALA_JOBS_BACKOFF_SEC: "600"
+      INTERNSHALA_JOBS_SALARY_FLOOR_LPA: "12"
+      INTERNSHALA_JOBS_MAX_EXPERIENCE_YEARS: "1"
+      INTERNSHALA_JOBS_MAX_CYCLES_PER_ENGINE: "10"
+      INTERNSHALA_JOBS_SELECTORS_PATH: /app/config/sources/internshala_jobs_selectors.yaml
+      INTERNSHALA_JOBS_IDENTITY_LABEL: raju_internshala
+    volumes:
+      - ./config:/app/config:ro
+    mem_limit: 1500m
+    memswap_limit: 1500m
+    shm_size: '2gb'
+    tmpfs:
+      - /tmp:size=2g
+    healthcheck:
+      # Liveness = a fresh jobs heartbeat key. The worker SETs
+      # discovery:heartbeat:jobs every 30s with a 90s TTL (namespaced so it does
+      # not collide with the internship worker's discovery:heartbeat key).
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -a \"$REDIS_PASSWORD\" --no-auth-warning get discovery:heartbeat:jobs | grep -q . || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
   apply-browser-worker:
     # Built natively on the spare (x86_64 Pop OS — no QEMU cross-compile).
     # Extends the camoufox image so Firefox + Xvfb + ghost-cursor are

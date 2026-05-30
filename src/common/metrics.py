@@ -142,7 +142,7 @@ discovery_cards_published_total = Counter(
 )
 discovery_cards_rejected_total = Counter(
     "discovery_cards_rejected_total",
-    "Cards dropped pre-publish, by reason (parse|subfloor|dedup).",
+    "Cards dropped pre-publish, by reason (parse|subfloor|dedup|expired).",
     labelnames=("reason",),
     registry=REGISTRY,
 )

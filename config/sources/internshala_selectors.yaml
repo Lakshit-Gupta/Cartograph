@@ -47,6 +47,12 @@ selectors:
     card_location: ".locations span a, .location_link"
     card_stipend: ".stipend, .stipend_container_table_cell"
     card_apply_link: "a.view_detail_button"
+    # Validity signals. `card_apply_by` is the explicit "Apply By 30 Jun' 26"
+    # deadline (-> expires_at); `card_posted_relative` is the "Posted X ago"
+    # text (-> posted_at). RECON: confirm both nodes on a live listing card —
+    # not every card carries an apply-by deadline. A miss leaves the dates None
+    # (fail-open: the validity gate keeps such cards).
+    card_apply_by: ".apply_by .item_body, .other_detail_item.apply_by .item_body"
     card_posted_relative: ".posted-by, .status-success"
 
   # Pagination. The worker clicks `load_more_button` between pages and stops

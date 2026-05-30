@@ -1,17 +1,13 @@
-"""Browser-driven scrape orchestration: `run_combo` + `run_cycle`.
+"""Jobs scrape orchestration: `run_combo` + `run_cycle`.
 
-`run_cycle` walks the dropdown matrix, wrapping each combo in a 30 s wall-clock
-`asyncio.wait_for`. `run_combo` drives one dropdown click sequence through the
-`BrowserEngine`, scrapes the resulting listing cards across `pages_per_url`
-Load-more pages, floor-filters + dedups each card, and persists survivors via
-`persist_and_publish`.
-
-The low-level page operations (dropdown clicks, challenge detection, miss
-capture) live in `browser_ops.py`; this module is the control flow on top of
-them. Selector misses screenshot the page + skip the combo; a login redirect or
-captcha aborts the whole cycle `healthy=False` (the worker NEVER solves a
-challenge). Readiness is gated on `wait_for_selector(card_root)`, never
-`networkidle` — Internshala telemetry keeps the connection busy indefinitely.
+Mirrors the internship cycle but the "combo" is a URL variant (general /
+fresher) rather than a dropdown combo — jobs filter via URL path, so `run_combo`
+navigates the built `variant.url` and scrapes; there is no dropdown driving. The
+shared page primitives (`scrape_cards`, `click_load_more`, `detect_challenge`,
+`dismiss_modal`, `capture_miss`, `sel`) are imported from the internship
+`browser_ops`; the cycle-report dataclass + `passes_validity` + `dedup_key` come
+from the internship `report`. Only the two jobs gates (`passes_salary_floor`
+strict-min, `passes_experience`) and the jobs card parser are jobs-specific.
 """
 
 from __future__ import annotations
@@ -32,30 +28,28 @@ from src.common.queue import RedisQ
 from src.extractors.persist import persist_and_publish
 from src.fetchers.browser.behavioral import humanize_page
 from src.fetchers.browser.engine import BrowserEngine
-from src.sources.india.internshala_card_parser import parse_card
+from src.sources.india.internshala_jobs_card_parser import parse_card
 from src.workers.internshala_discovery.browser_ops import (
     CARD_WAIT_MS,
     ChallengeDetected,
-    SelectorMiss,
     capture_miss,
     click_load_more,
     detect_challenge,
-    drive_dropdowns,
+    dismiss_modal,
     scrape_cards,
     sel,
-)
-from src.workers.internshala_discovery.config import (
-    INTERNSHALA_LISTING_URL,
-    SOURCE_SLUG,
-    Combo,
-    DiscoveryConfig,
 )
 from src.workers.internshala_discovery.report import (
     DiscoveryCycleReport,
     dedup_key,
-    passes_floor,
     passes_validity,
 )
+from src.workers.internshala_jobs_discovery.config import (
+    SOURCE_SLUG,
+    JobsDiscoveryConfig,
+    JobVariant,
+)
+from src.workers.internshala_jobs_discovery.filters import passes_experience, passes_salary_floor
 
 _log = get_logger(__name__)
 
@@ -67,17 +61,12 @@ async def run_combo(
     cookies: list[dict],
     ua: str | None,
     q: RedisQ,
-    cfg: DiscoveryConfig,
-    combo: Combo,
+    cfg: JobsDiscoveryConfig,
+    variant: JobVariant,
     report: DiscoveryCycleReport,
     source_id: int,
 ) -> None:
-    """Drive one combo end-to-end, mutating `report` counters in place.
-
-    Raises `ChallengeDetected` (propagated by `run_cycle` to abort the cycle). A
-    `SelectorMiss` is caught here: the page is screenshotted, the miss is
-    recorded on the report, and the combo is skipped (other combos continue).
-    """
+    """Navigate one URL variant end-to-end, mutating `report` counters in place."""
     t0 = time.monotonic()
     card_root = sel(cfg, "listing", "card_root") or "div.individual_internship"
     listing_selectors = cfg.listing_selectors
@@ -85,19 +74,19 @@ async def run_combo(
     async with engine.open_context(cookies=cookies, ua=ua) as ctx:
         page = await ctx.new_page()
         try:
-            await page.goto(INTERNSHALA_LISTING_URL, wait_until="domcontentloaded")
+            await page.goto(variant.url, wait_until="domcontentloaded")
             await humanize_page(page)
+            await dismiss_modal(page, cfg)
             await detect_challenge(page, cfg)
 
             try:
-                await drive_dropdowns(page, combo, cfg)
                 # Readiness = first card visible. NEVER networkidle.
                 await page.wait_for_selector(card_root, timeout=CARD_WAIT_MS, state="visible")
-            except SelectorMiss as miss:
-                await capture_miss(page, combo, miss.key)
-                report.selector_misses.append(f"{combo.name}:{miss.key}")
-                discovery_selector_miss_total.labels(combo=combo.name, key=miss.key).inc()
-                _log.warning("discovery_selector_miss", combo=combo.name, key=miss.key)
+            except Exception:
+                await capture_miss(page, variant, "listing.card_root")
+                report.selector_misses.append(f"{variant.name}:listing.card_root")
+                discovery_selector_miss_total.labels(combo=variant.name, key="listing.card_root").inc()
+                _log.warning("jobs_card_root_miss", variant=variant.name, url=variant.url)
                 return
 
             await detect_challenge(page, cfg)
@@ -128,24 +117,19 @@ async def run_combo(
                 await page.close()
             except Exception:
                 pass
-    discovery_combo_duration_seconds.labels(combo=combo.name).observe(time.monotonic() - t0)
+    discovery_combo_duration_seconds.labels(combo=variant.name).observe(time.monotonic() - t0)
 
 
 async def _ingest_card(
     card_html: str,
     *,
     q: RedisQ,
-    cfg: DiscoveryConfig,
+    cfg: JobsDiscoveryConfig,
     report: DiscoveryCycleReport,
     source_id: int,
     listing_selectors: dict[str, str],
 ) -> None:
-    """Parse -> floor-filter -> dedup -> persist one card, updating counters.
-
-    Dry-run mode stops before the Redis dedup write + persist so `--dry-run`
-    never mutates Redis or Postgres; the card still counts toward `cards_scraped`
-    and the floor/parse tallies.
-    """
+    """Parse -> salary-floor -> experience -> validity -> dedup -> persist one card."""
     report.cards_scraped += 1
     now = datetime.now(UTC)
     opp = parse_card(card_html, source_id=source_id, selectors=listing_selectors, now=now)
@@ -154,25 +138,28 @@ async def _ingest_card(
         discovery_cards_rejected_total.labels(reason="parse").inc()
         return
 
-    if not passes_floor(opp, cfg.comp_floor_inr):
+    if not passes_salary_floor(opp, cfg.salary_floor_inr):
         report.cards_rejected_subfloor += 1
         discovery_cards_rejected_total.labels(reason="subfloor").inc()
         return
 
-    # Expired / stale guard: drop cards whose "Apply By" deadline has passed
-    # (or, lacking a deadline, that are older than max_age_days). Sits right
-    # after the floor so it shares one clock with parse_card and rejects before
-    # any Redis / Postgres side effects.
+    if not passes_experience(opp, cfg.max_experience_years):
+        report.cards_rejected_experience += 1
+        discovery_cards_rejected_total.labels(reason="experience").inc()
+        return
+
     if not passes_validity(opp, now, cfg.max_age_days):
         report.cards_rejected_expired += 1
         discovery_cards_rejected_total.labels(reason="expired").inc()
         return
 
     if cfg.dry_run:
-        # No Redis / Postgres side effects in dry-run; print to stdout so the CLI
-        # smoke surfaces the survivors.
         report.cards_published += 1
-        print(f"[dry-run] {opp.title} @ {opp.company or '?'} :: {opp.comp_min}-{opp.comp_max} {opp.comp_currency} :: {opp.canonical_url}")
+        print(
+            f"[dry-run] {opp.title} @ {opp.company or '?'} :: "
+            f"{opp.comp_min}-{opp.comp_max} {opp.comp_currency}/{opp.comp_period} :: "
+            f"exp_min={opp.years_experience_min} :: {opp.canonical_url}"
+        )
         return
 
     key = dedup_key(opp.canonical_url)
@@ -184,8 +171,6 @@ async def _ingest_card(
 
     opp_id = await persist_and_publish(q, opp)
     if opp_id is None:
-        # persist_and_publish dedup hit (canonical_url / fingerprint already known
-        # to the extractor dedup layer) — count as a dedup rejection.
         report.cards_rejected_dedup += 1
         discovery_cards_rejected_total.labels(reason="dedup").inc()
         return
@@ -198,18 +183,14 @@ async def run_cycle(
     cookies: list[dict],
     ua: str | None,
     q: RedisQ,
-    cfg: DiscoveryConfig,
+    cfg: JobsDiscoveryConfig,
     *,
     worker_id: str,
     cycle_id: str,
     started_at: str,
     source_id: int,
 ) -> DiscoveryCycleReport:
-    """Run every active combo under a per-combo 30 s wall-clock timeout.
-
-    Returns the populated `DiscoveryCycleReport`. A `ChallengeDetected` from any
-    combo aborts the remaining combos and marks the cycle `healthy=False`.
-    """
+    """Run every active URL variant under a 30 s per-variant wall-clock timeout."""
     t0 = time.monotonic()
     report = DiscoveryCycleReport(
         cycle_id=cycle_id,
@@ -218,27 +199,27 @@ async def run_cycle(
         started_at=started_at,
         duration_sec=0.0,
         selectors_version=cfg.selectors_version,
-        matrix_version=cfg.matrix_version,
+        matrix_version="",
     )
-    for combo in cfg.active_combos():
+    for variant in cfg.active_variants():
         report.combos_attempted += 1
         try:
             await asyncio.wait_for(
-                run_combo(engine, cookies, ua, q, cfg, combo, report, source_id),
+                run_combo(engine, cookies, ua, q, cfg, variant, report, source_id),
                 timeout=_COMBO_TIMEOUT_SEC,
             )
         except TimeoutError:
-            report.combo_timeouts.append(combo.name)
-            discovery_combo_timeouts_total.labels(combo=combo.name).inc()
-            _log.warning("discovery_combo_timeout", combo=combo.name)
+            report.combo_timeouts.append(variant.name)
+            discovery_combo_timeouts_total.labels(combo=variant.name).inc()
+            _log.warning("jobs_combo_timeout", variant=variant.name)
             continue
         except ChallengeDetected as chal:
             report.healthy = False
-            _log.error("discovery_challenge_detected", combo=combo.name, kind=chal.kind)
+            _log.error("jobs_challenge_detected", variant=variant.name, kind=chal.kind)
             break
         except Exception as exc:
-            report.selector_misses.append(f"{combo.name}:exception")
-            _log.warning("discovery_combo_failed", combo=combo.name, err=str(exc))
+            report.selector_misses.append(f"{variant.name}:exception")
+            _log.warning("jobs_combo_failed", variant=variant.name, err=str(exc))
             continue
 
     report.duration_sec = round(time.monotonic() - t0, 2)

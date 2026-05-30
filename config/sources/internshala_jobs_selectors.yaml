@@ -1,0 +1,52 @@
+# Internshala JOBS browser-discovery selector store — SIGHUP-reloadable.
+#
+# Recon'd 2026-05-31 against the LIVE Internshala jobs listing (anonymous
+# curl_cffi fetch — the page is server-rendered, 45 cards parsed cleanly). Each
+# card is a `div.individual_internship` carrying its listing URL in a `data-href`
+# attribute (NOT an <a>), with an icon-keyed `detail-row-1`:
+#   i.ic-16-money     -> salary  (the <span class="mobile"> carries the "/year")
+#   i.ic-16-briefcase -> experience ("No experience required" / "1 year(s)")
+#   i.ic-16-home      -> location
+# Jobs filter via the URL PATH (cities / work-from-home / salary / fresher), so —
+# unlike internships — there is NO dropdown group here.
+#
+# CAVEAT: the recon was logged-OUT. Salary + experience + title + link were all
+# present anonymously, but the apply-by / posted-date cells were not exposed, so
+# `card_apply_by` / `card_posted_relative` remain best-guess (they fail open →
+# expires_at/posted_at stay None → the validity gate keeps the card). Re-verify
+# logged-in on the ThinkPad and refine those two if the apply-by deadline matters.
+#
+# Bump `version` on EVERY edit — the worker logs old → new on each SIGHUP reload.
+version: "2026.05.31.anon-recon.v1"
+
+selectors:
+  # Whole-page root + the onboarding modal Internshala throws on first load.
+  page_root: "body"
+  modal_dismiss: "#newonboardpage_modal .close, .newonboardpage_modal_close, .modal-header .close"
+
+  # Listing card field selectors. `card_root` splits the page into individual
+  # cards; the remaining keys are resolved per-card by
+  # `internshala_jobs_card_parser.parse_card` (which keeps its own fallbacks).
+  # The icon-sibling selectors are the live-verified primaries; the trailing
+  # `.salary` / `.experience` / anchor selectors are drift/fixture fallbacks.
+  listing:
+    card_root: "div.individual_internship"
+    card_title: ".job-internship-name, .heading_4_5.profile, .profile"
+    card_company: ".company-name, .company_and_premium .company-name, p.company a"
+    card_location: ".locations span a, .location_link"
+    card_stipend: "i.ic-16-money ~ span.mobile, i.ic-16-money ~ span.desktop, .salary, .stipend"
+    card_experience: "i.ic-16-briefcase ~ span, .experience, .job-experience"
+    card_apply_link: "a.view_detail_button, a.job-title-href"
+    card_apply_by: ".apply_by .item_body, .other_detail_item.apply_by .item_body"
+    card_posted_relative: ".posted-by, .status-success"
+
+  # Pagination. The worker clicks `load_more_button` between pages and stops
+  # early when `list_end_marker` appears.
+  paginate:
+    load_more_button: "#load_more_internships_button, a.click_source"
+    list_end_marker: ".no-search-results, .empty-listing"
+
+  # Failure markers. A login redirect or a captcha/interstitial aborts the
+  # cycle healthy=False — the worker NEVER attempts to solve a challenge.
+  login_marker: "#login-modal, form[action*='login'], .login-cta"
+  captcha_marker: "iframe[src*='captcha'], .cf-challenge, #px-captcha, .g-recaptcha"

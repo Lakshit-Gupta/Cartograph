@@ -28,10 +28,11 @@ INSERT INTO discovery_cycle_log (
     cycle_id, worker_id, source_slug, started_at, duration_sec,
     combos_attempted, combos_succeeded, combo_timeouts, selector_misses,
     cards_scraped, cards_published, cards_rejected_subfloor,
-    cards_rejected_dedup, cards_rejected_parse, healthy,
+    cards_rejected_dedup, cards_rejected_parse, cards_rejected_expired,
+    cards_rejected_experience, healthy,
     selectors_version, matrix_version
 )
-VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 """
 
 # Column order MUST match the placeholders in _INSERT_CYCLE_LOG above.
@@ -50,6 +51,8 @@ _CYCLE_LOG_COLUMNS = (
     "cards_rejected_subfloor",
     "cards_rejected_dedup",
     "cards_rejected_parse",
+    "cards_rejected_expired",
+    "cards_rejected_experience",
     "healthy",
     "selectors_version",
     "matrix_version",

@@ -34,6 +34,7 @@ RECON_PENDING_SENTINEL = "RECON_PENDING"
 _DEFAULT_IDLE_SEC = 180
 _DEFAULT_BACKOFF_SEC = 600
 _DEFAULT_COMP_FLOOR_INR = 30_000
+_DEFAULT_MAX_AGE_DAYS = 14
 _DEFAULT_MAX_CYCLES_PER_ENGINE = 10
 _DEFAULT_IDENTITY_LABEL = "raju_internshala"
 _DEFAULT_PAGES_PER_URL = 3
@@ -82,6 +83,7 @@ class DiscoveryConfig:
     idle_sec: int
     backoff_sec: int
     comp_floor_inr: float
+    max_age_days: int
     max_cycles_per_engine: int
     identity_label: str
     pages_per_url: int
@@ -230,6 +232,7 @@ def load_config(
         idle_sec=_resolved_int("idle_sec", "INTERNSHALA_IDLE_SEC", _DEFAULT_IDLE_SEC),
         backoff_sec=_env_int("INTERNSHALA_BACKOFF_SEC", _DEFAULT_BACKOFF_SEC),
         comp_floor_inr=float(_resolved_int("comp_floor_inr", "INTERNSHALA_COMP_FLOOR_INR", _DEFAULT_COMP_FLOOR_INR)),
+        max_age_days=_resolved_int("max_age_days", "INTERNSHALA_MAX_AGE_DAYS", _DEFAULT_MAX_AGE_DAYS),
         max_cycles_per_engine=_resolved_int("max_cycles_per_engine", "INTERNSHALA_MAX_CYCLES_PER_ENGINE", _DEFAULT_MAX_CYCLES_PER_ENGINE),
         identity_label=os.environ.get("INTERNSHALA_IDENTITY_LABEL", _DEFAULT_IDENTITY_LABEL),
         pages_per_url=_env_int("INTERNSHALA_PAGES_PER_URL", _DEFAULT_PAGES_PER_URL),
@@ -247,6 +250,7 @@ def load_config(
         "discovery_config_loaded",
         idle_sec=cfg.idle_sec,
         comp_floor_inr=cfg.comp_floor_inr,
+        max_age_days=cfg.max_age_days,
         combos=len(cfg.matrix),
         selectors_version=cfg.selectors_version,
         matrix_version=cfg.matrix_version,

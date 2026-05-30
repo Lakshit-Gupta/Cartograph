@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
 from src.common.currency import to_inr_per_month
@@ -43,6 +44,29 @@ def passes_floor(opp: Opportunity, floor_inr: float) -> bool:
     if floor is None:
         return False
     return floor >= floor_inr
+
+
+def passes_validity(opp: Opportunity, now: datetime, max_age_days: int) -> bool:
+    """True when the opp is still open to apply as of `now`.
+
+    Deadline-primary, age-backstop, fail-open:
+
+      * If the card carried an explicit "Apply By" deadline (`expires_at`),
+        that is authoritative — keep iff it is still in the future. A future
+        deadline keeps the card even when the post is old (a long-running but
+        still-open listing), and a past deadline drops it.
+      * With no deadline, fall back to the posted-age backstop: drop anything
+        whose `posted_at` is older than `max_age_days`.
+      * With neither signal, keep the card. Internshala's listing only surfaces
+        open internships by default, so a missing date is not evidence of
+        expiry — and failing closed here would silently drain the feed the
+        moment the date selector drifts.
+    """
+    if opp.expires_at is not None:
+        return opp.expires_at > now
+    if opp.posted_at is not None:
+        return opp.posted_at >= now - timedelta(days=max_age_days)
+    return True
 
 
 def dedup_key(canonical_url: str) -> str:
@@ -77,6 +101,11 @@ class DiscoveryCycleReport:
     cards_rejected_subfloor: int = 0
     cards_rejected_dedup: int = 0
     cards_rejected_parse: int = 0
+    cards_rejected_expired: int = 0
+    # Jobs-only reject reason (full-time roles whose required experience exceeds
+    # the cap). Internship cycles never set it → always 0; lives on the shared
+    # dataclass so the jobs worker reuses the cycle-log + notify machinery.
+    cards_rejected_experience: int = 0
     healthy: bool = True
     selectors_version: str = ""
     matrix_version: str = ""
@@ -142,4 +171,5 @@ __all__ = [
     "build_summary",
     "dedup_key",
     "passes_floor",
+    "passes_validity",
 ]
