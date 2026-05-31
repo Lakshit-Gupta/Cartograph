@@ -23,16 +23,16 @@ from src.workers.internshala_jobs_discovery.config import (
     build_variants,
     load_jobs_config,
 )
-from src.workers.internshala_jobs_discovery.filters import passes_experience, passes_salary_floor
+from src.workers.internshala_jobs_discovery.filters import passes_experience, passes_keywords, passes_salary_floor
 
 _CITIES = ["bangalore", "gurgaon", "pune", "uttar-pradesh", "ghaziabad"]
 
 
-def _opp(*, comp_min=None, comp_max=None, currency="INR", period="year", years=None) -> Opportunity:
+def _opp(*, comp_min=None, comp_max=None, currency="INR", period="year", years=None, title="Backend Engineer") -> Opportunity:
     return Opportunity(
         source_id=1,
         canonical_url="https://internshala.com/job/x",
-        title="Backend Engineer",
+        title=title,
         comp_min=comp_min,
         comp_max=comp_max,
         comp_currency=currency,
@@ -42,6 +42,46 @@ def _opp(*, comp_min=None, comp_max=None, currency="INR", period="year", years=N
         years_experience_min=years,
         fingerprint_hash="fp",
     )
+
+
+# --------------------------------------------------------------------------- #
+# passes_keywords — title must match an include term (if any) AND no exclude.
+# --------------------------------------------------------------------------- #
+_INCLUDE = ["backend", "python", "full stack", "machine learning", "ml", "software", "engineer", "data scientist"]
+_EXCLUDE = ["sales", "marketing", "mechanical", "civil", "gynecologist"]
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("Backend Developer", True),  # include 'backend'
+        ("Full Stack Developer", True),  # include phrase 'full stack'
+        ("ML Engineer", True),  # include 'ml' (word-boundary on 'ML')
+        ("Data Scientist", True),  # include 'data scientist'
+        ("Sales Executive", False),  # no include term -> drop
+        ("Sales Engineer", False),  # include 'engineer' BUT exclude 'sales' wins
+        ("Mechanical Engineer", False),  # include 'engineer' BUT exclude 'mechanical' wins
+        ("Gynecologist", False),  # exclude + no include
+        ("Digital Marketing Manager", False),  # exclude 'marketing'
+        ("Software Engineer", True),  # include 'software'
+    ],
+)
+def test_passes_keywords(title, expected) -> None:
+    assert passes_keywords(_opp(title=title), _INCLUDE, _EXCLUDE) is expected
+
+
+@pytest.mark.smoke
+def test_passes_keywords_empty_lists_keep_all() -> None:
+    # No include list + no exclude list -> no filtering (keep everything).
+    assert passes_keywords(_opp(title="Sales Executive"), [], []) is True
+
+
+@pytest.mark.smoke
+def test_passes_keywords_exclude_only() -> None:
+    # No include list, exclude only -> keep unless excluded.
+    assert passes_keywords(_opp(title="Sales Executive"), [], ["sales"]) is False
+    assert passes_keywords(_opp(title="Backend Developer"), [], ["sales"]) is True
 
 
 # --------------------------------------------------------------------------- #

@@ -44,6 +44,8 @@ _DEFAULT_CITIES = ["bangalore", "gurgaon", "pune", "uttar-pradesh", "ghaziabad"]
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _DEFAULT_SELECTORS_PATH = _REPO_ROOT / "config" / "sources" / "internshala_jobs_selectors.yaml"
+_DEFAULT_KEYWORDS_PATH = _REPO_ROOT / "config" / "sources" / "internshala_jobs_keywords.yaml"
+_NEGATIVE_KEYWORDS_PATH = _REPO_ROOT / "config" / "policy" / "negative_keywords.yaml"
 _PREFS_PATH = _REPO_ROOT / "config" / "profile" / "prefs.yaml"
 
 IDENTITY_PLATFORM = "internshala"  # shares the Internshala identity with internships
@@ -131,6 +133,8 @@ class JobsDiscoveryConfig:
     selectors_path: Path
     selectors: dict[str, Any] = field(default_factory=dict)
     selectors_version: str = ""
+    include_keywords: list[str] = field(default_factory=list)
+    exclude_keywords: list[str] = field(default_factory=list)
     once: bool = False
     dry_run: bool = False
     variant_filter: str | None = None
@@ -197,6 +201,40 @@ def _prefs_overrides() -> dict[str, Any]:
     return dict(block) if isinstance(block, dict) else {}
 
 
+def _load_keywords() -> tuple[list[str], list[str]]:
+    """`(include_title_any, exclude)` for the field-relevance gate.
+
+    Include comes from `internshala_jobs_keywords.yaml:include_title_any` (the
+    positive field filter — title must match one). Exclude is the union of that
+    file's `exclude_any` plus the shared `negative_keywords.yaml` (every group
+    except `borderline_disabled`), so jobs reuse the same hard-reject list as the
+    internship auto-apply path. Missing files degrade to empty (no filtering).
+    """
+    include: list[str] = []
+    exclude: list[str] = []
+
+    kw_path = Path(os.environ.get("INTERNSHALA_JOBS_KEYWORDS_PATH") or _DEFAULT_KEYWORDS_PATH)
+    if kw_path.exists():
+        try:
+            doc = _read_yaml(kw_path)
+            include = [str(t).strip().lower() for t in (doc.get("include_title_any") or []) if str(t).strip()]
+            exclude += [str(t).strip().lower() for t in (doc.get("exclude_any") or []) if str(t).strip()]
+        except Exception as exc:  # pragma: no cover - defensive
+            _log.warning("jobs_keywords_read_failed", path=str(kw_path), err=str(exc))
+
+    if _NEGATIVE_KEYWORDS_PATH.exists():
+        try:
+            block = _read_yaml(_NEGATIVE_KEYWORDS_PATH).get("negative_keywords") or {}
+            for group, terms in block.items():
+                if group == "borderline_disabled" or not isinstance(terms, list):
+                    continue
+                exclude += [str(t).strip().lower() for t in terms if str(t).strip()]
+        except Exception as exc:  # pragma: no cover - defensive
+            _log.warning("jobs_negative_keywords_read_failed", err=str(exc))
+
+    return sorted(set(include)), sorted(set(exclude))
+
+
 def _guard_recon_pending(version: str) -> None:
     """Refuse to boot on RECON_PENDING unless INTERNSHALA_JOBS_ALLOW_RECON_PENDING=1."""
     if version != RECON_PENDING_SENTINEL:
@@ -247,6 +285,8 @@ def load_jobs_config(
     selectors, selectors_version = load_selectors(selectors_path)
     _guard_recon_pending(selectors_version)
 
+    include_keywords, exclude_keywords = _load_keywords()
+
     identity_label = (
         str(prefs["identity_label"])
         if prefs.get("identity_label")
@@ -270,6 +310,8 @@ def load_jobs_config(
         selectors_path=selectors_path,
         selectors=selectors,
         selectors_version=selectors_version,
+        include_keywords=include_keywords,
+        exclude_keywords=exclude_keywords,
         once=once,
         dry_run=dry_run,
         variant_filter=variant_filter,
@@ -280,6 +322,9 @@ def load_jobs_config(
         max_experience_years=cfg.max_experience_years,
         cities=len(cfg.cities),
         variants=len(cfg.active_variants()),
+        pages_per_url=cfg.pages_per_url,
+        include_keywords=len(cfg.include_keywords),
+        exclude_keywords=len(cfg.exclude_keywords),
         selectors_version=cfg.selectors_version,
         dry_run=cfg.dry_run,
         once=cfg.once,
@@ -288,9 +333,9 @@ def load_jobs_config(
 
 
 def reload_into(cfg: JobsDiscoveryConfig) -> None:
-    """Re-read the selectors YAML and swap it in place (SIGHUP). A bad YAML keeps
-    the old values + logs `jobs_selectors_reload_failed` — never takes the worker
-    offline."""
+    """Re-read the selectors + keyword YAMLs and swap them in place (SIGHUP). A
+    bad YAML keeps the old values + logs `jobs_selectors_reload_failed` — never
+    takes the worker offline."""
     try:
         selectors, selectors_version = load_selectors(cfg.selectors_path)
     except Exception as exc:
@@ -299,4 +344,11 @@ def reload_into(cfg: JobsDiscoveryConfig) -> None:
     old = cfg.selectors_version
     cfg.selectors = selectors
     cfg.selectors_version = selectors_version
-    _log.info("jobs_selectors_reloaded", old=old, new=selectors_version)
+    cfg.include_keywords, cfg.exclude_keywords = _load_keywords()
+    _log.info(
+        "jobs_selectors_reloaded",
+        old=old,
+        new=selectors_version,
+        include_keywords=len(cfg.include_keywords),
+        exclude_keywords=len(cfg.exclude_keywords),
+    )

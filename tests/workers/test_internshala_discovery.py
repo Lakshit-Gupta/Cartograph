@@ -369,10 +369,16 @@ def test_report_to_row_covers_sql_columns() -> None:
 
 @pytest.mark.smoke
 def test_report_details_round_trip() -> None:
+    from datetime import datetime
+
     rep = _report()
     details = rep.to_details()
-    # details is a JSON-safe projection identical to the row mapping today.
-    assert details == rep.to_row()
+    row = rep.to_row()
+    # to_row coerces started_at str -> datetime for the timestamptz column; the
+    # JSON notify payload (to_details) keeps the ISO string. Every other key matches.
+    assert isinstance(row["started_at"], datetime)
+    assert isinstance(details["started_at"], str)
+    assert {k: v for k, v in details.items() if k != "started_at"} == {k: v for k, v in row.items() if k != "started_at"}
     assert details["selector_misses"] == ["data-science-wfh:dropdown.category_options"]
 
 

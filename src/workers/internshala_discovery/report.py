@@ -117,10 +117,20 @@ class DiscoveryCycleReport:
     def to_row(self) -> dict[str, Any]:
         """Column-name -> value map for the `discovery_cycle_log` INSERT.
 
-        Identical keys to `to_details()` today, but kept as a separate method so
-        the SQL projection and the wire payload can diverge without surprise.
+        Mostly identical to `to_details()`, but `started_at` is coerced from its
+        ISO-8601 string to a real `datetime`: the column is `timestamptz` and
+        asyncpg rejects a `str` for a timestamptz parameter (it does NOT cast the
+        wire payload's string form). `to_details()` keeps the string for the JSON
+        notify payload.
         """
-        return asdict(self)
+        row = asdict(self)
+        started = row.get("started_at")
+        if isinstance(started, str):
+            try:
+                row["started_at"] = datetime.fromisoformat(started)
+            except ValueError:
+                pass
+        return row
 
 
 def build_summary(report: DiscoveryCycleReport) -> str:

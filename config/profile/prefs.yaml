@@ -120,9 +120,13 @@ discovery:
     salary_floor_lpa: 12     # strict comp_min floor → 100000 INR/month
     max_experience_years: 1  # keep jobs requiring <= 1 yr (user has ~6-9 months)
     max_age_days: 14
+    pages_per_url: 5         # Load-more pages per variant (page limit; ~40 cards/page)
     idle_sec: 180
     max_cycles_per_engine: 10
     identity_label: raju_internshala
+    # Field-relevance keywords live in config/sources/internshala_jobs_keywords.yaml
+    # (include_title_any + exclude_any) merged with config/policy/negative_keywords.yaml.
+    # Edit there, then `kill -HUP` the worker to reload.
 
 ranker:
   weights:

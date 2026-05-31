@@ -1,0 +1,83 @@
+# Internshala JOBS field-relevance filter — SIGHUP-reloadable.
+#
+# Jobs have NO category dropdown (the internship side filters server-side by
+# category); the jobs URL returns EVERY role in those cities >= salary. So the
+# worker filters in code on the job TITLE:
+#
+#   keep iff  (title matches NO exclude term)  AND
+#             (include_title_any empty  OR  title matches >= 1 include term)
+#
+# Word-boundary match, NEVER substring ("ml" never matches "html"). Multi-word
+# terms ("full stack") match as a phrase. Exclude wins over include, so
+# "Sales Engineer" is dropped (exclude 'sales') even though it matches 'engineer'.
+#
+# The shared config/policy/negative_keywords.yaml is ALSO merged into the
+# exclude set, so jobs reuse the same hard-reject list as internship auto-apply.
+# Edit + `kill -HUP <worker pid>` to reload without a restart.
+version: "2026.05.31.v1"
+
+# Positive field filter — the role types you actually want (from the internship
+# category matrix: Backend / Python / Full-Stack / DevOps / Data / ML / AI ...).
+include_title_any:
+  - backend
+  - back end
+  - python
+  - django
+  - flask
+  - fastapi
+  - full stack
+  - fullstack
+  - full-stack
+  - frontend
+  - front end
+  - software
+  - developer
+  - engineer
+  - sde
+  - devops
+  - api
+  - data engineer
+  - data engineering
+  - machine learning
+  - ml
+  - data science
+  - data scientist
+  - artificial intelligence
+  - ai
+  - deep learning
+  - nlp
+  - natural language
+  - computer vision
+  - golang
+  - node
+  - react
+  - java
+  - cloud
+
+# Extra title excludes on top of config/policy/negative_keywords.yaml.
+exclude_any:
+  - sales
+  - business development
+  - bdm
+  - bde
+  - marketing
+  - content writer
+  - copywriter
+  - hr
+  - human resources
+  - recruiter
+  - telecaller
+  - tele caller
+  - customer support
+  - customer success
+  - operations
+  - finance
+  - accountant
+  - dean
+  - professor
+  - gynecologist
+  - nurse
+  - icu
+  - teacher
+  - tutor
+  - counselor

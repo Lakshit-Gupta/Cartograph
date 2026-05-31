@@ -49,11 +49,13 @@ from src.workers.internshala_jobs_discovery.config import (
     JobsDiscoveryConfig,
     JobVariant,
 )
-from src.workers.internshala_jobs_discovery.filters import passes_experience, passes_salary_floor
+from src.workers.internshala_jobs_discovery.filters import passes_experience, passes_keywords, passes_salary_floor
 
 _log = get_logger(__name__)
 
-_COMBO_TIMEOUT_SEC = 30
+_COMBO_TIMEOUT_SEC = 30  # floor
+_COMBO_BASE_SEC = 30  # goto + humanize + first-card wait
+_PER_PAGE_BUDGET_SEC = 25  # per Load-more page (click + scrape + humanize)
 
 
 async def run_combo(
@@ -138,6 +140,13 @@ async def _ingest_card(
         discovery_cards_rejected_total.labels(reason="parse").inc()
         return
 
+    # Field-relevance gate FIRST — jobs have no category dropdown, so the URL
+    # returns every role. Drop off-field titles (sales / medical / marketing /
+    # ...) and require a positive field keyword before any further work.
+    if not passes_keywords(opp, cfg.include_keywords, cfg.exclude_keywords):
+        discovery_cards_rejected_total.labels(reason="keyword").inc()
+        return
+
     if not passes_salary_floor(opp, cfg.salary_floor_inr):
         report.cards_rejected_subfloor += 1
         discovery_cards_rejected_total.labels(reason="subfloor").inc()
@@ -201,12 +210,16 @@ async def run_cycle(
         selectors_version=cfg.selectors_version,
         matrix_version="",
     )
+    # Scale the per-variant wall-clock with the page budget: each Load-more page
+    # adds a goto/click + humanize pause, and the logged-in jobs page is heavier
+    # than the anon view. A flat 30 s starved 3-page runs (jobs_combo_timeout).
+    combo_timeout = max(_COMBO_TIMEOUT_SEC, cfg.pages_per_url * _PER_PAGE_BUDGET_SEC + _COMBO_BASE_SEC)
     for variant in cfg.active_variants():
         report.combos_attempted += 1
         try:
             await asyncio.wait_for(
                 run_combo(engine, cookies, ua, q, cfg, variant, report, source_id),
-                timeout=_COMBO_TIMEOUT_SEC,
+                timeout=combo_timeout,
             )
         except TimeoutError:
             report.combo_timeouts.append(variant.name)
