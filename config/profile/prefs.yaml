@@ -97,16 +97,17 @@ auto_apply:
 #
 # Overrides the matching INTERNSHALA_* env vars in compose.sidecar.yaml WHEN
 # present (prefs wins, so the operator can retune cadence by editing this
-# checked-in file without touching .env.sidecar). Only these four keys are
-# read; the rest of the worker config (selector / matrix paths, identity label)
-# stays env-only. idle_sec is the testing cadence — raise to 1800 in prod once
-# the remote pool is verified.
+# checked-in file without touching .env.sidecar). Only these keys are read; the
+# rest of the worker config (selector / matrix paths, identity label) stays
+# env-only. idle_sec is the testing cadence — raise to 1800 in prod once the
+# remote pool is verified.
 discovery:
   internshala:
     idle_sec: 180          # seconds between cycles (testing); raise to 1800 in prod
-    comp_floor_inr: 30000  # per-month INR floor enforced on parsed card stipend
+    comp_floor_inr: 30000  # per-month INR floor; also URL-enforced as /stipend-30000
     max_age_days: 14       # drop cards past their "Apply By" date OR (no deadline) posted >N days ago
     max_cycles_per_engine: 10  # camoufox restart cadence (memory-drift mitigation)
+    pages_per_url: 25      # /page-N/ ceiling per combo (early-stop ends most in 1-4; ~25 cards/page)
 
   # Internshala full-time JOBS vertical (sibling worker; URL-path filtered).
   # Cities + min_salary_lpa_url + work_from_home shape the listing URL; the real
@@ -120,7 +121,7 @@ discovery:
     salary_floor_lpa: 12     # strict comp_min floor → 100000 INR/month
     max_experience_years: 1  # keep jobs requiring <= 1 yr (user has ~6-9 months)
     max_age_days: 14
-    pages_per_url: 100         # Load-more pages per variant (page limit; ~40 cards/page)
+    pages_per_url: 25         # /page-N/ ceiling per variant (early-stop on empty/repeat page)
     idle_sec: 60
     max_cycles_per_engine: 10
     identity_label: raju_internshala

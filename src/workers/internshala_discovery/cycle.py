@@ -1,17 +1,24 @@
 """Browser-driven scrape orchestration: `run_combo` + `run_cycle`.
 
-`run_cycle` walks the dropdown matrix, wrapping each combo in a 30 s wall-clock
-`asyncio.wait_for`. `run_combo` drives one dropdown click sequence through the
-`BrowserEngine`, scrapes the resulting listing cards across `pages_per_url`
-Load-more pages, floor-filters + dedups each card, and persists survivors via
-`persist_and_publish`.
+`run_cycle` walks the category matrix, wrapping each combo in a wall-clock
+`asyncio.wait_for` scaled to the page budget. `run_combo` builds the combo's
+filtered listing URL (`build_combo_url`), navigates it page-by-page via
+Internshala's numbered `/page-N/` pagination through the `BrowserEngine`,
+scrapes each page's cards, floor-filters + dedups each card, and persists
+survivors via `persist_and_publish`.
 
-The low-level page operations (dropdown clicks, challenge detection, miss
-capture) live in `browser_ops.py`; this module is the control flow on top of
-them. Selector misses screenshot the page + skip the combo; a login redirect or
-captcha aborts the whole cycle `healthy=False` (the worker NEVER solves a
-challenge). Readiness is gated on `wait_for_selector(card_root)`, never
-`networkidle` — Internshala telemetry keeps the connection busy indefinitely.
+Internshala retired the "Load more" button — the listing now serves ~25
+cards/page behind numbered `/page-N/` URLs + a "Next" link (verified
+2026-05-31). We navigate those URLs directly (deterministic, no scroll-timing
+race) and stop early on the first empty / repeated page. There is no dropdown
+driving: the category/stipend/work-mode filters live in the URL path.
+
+The low-level page operations (challenge detection, modal dismiss, miss capture,
+`/page-N/` URL building) live in `browser_ops.py`; this module is the control
+flow on top of them. A login redirect or captcha aborts the whole cycle
+`healthy=False` (the worker NEVER solves a challenge). Readiness is gated on
+`wait_for_selector(card_root)`, never `networkidle` — Internshala telemetry
+keeps the connection busy indefinitely.
 """
 
 from __future__ import annotations
@@ -36,19 +43,19 @@ from src.sources.india.internshala_card_parser import parse_card
 from src.workers.internshala_discovery.browser_ops import (
     CARD_WAIT_MS,
     ChallengeDetected,
-    SelectorMiss,
     capture_miss,
-    click_load_more,
     detect_challenge,
-    drive_dropdowns,
+    dismiss_modal,
+    page_signature,
+    page_url,
     scrape_cards,
     sel,
 )
 from src.workers.internshala_discovery.config import (
-    INTERNSHALA_LISTING_URL,
     SOURCE_SLUG,
     Combo,
     DiscoveryConfig,
+    build_combo_url,
 )
 from src.workers.internshala_discovery.report import (
     DiscoveryCycleReport,
@@ -59,7 +66,9 @@ from src.workers.internshala_discovery.report import (
 
 _log = get_logger(__name__)
 
-_COMBO_TIMEOUT_SEC = 30
+_COMBO_TIMEOUT_SEC = 30  # floor
+_COMBO_BASE_SEC = 30  # goto + humanize + first-card wait
+_PER_PAGE_BUDGET_SEC = 15  # per /page-N/ navigation (goto + humanize + scrape)
 _NAV_TIMEOUT_MS = 25_000  # explicit page.goto cap (logged-in page can stall domcontentloaded)
 _OP_TIMEOUT_MS = 15_000  # default cap for every other page op
 
@@ -74,15 +83,17 @@ async def run_combo(
     report: DiscoveryCycleReport,
     source_id: int,
 ) -> None:
-    """Drive one combo end-to-end, mutating `report` counters in place.
+    """Navigate one combo's filtered listing page-by-page, mutating `report`.
 
     Raises `ChallengeDetected` (propagated by `run_cycle` to abort the cycle). A
-    `SelectorMiss` is caught here: the page is screenshotted, the miss is
-    recorded on the report, and the combo is skipped (other combos continue).
+    page-1 `card_root` miss (dead category slug / empty filtered set) is
+    screenshotted, recorded on the report, and the combo is skipped (other
+    combos continue). Pagination stops early on the first empty or repeated page.
     """
     t0 = time.monotonic()
     card_root = sel(cfg, "listing", "card_root") or "div.individual_internship"
     listing_selectors = cfg.listing_selectors
+    base_url = build_combo_url(combo, comp_floor_inr=cfg.comp_floor_inr)
 
     async with engine.open_context(cookies=cookies, ua=ua) as ctx:
         page = await ctx.new_page()
@@ -92,29 +103,43 @@ async def run_combo(
         page.set_default_navigation_timeout(_NAV_TIMEOUT_MS)
         page.set_default_timeout(_OP_TIMEOUT_MS)
         try:
-            await page.goto(INTERNSHALA_LISTING_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            await page.goto(page_url(base_url, 1), wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
             await humanize_page(page)
+            await dismiss_modal(page, cfg)
             await detect_challenge(page, cfg)
 
             try:
-                await drive_dropdowns(page, combo, cfg)
                 # Readiness = first card visible. NEVER networkidle.
                 await page.wait_for_selector(card_root, timeout=CARD_WAIT_MS, state="visible")
-            except SelectorMiss as miss:
-                await capture_miss(page, combo, miss.key)
-                report.selector_misses.append(f"{combo.name}:{miss.key}")
-                discovery_selector_miss_total.labels(combo=combo.name, key=miss.key).inc()
-                _log.warning("discovery_selector_miss", combo=combo.name, key=miss.key)
+            except Exception:
+                # No cards on page 1: a dead category slug or a genuinely empty
+                # filtered set. Screenshot for recon, record the miss, skip combo.
+                await capture_miss(page, combo, "listing.card_root")
+                report.selector_misses.append(f"{combo.name}:listing.card_root")
+                discovery_selector_miss_total.labels(combo=combo.name, key="listing.card_root").inc()
+                _log.warning("discovery_card_root_miss", combo=combo.name, url=base_url)
                 return
 
-            await detect_challenge(page, cfg)
-
-            load_more = sel(cfg, "paginate", "load_more_button")
-            end_marker = sel(cfg, "paginate", "list_end_marker")
-
-            for page_n in range(cfg.pages_per_url):
+            prev_sig = ""
+            for page_n in range(1, cfg.pages_per_url + 1):
+                if page_n > 1:
+                    # Numbered server-side pagination — navigate the next page.
+                    await page.goto(page_url(base_url, page_n), wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+                    await humanize_page(page)
+                    await detect_challenge(page, cfg)
+                    try:
+                        await page.wait_for_selector(card_root, timeout=CARD_WAIT_MS, state="visible")
+                    except Exception:
+                        break  # no card root on this page -> end of results
                 html = await page.content()
-                for card_html in scrape_cards(html, card_root=card_root):
+                cards = scrape_cards(html, card_root=card_root)
+                if not cards:
+                    break
+                sig = page_signature(cards)
+                if page_n > 1 and sig == prev_sig:
+                    break  # pagination didn't advance (out-of-range -> redirect to page 1)
+                prev_sig = sig
+                for card_html in cards:
                     await _ingest_card(
                         card_html,
                         q=q,
@@ -123,12 +148,6 @@ async def run_combo(
                         source_id=source_id,
                         listing_selectors=listing_selectors,
                     )
-                if page_n < cfg.pages_per_url - 1:
-                    if end_marker and await page.query_selector(end_marker) is not None:
-                        break
-                    if not load_more or not await click_load_more(page, load_more):
-                        break
-                    await humanize_page(page)
             report.combos_succeeded += 1
         finally:
             try:
@@ -227,12 +246,16 @@ async def run_cycle(
         selectors_version=cfg.selectors_version,
         matrix_version=cfg.matrix_version,
     )
+    # Scale the per-combo wall-clock with the page budget: each /page-N/ adds a
+    # goto + humanize pause. A flat 30 s starved multi-page runs once pagination
+    # walks past page 1. Early-stop ends most combos in 1-4 pages regardless.
+    combo_timeout = max(_COMBO_TIMEOUT_SEC, cfg.pages_per_url * _PER_PAGE_BUDGET_SEC + _COMBO_BASE_SEC)
     for combo in cfg.active_combos():
         report.combos_attempted += 1
         try:
             await asyncio.wait_for(
                 run_combo(engine, cookies, ua, q, cfg, combo, report, source_id),
-                timeout=_COMBO_TIMEOUT_SEC,
+                timeout=combo_timeout,
             )
         except TimeoutError:
             report.combo_timeouts.append(combo.name)

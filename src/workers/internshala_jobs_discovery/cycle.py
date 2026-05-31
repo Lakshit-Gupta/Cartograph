@@ -1,13 +1,15 @@
 """Jobs scrape orchestration: `run_combo` + `run_cycle`.
 
-Mirrors the internship cycle but the "combo" is a URL variant (general /
-fresher) rather than a dropdown combo — jobs filter via URL path, so `run_combo`
-navigates the built `variant.url` and scrapes; there is no dropdown driving. The
-shared page primitives (`scrape_cards`, `click_load_more`, `detect_challenge`,
-`dismiss_modal`, `capture_miss`, `sel`) are imported from the internship
-`browser_ops`; the cycle-report dataclass + `passes_validity` + `dedup_key` come
-from the internship `report`. Only the two jobs gates (`passes_salary_floor`
-strict-min, `passes_experience`) and the jobs card parser are jobs-specific.
+Mirrors the internship cycle: the "combo" is a URL variant (general / fresher),
+jobs filter via URL path, and pagination walks Internshala's numbered
+`/page-N/` URLs (the "Load more" button was retired). `run_combo` navigates the
+built `variant.url` page-by-page, scraping each, and stops early on the first
+empty / repeated page. The shared page primitives (`scrape_cards`, `page_url`,
+`page_signature`, `detect_challenge`, `dismiss_modal`, `capture_miss`, `sel`)
+are imported from the internship `browser_ops`; the cycle-report dataclass +
+`passes_validity` + `dedup_key` come from the internship `report`. Only the two
+jobs gates (`passes_salary_floor` strict-min, `passes_experience`) and the jobs
+card parser are jobs-specific.
 """
 
 from __future__ import annotations
@@ -33,9 +35,10 @@ from src.workers.internshala_discovery.browser_ops import (
     CARD_WAIT_MS,
     ChallengeDetected,
     capture_miss,
-    click_load_more,
     detect_challenge,
     dismiss_modal,
+    page_signature,
+    page_url,
     scrape_cards,
     sel,
 )
@@ -101,12 +104,26 @@ async def run_combo(
 
             await detect_challenge(page, cfg)
 
-            load_more = sel(cfg, "paginate", "load_more_button")
-            end_marker = sel(cfg, "paginate", "list_end_marker")
-
-            for page_n in range(cfg.pages_per_url):
+            prev_sig = ""
+            for page_n in range(1, cfg.pages_per_url + 1):
+                if page_n > 1:
+                    # Numbered server-side pagination — navigate the next page.
+                    await page.goto(page_url(variant.url, page_n), wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+                    await humanize_page(page)
+                    await detect_challenge(page, cfg)
+                    try:
+                        await page.wait_for_selector(card_root, timeout=CARD_WAIT_MS, state="visible")
+                    except Exception:
+                        break  # no card root on this page -> end of results
                 html = await page.content()
-                for card_html in scrape_cards(html, card_root=card_root):
+                cards = scrape_cards(html, card_root=card_root)
+                if not cards:
+                    break
+                sig = page_signature(cards)
+                if page_n > 1 and sig == prev_sig:
+                    break  # pagination didn't advance (out-of-range -> redirect to page 1)
+                prev_sig = sig
+                for card_html in cards:
                     await _ingest_card(
                         card_html,
                         q=q,
@@ -115,12 +132,6 @@ async def run_combo(
                         source_id=source_id,
                         listing_selectors=listing_selectors,
                     )
-                if page_n < cfg.pages_per_url - 1:
-                    if end_marker and await page.query_selector(end_marker) is not None:
-                        break
-                    if not load_more or not await click_load_more(page, load_more):
-                        break
-                    await humanize_page(page)
             report.combos_succeeded += 1
         finally:
             try:

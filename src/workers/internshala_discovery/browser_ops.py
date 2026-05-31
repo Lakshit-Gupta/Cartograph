@@ -1,10 +1,13 @@
 """Page-interaction primitives for the discovery cycle.
 
 Split out of `cycle.py` to keep both files under the 300-line ceiling. Holds the
-low-level Playwright `page` operations (dropdown driving, challenge detection,
-selector-miss capture, Load-more clicking) plus the two control-flow exceptions
-they raise. `cycle.py` owns the orchestration (`run_cycle` / `run_combo`).
+low-level Playwright `page` operations (challenge detection, modal dismiss,
+selector-miss capture, card scraping, `/page-N/` URL pagination) plus the
+`ChallengeDetected` control-flow exception. `cycle.py` owns the orchestration
+(`run_cycle` / `run_combo`).
 
+Pagination is by numbered server-side `/page-N/` URLs (Internshala retired the
+"Load more" button; the listing now serves ~25 cards/page behind a "Next" link).
 Readiness is always gated on an explicit selector wait, NEVER `networkidle` —
 Internshala's background telemetry keeps the connection busy indefinitely.
 """
@@ -26,16 +29,8 @@ _log = get_logger(__name__)
 # in compose.sidecar.yaml, so this never hits the spare's persistent disk.
 _MISS_DIR = Path("/tmp/discovery/miss")  # noqa: S108 - tmpfs scratch on the sidecar, see compose.sidecar.yaml
 CARD_WAIT_MS = 8_000
-_ACTION_WAIT_MS = 6_000
 _DOM_CLIP_BYTES = 50_000
-
-
-class SelectorMiss(Exception):
-    """A required selector did not appear — combo is screenshotted and skipped."""
-
-    def __init__(self, key: str) -> None:
-        super().__init__(f"selector_miss: {key}")
-        self.key = key
+_SIG_CLIP_BYTES = 300  # repeat-page guard: first card's leading bytes
 
 
 class ChallengeDetected(Exception):
@@ -57,17 +52,6 @@ def sel(cfg: DiscoveryConfig, group: str, key: str) -> str | None:
 def _top_sel(cfg: DiscoveryConfig, key: str) -> str | None:
     val = cfg.selectors.get(key)
     return val if isinstance(val, str) else None
-
-
-async def _click_when_ready(page: Any, selector: str, key: str, *, timeout_ms: int = _ACTION_WAIT_MS) -> None:
-    """Best-effort wait-then-click. Raises `SelectorMiss(key)` on absence."""
-    try:
-        await page.wait_for_selector(selector, timeout=timeout_ms, state="visible")
-        await page.click(selector)
-    except SelectorMiss:
-        raise
-    except Exception as exc:  # playwright TimeoutError + click errors
-        raise SelectorMiss(key) from exc
 
 
 async def dismiss_modal(page: Any, cfg: DiscoveryConfig) -> None:
@@ -119,66 +103,45 @@ async def capture_miss(page: Any, combo: Combo, key: str) -> None:
         _log.warning("discovery_miss_capture_failed", combo=combo.name, key=key, err=str(exc))
 
 
-async def drive_dropdowns(page: Any, combo: Combo, cfg: DiscoveryConfig) -> None:
-    """Click stipend -> 'above 10000', category, and the WFH chip in order.
-
-    Each step waits for its target selector before clicking; any miss raises
-    `SelectorMiss` keyed by the missing control so the operator can recon it.
-    """
-    await dismiss_modal(page, cfg)
-
-    stipend_btn = sel(cfg, "dropdown", "stipend_button")
-    stipend_opt = sel(cfg, "dropdown", "stipend_option_above_10000")
-    if stipend_btn and stipend_opt:
-        await _click_when_ready(page, stipend_btn, "dropdown.stipend_button")
-        await _click_when_ready(page, stipend_opt, "dropdown.stipend_option_above_10000")
-
-    cat_btn = sel(cfg, "dropdown", "category_button")
-    cat_opts = sel(cfg, "dropdown", "category_options")
-    if cat_btn and cat_opts:
-        await _click_when_ready(page, cat_btn, "dropdown.category_button")
-        # Chosen renders option <li>s only after the trigger opens; pick the one
-        # whose visible text matches the combo category.
-        option = f"{cat_opts} >> text={combo.category}"
-        await _click_when_ready(page, option, "dropdown.category_options")
-
-    if combo.work_mode == "wfh":
-        wfh = sel(cfg, "dropdown", "work_mode_wfh_chip")
-        if wfh:
-            await _click_when_ready(page, wfh, "dropdown.work_mode_wfh_chip")
-
-
 def scrape_cards(html: str, *, card_root: str) -> list[str]:
     """Split the page HTML into per-card outerHTML strings."""
     return [node.html or "" for node in HTMLParser(html).css(card_root)]
 
 
-async def click_load_more(page: Any, selector: str) -> bool:
-    """Click the Load-more control; return False when it is absent (end of list).
+def page_url(base_url: str, page_n: int) -> str:
+    """Internshala `/page-N/` pagination URL. Page 1 is the bare base.
 
-    `humanize_page` is intentionally NOT called here — the caller drives stealth
-    pauses around the page navigation; keeping this primitive pure-click avoids a
-    fetcher-tier import in this low-level module.
+    `base_url` is the filtered listing URL (e.g. a combo / variant URL); page 1
+    loads it as-is, pages >=2 append `/page-N/`. Trailing slashes on `base_url`
+    are normalised so we never emit `//page-2/`.
     """
-    try:
-        node = await page.query_selector(selector)
-        if node is None:
-            return False
-        await node.click()
-        return True
-    except Exception:
-        return False
+    base = base_url.rstrip("/")
+    if page_n <= 1:
+        return f"{base}/"
+    return f"{base}/page-{page_n}/"
+
+
+def page_signature(cards: list[str]) -> str:
+    """Cheap repeat-page guard: the first card's leading bytes (or "").
+
+    Internshala redirects an out-of-range `/page-N/` back to page 1, re-serving
+    page 1's cards. Comparing this signature to the previous page lets the cycle
+    stop the moment pagination fails to advance, instead of burning the whole
+    page budget re-scraping (already-deduped) page-1 cards.
+    """
+    if not cards:
+        return ""
+    return cards[0][:_SIG_CLIP_BYTES]
 
 
 __all__ = [
     "CARD_WAIT_MS",
     "ChallengeDetected",
-    "SelectorMiss",
     "capture_miss",
-    "click_load_more",
     "detect_challenge",
     "dismiss_modal",
-    "drive_dropdowns",
+    "page_signature",
+    "page_url",
     "scrape_cards",
     "sel",
 ]

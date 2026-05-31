@@ -16,8 +16,12 @@
 # expires_at/posted_at stay None → the validity gate keeps the card). Re-verify
 # logged-in on the ThinkPad and refine those two if the apply-by deadline matters.
 #
+# Pagination is numbered server-side /page-N/ navigation (Internshala retired
+# the "Load more" button; verified 2026-05-31), so there is no pagination
+# selector group — the worker just appends /page-N/ to the variant URL.
+#
 # Bump `version` on EVERY edit — the worker logs old → new on each SIGHUP reload.
-version: "2026.05.31.anon-recon.v1"
+version: "2026.05.31.anon-recon.v2"
 
 selectors:
   # Whole-page root + the onboarding modal Internshala throws on first load.
@@ -39,12 +43,6 @@ selectors:
     card_apply_link: "a.view_detail_button, a.job-title-href"
     card_apply_by: ".apply_by .item_body, .other_detail_item.apply_by .item_body"
     card_posted_relative: ".posted-by, .status-success"
-
-  # Pagination. The worker clicks `load_more_button` between pages and stops
-  # early when `list_end_marker` appears.
-  paginate:
-    load_more_button: "#load_more_internships_button, a.click_source"
-    list_end_marker: ".no-search-results, .empty-listing"
 
   # Failure markers. A login redirect or a captcha/interstitial aborts the
   # cycle healthy=False — the worker NEVER attempts to solve a challenge.

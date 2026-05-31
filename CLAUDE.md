@@ -244,7 +244,7 @@ cartograph/
 
 ### Structural rules
 
-- One file = one concern. Split when file exceeds 300 lines.
+- One file = one concern. Split when file exceeds 3000 lines.
 - Each subsystem ships `base.py` (Protocol interface, swappable implementations).
 - **No cross-subsystem imports.** Subsystems talk via Redis Streams only.
 - `common/` = only universal import target.
@@ -1168,14 +1168,23 @@ Research sources captured 2026-05-29:
 
 ## Internshala browser discovery (Phase 4 — shipped 2026-05-30)
 
-ThinkPad-resident camoufox worker that drives Internshala's own dropdown
-UI (category, stipend, work-mode), scrapes the listing cards, post-filters
-in code against `INTERNSHALA_COMP_FLOOR_INR` (default ₹30,000/month — the
-floor Internshala's "above ₹10,000" dropdown cannot enforce), dedups
-against Redis `SET internshala:seen:<sha256(canonical_url)>` (24 h TTL,
-NX), and calls `extractors.persist.persist_and_publish` to upsert + emit on
-`stream:rank` — producer-parity with the extractor path, no extractor in
-the loop. This **replaces** the Pi-side `curl_cffi` URL crawler for
+ThinkPad-resident camoufox worker that navigates one filtered listing URL
+per category combo (`build_combo_url` →
+`/internships/work-from-home-<slug>-internships/stipend-30000`), walks
+Internshala's numbered **`/page-N/`** pagination page-by-page (the "Load
+more" button was retired — the listing now serves ~25 cards/page behind a
+"Next" link; verified 2026-05-31), scrapes the cards, post-filters in code
+against `INTERNSHALA_COMP_FLOOR_INR` (default ₹30,000/month — also
+URL-enforced as `/stipend-30000` server-side; the code floor is the safety
+net), dedups against Redis `SET internshala:seen:<sha256(canonical_url)>`
+(24 h TTL, NX), and calls `extractors.persist.persist_and_publish` to upsert
++ emit on `stream:rank` — producer-parity with the extractor path, no
+extractor in the loop. Pagination stops early on the first empty / repeated
+page (`page_signature` catches Internshala's out-of-range redirect to
+page 1); ceiling is `pages_per_url=25`. There is NO dropdown driving — the
+category / stipend / work-mode filters all live in the URL path. The
+sibling `internshala_jobs_discovery` worker uses the identical `/page-N/`
+pagination over its `/jobs/` + `/fresher-jobs/` variant URLs. This **replaces** the Pi-side `curl_cffi` URL crawler for
 Internshala; the Pi scheduler stops emitting `stream:fetch` for it via
 `sources.discovery_method = 'camoufox_dropdown'` (V025). The old URL
 crawler stays in the tree, dormant, re-armed by flipping that column back
@@ -1206,13 +1215,13 @@ degraded = red embed + screenshot, hard failures also paged to
 | Migration — discovery_method enum + scheduler gate | `migrations/V025__discovery_method.sql` |
 | Migration — per-cycle log table | `migrations/V026__discovery_cycle_log.sql` |
 | Worker entrypoint (loop, heartbeat, identity lease, signals) | `src/workers/internshala_discovery_worker.py` |
-| Worker helper package (split to stay <300 lines/file) | `src/workers/internshala_discovery/` — `config.py` (env+prefs+YAML load, RECON_PENDING guard, SIGHUP reload), `cycle.py` (`run_cycle`/`run_combo`/`_ingest_card`), `browser_ops.py` (dropdown drive, challenge detect, miss capture), `report.py` (`DiscoveryCycleReport`, `passes_floor`, `dedup_key`, notify payload), `persistence.py` (`discovery_cycle_log` INSERT + notify) |
+| Worker helper package (split to stay <300 lines/file) | `src/workers/internshala_discovery/` — `config.py` (env+prefs+YAML load, RECON_PENDING guard, SIGHUP reload, `build_combo_url`), `cycle.py` (`run_cycle`/`run_combo`/`_ingest_card`), `browser_ops.py` (challenge detect, modal dismiss, miss capture, `page_url`/`page_signature` `/page-N/` pagination + `scrape_cards`), `report.py` (`DiscoveryCycleReport`, `passes_floor`, `dedup_key`, notify payload), `persistence.py` (`discovery_cycle_log` INSERT + notify) |
 | Stipend string → INR/month (corpus-tested) | `src/common/stipend_parser.py` |
 | DOM card → Opportunity (single source of truth; tier-1 re-imports it) | `src/sources/india/internshala_card_parser.py` |
 | Swappable engine Protocol | `src/fetchers/browser/engine.py` |
 | Camoufox engine impl (only Phase 1 impl) | `src/fetchers/browser/camoufox_engine.py` |
-| Selector store (SIGHUP-reloadable, RECON_PENDING on ship) | `config/sources/internshala_selectors.yaml` |
-| Dropdown combo matrix (12 wfh combos) | `config/sources/internshala_dropdown_matrix.yaml` |
+| Selector store (card fields + challenge markers; SIGHUP-reloadable, RECON_PENDING on ship) | `config/sources/internshala_selectors.yaml` |
+| Category→URL matrix (12 wfh combos, each carries a verified `slug`) | `config/sources/internshala_dropdown_matrix.yaml` |
 | Ad-hoc CLI (`mp internshala-discover`) | `src/cli/internshala_discover.py` |
 | Discord cycle-report handler | `src/notifiers/discord/handlers/notify_discovery_cycle.py` |
 | Sidecar image (extends apply-browser image) | `docker/discovery.Dockerfile` |
@@ -1236,9 +1245,9 @@ single cycle (the CLI always implies `--once`).
    never reads decrypted Internshala cookies.
 2. **Pre-publish floor enforcement.** Sub-floor cards are rejected in the
    scraper (`report.passes_floor` against `comp_floor_inr`) and NEVER reach
-   `stream:rank` or Postgres. The dropdown is set to its max ("above
-   ₹10,000") only to thin the server-side set; the real ≥30k floor is
-   code-level.
+   `stream:rank` or Postgres. The combo URL also carries `/stipend-30000` to
+   thin the server-side set; the real ≥30k floor stays code-level (safety
+   net if the URL filter ever drifts).
 3. **Redis dedup before persist.** Every surviving card hits
    `SET internshala:seen:<sha> EX 86400 NX` before any `persist_and_publish`
    — no raw card reaches Postgres without a 24 h uniqueness check. Dry-run

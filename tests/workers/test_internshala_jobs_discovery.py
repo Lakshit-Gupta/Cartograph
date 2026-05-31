@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from src.common.types import OppCategory, Opportunity, RemoteType
+from src.workers.internshala_discovery.browser_ops import page_url
 from src.workers.internshala_jobs_discovery import config as cfg_mod
 from src.workers.internshala_jobs_discovery.config import (
     JobVariant,
@@ -149,6 +150,15 @@ def test_variant_is_named_tuple_like() -> None:
     assert isinstance(v, JobVariant)
     assert v.name == "fresher"
     assert v.url.startswith("https://internshala.com/fresher-jobs/")
+
+
+@pytest.mark.smoke
+def test_variant_url_paginates_with_page_n() -> None:
+    # Jobs paginate by appending /page-N/ to the variant URL (same primitive as
+    # internships) — the "Load more" button was retired.
+    v = build_variants(_CITIES, work_from_home=True, min_salary_lpa_url=10, crawl_fresher=False, crawl_general=True)[0]
+    assert page_url(v.url, 1) == v.url + "/"
+    assert page_url(v.url, 3) == v.url + "/page-3/"
 
 
 # --------------------------------------------------------------------------- #

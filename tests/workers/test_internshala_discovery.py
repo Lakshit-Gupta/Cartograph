@@ -21,10 +21,12 @@ import yaml
 
 from src.common.types import OppCategory, Opportunity, RemoteType
 from src.workers.internshala_discovery import config as cfg_mod
+from src.workers.internshala_discovery.browser_ops import page_signature, page_url
 from src.workers.internshala_discovery.config import (
     RECON_PENDING_SENTINEL,
     Combo,
     ReconPendingError,
+    build_combo_url,
     expand_matrix,
     load_config,
 )
@@ -100,7 +102,7 @@ def test_shipped_yamls_parse() -> None:
 def test_shipped_matrix_expands_to_twelve_combos() -> None:
     doc = yaml.safe_load(_SHIPPED_MATRIX.read_text(encoding="utf-8"))
     combos, version = expand_matrix(doc)
-    assert version == "2026.05.29.v1"
+    assert version == "2026.05.31.v1"
     assert len(combos) == _EXPECTED_COMBO_COUNT
     assert all(isinstance(c, Combo) for c in combos)
     assert all(c.work_mode == "wfh" for c in combos)
@@ -111,6 +113,65 @@ def test_shipped_matrix_expands_to_twelve_combos() -> None:
         assert not (set(n) & set(" /()."))
     assert "backend-development-wfh" in names
     assert "artificial-intelligence-ai-wfh" in names
+
+
+@pytest.mark.smoke
+def test_shipped_matrix_rows_carry_explicit_slug() -> None:
+    # Every shipped row MUST carry a non-empty slug — the auto-derive fallback
+    # mangles parenthetical category names (see test below), so the URL builder
+    # depends on these being explicit + verified.
+    doc = yaml.safe_load(_SHIPPED_MATRIX.read_text(encoding="utf-8"))
+    combos, _ = expand_matrix(doc)
+    assert all(c.slug for c in combos)
+    by_cat = {c.category: c.slug for c in combos}
+    assert by_cat["Machine Learning"] == "machine-learning"
+    assert by_cat["Artificial Intelligence (AI)"] == "artificial-intelligence"
+    assert by_cat["Python/Django Development"] == "python-django-development"
+
+
+@pytest.mark.smoke
+def test_expand_matrix_derives_slug_when_absent() -> None:
+    combos, _ = expand_matrix({"version": "v", "matrix": [{"category": "Machine Learning", "work_mode": "wfh"}]})
+    assert combos[0].slug == "machine-learning"
+    # The fallback mangles parentheticals (-> "...-ai") — that is exactly WHY the
+    # shipped rows carry explicit slugs.
+    ai, _ = expand_matrix({"version": "v", "matrix": [{"category": "Artificial Intelligence (AI)", "work_mode": "wfh"}]})
+    assert ai[0].slug == "artificial-intelligence-ai"
+
+
+@pytest.mark.smoke
+def test_build_combo_url_shape() -> None:
+    combo = Combo(category="Machine Learning", work_mode="wfh", slug="machine-learning")
+    assert (
+        build_combo_url(combo, comp_floor_inr=30000)
+        == "https://internshala.com/internships/work-from-home-machine-learning-internships/stipend-30000"
+    )
+    # A non-wfh work mode drops the work-from-home prefix.
+    onsite = Combo(category="Backend", work_mode="onsite", slug="backend-development")
+    assert (
+        build_combo_url(onsite, comp_floor_inr=30000) == "https://internshala.com/internships/backend-development-internships/stipend-30000"
+    )
+
+
+@pytest.mark.smoke
+def test_page_url_pagination() -> None:
+    base = "https://internshala.com/internships/work-from-home-machine-learning-internships/stipend-30000"
+    assert page_url(base, 1) == base + "/"
+    assert page_url(base, 2) == base + "/page-2/"
+    assert page_url(base, 7) == base + "/page-7/"
+    # A trailing slash on base is normalised (never //page-N/).
+    assert page_url(base + "/", 2) == base + "/page-2/"
+
+
+@pytest.mark.smoke
+def test_page_signature_repeat_guard() -> None:
+    assert page_signature([]) == ""
+    assert page_signature(["<div>A</div>", "<div>B</div>"]) == "<div>A</div>"
+    # Distinct first card -> distinct signature (lets pagination advance).
+    assert page_signature(["<div>A</div>"]) != page_signature(["<div>B</div>"])
+    # Identical leading bytes -> equal signature (redirect-to-page-1 detected).
+    lead = "x" * 500
+    assert page_signature([lead + "A"]) == page_signature([lead + "B"])
 
 
 @pytest.mark.smoke

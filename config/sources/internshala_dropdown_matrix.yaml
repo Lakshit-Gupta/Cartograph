@@ -1,29 +1,36 @@
-# Internshala dropdown combo matrix. Each entry expands to one dropdown click
-# sequence (stipend -> category -> work_mode chip) and one listing scrape.
+# Internshala category matrix. Each entry expands to one filtered listing URL
+# (`build_combo_url`): /internships/work-from-home-<slug>-internships/stipend-<N>,
+# walked page-by-page via numbered /page-N/ pagination. There is NO dropdown
+# clicking — Internshala retired the "Load more" button and filters live in the
+# URL path.
 #
-# `stipend` is implicitly always the dropdown's max-supported value
-# ("above 10,000"); the real >=INTERNSHALA_COMP_FLOOR_INR (default 30,000)
-# enforcement happens in code against each parsed card stipend. Setting the
-# dropdown to its max value merely thins the server-side result set.
+# `slug` is the verified Internshala category URL segment (lifted from the
+# dormant URL crawler's internshala_filters.yaml `categories`). It is REQUIRED
+# per row: the auto-derive fallback in `_derive_slug` mangles parenthetical
+# names (e.g. "Artificial Intelligence (AI)" -> "artificial-intelligence-ai",
+# which 404s). `category` is the human label used in logs / combo names.
+#
+# Stipend is URL-enforced at INTERNSHALA_COMP_FLOOR_INR (default 30,000); the
+# code-side floor check stays as the safety net.
 #
 # Bump `version` on every edit — it is recorded in discovery_cycle_log and the
 # worker re-reads this file on SIGHUP. 12 work-from-home combos in Phase 1;
 # on-site combos (BLR / HYD / PUN) are deferred to Phase 1.5 once the remote
 # pool is verified.
-version: "2026.05.29.v1"
+version: "2026.05.31.v1"
 
 matrix:
   # Backend / Python persona x remote.
-  - { category: "Backend Development", work_mode: "wfh" }
-  - { category: "Python/Django Development", work_mode: "wfh" }
-  - { category: "Full Stack Development", work_mode: "wfh" }
-  - { category: "DevOps", work_mode: "wfh" }
-  - { category: "API Development", work_mode: "wfh" }
-  - { category: "Data Engineering", work_mode: "wfh" }
+  - { category: "Backend Development", work_mode: "wfh", slug: "backend-development" }
+  - { category: "Python/Django Development", work_mode: "wfh", slug: "python-django-development" }
+  - { category: "Full Stack Development", work_mode: "wfh", slug: "full-stack-development" }
+  - { category: "DevOps", work_mode: "wfh", slug: "devops" }
+  - { category: "API Development", work_mode: "wfh", slug: "api-development" }
+  - { category: "Data Engineering", work_mode: "wfh", slug: "data-engineering" }
   # ML persona x remote.
-  - { category: "Machine Learning", work_mode: "wfh" }
-  - { category: "Data Science", work_mode: "wfh" }
-  - { category: "Artificial Intelligence (AI)", work_mode: "wfh" }
-  - { category: "Deep Learning", work_mode: "wfh" }
-  - { category: "Natural Language Processing (NLP)", work_mode: "wfh" }
-  - { category: "Computer Vision", work_mode: "wfh" }
+  - { category: "Machine Learning", work_mode: "wfh", slug: "machine-learning" }
+  - { category: "Data Science", work_mode: "wfh", slug: "data-science" }
+  - { category: "Artificial Intelligence (AI)", work_mode: "wfh", slug: "artificial-intelligence" }
+  - { category: "Deep Learning", work_mode: "wfh", slug: "deep-learning" }
+  - { category: "Natural Language Processing (NLP)", work_mode: "wfh", slug: "natural-language-processing" }
+  - { category: "Computer Vision", work_mode: "wfh", slug: "computer-vision" }

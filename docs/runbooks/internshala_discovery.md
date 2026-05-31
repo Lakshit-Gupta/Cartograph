@@ -1,12 +1,18 @@
 # Internshala browser discovery — operator runbook
 
 Phase 4 discovery lane for Internshala. A camoufox-driven worker on the
-ThinkPad sidecar drives Internshala's own dropdown UI (category, stipend,
-work-mode), scrapes the resulting listing cards, and **post-filters in
-code** against the real comp floor (default ₹30,000/month) that the
-Internshala dropdown — which caps at "above ₹10,000" — cannot enforce.
-Survivors are deduped against Redis and published onto `stream:rank` via
-the existing `persist_and_publish`, exactly like the extractor path.
+ThinkPad sidecar navigates one filtered listing URL per category combo
+(`/internships/work-from-home-<slug>-internships/stipend-30000`) and walks
+Internshala's numbered **`/page-N/`** pagination page-by-page — the "Load
+more" button was retired; the listing now serves ~25 cards/page behind a
+"Next" link (verified 2026-05-31). It scrapes each page's cards and
+**post-filters in code** against the real comp floor (default ₹30,000/month;
+also URL-enforced as `/stipend-30000`, with the code check as the safety
+net). Survivors are deduped against Redis and published onto `stream:rank`
+via the existing `persist_and_publish`, exactly like the extractor path.
+Pagination stops early on the first empty / repeated page (ceiling
+`pages_per_url=25`); there is **no dropdown driving** — all filters live in
+the URL path.
 
 This worker **replaces** the Pi-side `curl_cffi` URL crawler for
 Internshala. The crawler is not deleted — it is left dormant in the tree
@@ -53,17 +59,18 @@ ThinkPad sidecar (already runs apply-browser-worker)
 │  ├─ browser: BrowserEngine (CamoufoxEngine impl)             │
 │  │   • one Firefox held alive, fresh context per combo       │
 │  │   • engine.restart() every MAX_CYCLES_PER_ENGINE cycles   │
-│  ├─ per-combo (12 wfh combos × up to 3 Load-more pages):     │
-│  │   ├─ asyncio.wait_for(run_combo, timeout=30)              │
-│  │   ├─ goto(/internships/, wait_until=domcontentloaded)     │
+│  ├─ per-combo (12 wfh combos × up to 25 /page-N/ pages):     │
+│  │   ├─ asyncio.wait_for(run_combo, timeout scaled to pages) │
+│  │   ├─ build_combo_url(combo) → filtered listing URL        │
+│  │   ├─ goto(page_url(base,1), wait_until=domcontentloaded)  │
 │  │   ├─ dismiss onboarding modal (best-effort)               │
-│  │   ├─ click dropdowns: stipend → category → wfh chip       │
 │  │   ├─ wait_for_selector(card_root, 8s)  [NOT networkidle]  │
-│  │   ├─ scrape cards from DOM (selectolax)                   │
+│  │   ├─ loop pages 1..N: goto(/page-N/) for N>1, scrape DOM  │
+│  │   │   stop early on empty page OR repeated page_signature │
 │  │   ├─ parse stipend → reject < COMP_FLOOR_INR              │
 │  │   ├─ Redis SET internshala:seen:<sha> EX 86400 NX (dedup) │
 │  │   ├─ persist_and_publish(opp) → stream:rank               │
-│  │   └─ on selector miss: screenshot + DOM clip, skip combo  │
+│  │   └─ page-1 card_root miss: screenshot + DOM clip, skip   │
 │  ├─ end-of-cycle:                                            │
 │  │   ├─ INSERT into discovery_cycle_log                      │
 │  │   └─ XADD stream:notify → discovery_cycle_report card     │
@@ -129,35 +136,21 @@ bumping `version` away from `RECON_PENDING`.
    a stable CSS selector and paste it into the matching key in
    `config/sources/internshala_selectors.yaml`.
 
-   **Dropdown triggers and option lists** (`selectors.dropdown.*`):
-   - `stipend_button` — the control that opens the stipend filter.
-   - `stipend_option_above_10000` — the "above ₹10,000" choice. If stipend
-     is a **slider**, record the slider handle / input instead and note it
-     in a YAML comment; the worker's `drive_dropdowns` clicks the button
-     then the option, so a slider needs the selectors that map to those two
-     clicks (or the option-key left empty if a single drag suffices).
-   - `category_button` — the Chosen trigger for the category filter
-     (typically a `*_chosen .chosen-single` element).
-   - `category_options` — the rendered option rows
-     (`*_chosen .chosen-results li`). The worker appends
-     `>> text=<category>` to pick the row by visible text, so this must
-     select the full `<li>` option list.
-   - `work_mode_wfh_chip` — the "Work from home" filter chip / label.
-   - `location_button` / `location_options` — the Chosen location widget
-     (only needed once on-site combos land in Phase 1.5, but capture them
-     now while you are in the DOM).
+   > **No dropdown / pagination selectors to recon.** Filters are applied via
+   > the URL path (category slug + `/stipend-30000` + `work-from-home-`),
+   > built by `build_combo_url` from
+   > `config/sources/internshala_dropdown_matrix.yaml` (each row carries a
+   > verified `slug`). Pagination is numbered `/page-N/` navigation, not a
+   > button. So recon only the **card fields** + **failure markers** below.
+   > To add/verify a category slug, open
+   > `https://internshala.com/internships/work-from-home-<slug>-internships/`
+   > and confirm cards render.
 
    **Listing card fields** (`selectors.listing.*`):
    - `card_root` — the repeating element that wraps one listing
      (`div.individual_internship`). Everything else is resolved per-card.
    - `card_title`, `card_company`, `card_location`, `card_stipend`,
      `card_apply_link`, `card_posted_relative` — the fields inside one card.
-
-   **Pagination** (`selectors.paginate.*`):
-   - `load_more_button` — the control the worker clicks to load the next
-     page of results.
-   - `list_end_marker` — the "no results" / empty-state element that tells
-     the worker to stop paging early.
 
    **Failure markers** (top-level `selectors.*`):
    - `login_marker` — an element present only on the login page / modal.
@@ -371,12 +364,12 @@ The worker writes per-cycle outcomes to `#🛠-source-health` and escalates
 
 | Symptom | Meaning | Operator action |
 |---|---|---|
-| `selector_miss: <key>` in logs + screenshot in `#🛠-source-health` / `#🔔-alerts` | A required dropdown / card / pagination selector no longer matches (Internshala moved the DOM). The affected combo is skipped; other combos continue. | Open the screenshot + the clipped DOM under `/tmp/discovery/miss/<combo>_<ts>.{png,html}`. Recon the new selector (see [RECON-FIRST](#recon-first--do-this-before-the-first-deploy)), edit the key in `internshala_selectors.yaml`, **bump `version`**, then SIGHUP — no rebuild. |
+| `listing.card_root` miss in logs (`discovery_card_root_miss`) + screenshot in `#🛠-source-health` / `#🔔-alerts` | Page 1 of a combo's filtered URL rendered no cards — either the `card_root` selector drifted (Internshala moved the DOM) or that category slug is wrong / has no ≥30k remote listings right now. The affected combo is skipped; other combos continue. | Open the screenshot + the clipped DOM under `/tmp/discovery/miss/<combo>_<ts>.{png,html}`. If the DOM has cards, recon `card_root`/card-field selectors in `internshala_selectors.yaml`, **bump `version`**, SIGHUP. If the page is a genuine empty result, verify the `slug` in `internshala_dropdown_matrix.yaml` against a live `/internships/work-from-home-<slug>-internships/` URL. |
 | `discovery_challenge_detected kind=captcha` + red embed, cycle `healthy=false` | A captcha / interstitial appeared. The worker aborts the cycle and **never** tries to solve it. | Cool off: stop the worker for a while, verify the account in a real browser on the ThinkPad, let traffic settle. Re-enable. If it recurs, raise `IDLE_SEC` to reduce request rate. |
 | `discovery_challenge_detected kind=login_redirect` (or `kind=login`) | The session cookie expired — Internshala bounced the worker to `/login`. Cycle aborts `healthy=false`. | Re-run identity warmup so a fresh cookie is written to the vault, then restart the worker. The same `platform='internshala'` identity row backs discovery and auto-apply, so a warmup fixes both. |
 | `discovery_dry_streak` alert | ≥ 3 consecutive **healthy** cycles published **zero** cards. Usually an Internshala UX change that broke parsing without a hard selector miss, or the comp floor is set too high for current listings. | Run `mp internshala-discover --once --combo backend-development-wfh --dry-run` and read the per-card stdout. If cards parse but all reject sub-floor, the floor may be too aggressive; if nothing parses, recon the listing-card selectors. |
 | Healthcheck failing / heartbeat stale | No `discovery:heartbeat` key for > 90 s — the worker stalled or crashed. The Pi alerter pages on this. | `docker compose -f compose.sidecar.yaml logs --tail 200 internshala-discovery-worker` to find the stall; restart the worker. Check the autossh tunnel is up (`sudo systemctl status carto-tunnel`) since a dead tunnel breaks the Redis SET. |
-| `discovery_combo_timeout combo=<name>` | One combo exceeded the 30 s wall-clock cap (`asyncio.wait_for`). Its subtree is killed and the cycle continues. | Occasional timeouts under a slow page are normal. Persistent timeouts on one combo point at a slow / mis-targeted dropdown click — recon that combo's selectors. |
+| `discovery_combo_timeout combo=<name>` | One combo exceeded the per-combo wall-clock cap (`asyncio.wait_for`, now scaled to `pages_per_url`). Its subtree is killed and the cycle continues. | Occasional timeouts under slow pages are normal. Persistent timeouts on one combo point at slow `/page-N/` navigations — lower `pages_per_url` or raise `IDLE_SEC` to ease the request rate. |
 | `discovery_no_identity` + exit code 2 | No healthy `platform='internshala'` identity was available to lease at boot. | Confirm an `identities` row exists with `ban_status='healthy'` and cookies populated; the container will restart and retry the checkout. |
 | Worker refuses to boot with `ReconPendingError` | `internshala_selectors.yaml` still has `version: RECON_PENDING`. | Complete recon and bump the version. Only for a placeholder `--dry-run` smoke, set `INTERNSHALA_ALLOW_RECON_PENDING=1`. |
 | `selectors_reload_failed` after a SIGHUP | The edited YAML is malformed. The worker **keeps the old selectors** and logs the error — discovery stays online. | Fix the YAML syntax and SIGHUP again. Confirm `selectors_reloaded old=<v> new=<v>` follows. |

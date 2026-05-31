@@ -37,7 +37,7 @@ _DEFAULT_COMP_FLOOR_INR = 30_000
 _DEFAULT_MAX_AGE_DAYS = 14
 _DEFAULT_MAX_CYCLES_PER_ENGINE = 10
 _DEFAULT_IDENTITY_LABEL = "raju_internshala"
-_DEFAULT_PAGES_PER_URL = 3
+_DEFAULT_PAGES_PER_URL = 25  # /page-N/ ceiling per combo; early-stop ends most in 1-4
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]  # config.py -> repo root
 _DEFAULT_SELECTORS_PATH = _REPO_ROOT / "config" / "sources" / "internshala_selectors.yaml"
@@ -58,10 +58,16 @@ class ReconPendingError(SystemExit):
 
 @dataclass(frozen=True, slots=True)
 class Combo:
-    """One dropdown click sequence: category + work mode."""
+    """One filtered listing: category + work mode + Internshala URL slug.
+
+    `slug` is the Internshala category URL segment (e.g. `machine-learning`);
+    `expand_matrix` fills it from the matrix row's explicit `slug:` or derives it
+    from `category` as a fallback. `build_combo_url` consumes it.
+    """
 
     category: str
     work_mode: str
+    slug: str = ""
 
     @property
     def name(self) -> str:
@@ -144,11 +150,47 @@ def _prefs_overrides() -> dict[str, Any]:
     return dict(block) if isinstance(block, dict) else {}
 
 
+_WORK_MODE_URL_PREFIX = {"wfh": "work-from-home"}
+
+
+def _derive_slug(category: str) -> str:
+    """Fallback Internshala category slug from a display name.
+
+    Lowercase, drop parenthetical qualifiers / punctuation, collapse spaces to
+    hyphens. NOTE: only a fallback — a parenthetical category like
+    "Artificial Intelligence (AI)" derives to "artificial-intelligence-ai",
+    which is NOT the real Internshala slug ("artificial-intelligence"), so the
+    shipped matrix rows MUST carry an explicit `slug:`.
+    """
+    s = category.lower()
+    for ch in ("(", ")", ".", ",", "&"):
+        s = s.replace(ch, " ")
+    s = s.replace("/", "-").replace(" ", "-")
+    while "--" in s:
+        s = s.replace("--", "-")
+    return s.strip("-")
+
+
+def build_combo_url(combo: Combo, *, comp_floor_inr: float) -> str:
+    """Filtered Internshala listing URL for a combo (page-1 base, no `/page-N/`).
+
+    Shape: `/internships/[work-from-home-]<slug>-internships/stipend-<floor>`.
+    The work-from-home prefix is applied only for the `wfh` work mode. The
+    stipend segment URL-enforces the comp floor server-side (Internshala honors
+    `/stipend-<N>/`); the code-side `passes_floor` check stays as the safety net.
+    """
+    prefix = _WORK_MODE_URL_PREFIX.get(combo.work_mode)
+    seg = f"{prefix}-{combo.slug}-internships" if prefix else f"{combo.slug}-internships"
+    return f"{INTERNSHALA_LISTING_URL.rstrip('/')}/{seg}/stipend-{int(comp_floor_inr)}"
+
+
 def expand_matrix(matrix_doc: dict[str, Any]) -> tuple[list[Combo], str]:
-    """Expand the dropdown-matrix YAML doc into `(combos, version)`.
+    """Expand the category-matrix YAML doc into `(combos, version)`.
 
     Rejects rows missing `category` / `work_mode` or carrying unknown axes, so a
-    matrix typo fails loudly rather than silently skipping a combo.
+    matrix typo fails loudly rather than silently skipping a combo. The optional
+    `slug` axis carries the verified Internshala URL slug; absent, it is derived
+    from `category` via `_derive_slug` (fallback only — see its caveat).
     """
     version = str(matrix_doc.get("version", ""))
     rows = matrix_doc.get("matrix") or []
@@ -156,12 +198,14 @@ def expand_matrix(matrix_doc: dict[str, Any]) -> tuple[list[Combo], str]:
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ValueError(f"matrix[{i}] is not a mapping: {row!r}")
-        extra = set(row) - {"category", "work_mode"}
+        extra = set(row) - {"category", "work_mode", "slug"}
         if extra:
-            raise ValueError(f"matrix[{i}] has unknown axes {sorted(extra)}; allowed: category, work_mode")
+            raise ValueError(f"matrix[{i}] has unknown axes {sorted(extra)}; allowed: category, work_mode, slug")
         if "category" not in row or "work_mode" not in row:
             raise ValueError(f"matrix[{i}] missing required axis (category, work_mode): {row!r}")
-        combos.append(Combo(category=str(row["category"]), work_mode=str(row["work_mode"])))
+        category = str(row["category"])
+        slug = str(row.get("slug") or "").strip() or _derive_slug(category)
+        combos.append(Combo(category=category, work_mode=str(row["work_mode"]), slug=slug))
     return combos, version
 
 
@@ -235,7 +279,7 @@ def load_config(
         max_age_days=_resolved_int("max_age_days", "INTERNSHALA_MAX_AGE_DAYS", _DEFAULT_MAX_AGE_DAYS),
         max_cycles_per_engine=_resolved_int("max_cycles_per_engine", "INTERNSHALA_MAX_CYCLES_PER_ENGINE", _DEFAULT_MAX_CYCLES_PER_ENGINE),
         identity_label=os.environ.get("INTERNSHALA_IDENTITY_LABEL", _DEFAULT_IDENTITY_LABEL),
-        pages_per_url=_env_int("INTERNSHALA_PAGES_PER_URL", _DEFAULT_PAGES_PER_URL),
+        pages_per_url=_resolved_int("pages_per_url", "INTERNSHALA_PAGES_PER_URL", _DEFAULT_PAGES_PER_URL),
         selectors_path=selectors_path,
         matrix_path=matrix_path,
         selectors=selectors,
@@ -297,6 +341,7 @@ __all__ = [
     "Combo",
     "DiscoveryConfig",
     "ReconPendingError",
+    "build_combo_url",
     "expand_matrix",
     "load_config",
     "load_selectors",
