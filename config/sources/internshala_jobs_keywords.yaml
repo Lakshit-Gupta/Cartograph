@@ -1,83 +1,187 @@
 # Internshala JOBS field-relevance filter — SIGHUP-reloadable.
 #
-# Jobs have NO category dropdown (the internship side filters server-side by
-# category); the jobs URL returns EVERY role in those cities >= salary. So the
-# worker filters in code on the job TITLE:
+# Jobs have NO category dropdown; the URL returns EVERY role in those cities
+# >= salary. The worker filters in code on the job TITLE:
 #
 #   keep iff  (title matches NO exclude term)  AND
 #             (include_title_any empty  OR  title matches >= 1 include term)
 #
-# Word-boundary match, NEVER substring ("ml" never matches "html"). Multi-word
-# terms ("full stack") match as a phrase. Exclude wins over include, so
-# "Sales Engineer" is dropped (exclude 'sales') even though it matches 'engineer'.
+# Word-boundary match, NEVER substring ("ml" never matches "html"; "go developer"
+# is a phrase so bare "Go-getter" is safe). Exclude wins over include, so
+# "Sales Engineer" / "Mechanical Engineer" are dropped despite matching "engineer".
 #
-# The shared config/policy/negative_keywords.yaml is ALSO merged into the
-# exclude set, so jobs reuse the same hard-reject list as internship auto-apply.
-# Edit + `kill -HUP <worker pid>` to reload without a restart.
-version: "2026.05.31.v1"
+# The shared config/policy/negative_keywords.yaml is ALSO merged into the exclude
+# set (domain_mismatch / marketing / design / sales_ops / hr / finance), so
+# `exclude_any` below only adds what that list misses (medical / teaching /
+# legal / hospitality / banking-sales). Edit + `kill -HUP <worker pid>` to reload.
+#
+# TUNING: the include list is the net width. It deliberately leans broad —
+# generic role words (developer/engineer/software/programmer) catch most tech
+# roles, and the exclude list removes the off-field ones that happen to say
+# "engineer". Add a term to widen; the exclude side keeps precision.
+version: "2026.05.31.v2"
 
-# Positive field filter — the role types you actually want (from the internship
-# category matrix: Backend / Python / Full-Stack / DevOps / Data / ML / AI ...).
+# Positive field filter — software / backend / data / ML / AI / DevOps roles.
 include_title_any:
+  # generic tech role words (catch most relevant titles)
+  - developer
+  - engineer
+  - programmer
+  - software
+  - technical
+  - sde
+  - sdet
+  - engineering
+  - coder
+  # backend / web
   - backend
   - back end
+  - frontend
+  - front end
+  - full stack
+  - fullstack
+  - full-stack
+  - web developer
+  - web development
+  - api
+  - microservices
+  # languages / frameworks (tech-named roles)
   - python
   - django
   - flask
   - fastapi
-  - full stack
-  - fullstack
-  - full-stack
-  - frontend
-  - front end
-  - software
-  - developer
-  - engineer
-  - sde
-  - devops
-  - api
+  - java
+  - spring
+  - golang
+  - go developer
+  - node
+  - nodejs
+  - node.js
+  - react
+  - reactjs
+  - angular
+  - vue
+  - javascript
+  - typescript
+  - rust
+  - scala
+  - kotlin
+  - php
+  - ruby
+  - rails
+  - laravel
+  - android
+  - ios
+  - mobile
+  - flutter
+  # data / ML / AI
   - data engineer
   - data engineering
-  - machine learning
-  - ml
-  - data science
   - data scientist
+  - data science
+  - data analyst
+  - machine learning
+  - ml engineer
+  - ml
+  - ai engineer
+  - ai/ml
   - artificial intelligence
   - ai
   - deep learning
+  - mlops
+  - llm
+  - genai
+  - generative ai
   - nlp
   - natural language
   - computer vision
-  - golang
-  - node
-  - react
-  - java
+  - pytorch
+  - tensorflow
+  - big data
+  - spark
+  - etl
+  - data platform
+  - data architect
+  # devops / cloud / infra
+  - devops
+  - sre
+  - site reliability
+  - platform engineer
+  - infrastructure
   - cloud
+  - aws
+  - azure
+  - gcp
+  - kubernetes
+  - docker
+  # systems / db / qa / lead
+  - systems engineer
+  - database
+  - sql developer
+  - qa engineer
+  - test automation
+  - automation engineer
+  - tech lead
+  - solution architect
+  - software architect
+  - blockchain
+  - web3
 
-# Extra title excludes on top of config/policy/negative_keywords.yaml.
+# Extra excludes beyond config/policy/negative_keywords.yaml (title match -> drop).
 exclude_any:
-  - sales
-  - business development
-  - bdm
-  - bde
-  - marketing
-  - content writer
-  - copywriter
-  - hr
-  - human resources
-  - recruiter
-  - telecaller
-  - tele caller
-  - customer support
-  - customer success
-  - operations
-  - finance
-  - accountant
-  - dean
-  - professor
+  # medical / clinical
   - gynecologist
+  - physician
+  - doctor
   - nurse
+  - dentist
+  - surgeon
   - icu
+  - clinical
+  - physiotherapist
+  - radiologist
+  - psychologist
+  - dietician
+  # teaching / academia
   - teacher
   - tutor
+  - trainer
+  - instructor
+  - lecturer
+  - professor
+  - faculty
+  - dean
+  - principal
   - counselor
+  - counsellor
+  # finance / banking-sales / legal
+  - accountant
+  - bookkeeper
+  - cashier
+  - relationship manager
+  - account manager
+  - lawyer
+  - advocate
+  - paralegal
+  - legal associate
+  # operations / admin / support extras
+  - receptionist
+  - front office
+  - data entry
+  - back office
+  - procurement
+  - supply chain
+  - store keeper
+  - storekeeper
+  - warehouse
+  - logistics
+  - delivery
+  - driver
+  # hospitality / lifestyle
+  - hospitality
+  - chef
+  - cook
+  - beautician
+  - fitness
+  - yoga
+  - photographer
