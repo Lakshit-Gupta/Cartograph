@@ -60,6 +60,8 @@ from src.workers.internshala_discovery.report import (
 _log = get_logger(__name__)
 
 _COMBO_TIMEOUT_SEC = 30
+_NAV_TIMEOUT_MS = 25_000  # explicit page.goto cap (logged-in page can stall domcontentloaded)
+_OP_TIMEOUT_MS = 15_000  # default cap for every other page op
 
 
 async def run_combo(
@@ -84,8 +86,13 @@ async def run_combo(
 
     async with engine.open_context(cookies=cookies, ua=ua) as ctx:
         page = await ctx.new_page()
+        # Hard-cap every page op — Internshala's persistent telemetry can stall
+        # `domcontentloaded` indefinitely; without an explicit nav timeout `goto`
+        # hangs forever and the asyncio wall-clock can't cancel a stuck CDP await.
+        page.set_default_navigation_timeout(_NAV_TIMEOUT_MS)
+        page.set_default_timeout(_OP_TIMEOUT_MS)
         try:
-            await page.goto(INTERNSHALA_LISTING_URL, wait_until="domcontentloaded")
+            await page.goto(INTERNSHALA_LISTING_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
             await humanize_page(page)
             await detect_challenge(page, cfg)
 
