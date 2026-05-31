@@ -42,10 +42,26 @@ _NON_NUMERIC_MARKERS: tuple[str, ...] = (
     "tbd",
 )
 
-# Currency detection. ₹ / Rs / Rs. / INR → INR; $ / USD → USD. Default is INR
-# for bare Indian stipends (Internshala is INR-native).
-_USD_RE = re.compile(r"(?:US\$|\$|\bUSD\b)", re.IGNORECASE)
-_INR_RE = re.compile(r"(?:₹|\bRs\.?\b|\bINR\b)", re.IGNORECASE)
+# Currency detection, MOST-SPECIFIC FIRST. Internshala is INR-native, but its
+# international / remote listings quote USD ($), GBP (£), EUR (€), AED (Dhs /
+# dirham) and the A$/C$/S$ dollar variants. The A$/C$/S$ patterns sit before the
+# bare "$" → USD rule so they win; ₹ / Rs / INR / a bare number fall through to
+# INR. Every code below has a rate in `src.common.currency`. Previously only
+# $ and ₹/Rs were detected and every other symbol silently became INR — which
+# sank ≥₹30k £/€/AED stipends below the rupee floor and dropped them.
+_CURRENCY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("AED", re.compile(r"(?:\bAED\b|\bDhs?\b|dirhams?|د\.?\s*إ)", re.IGNORECASE)),
+    ("GBP", re.compile(r"(?:£|\bGBP\b)", re.IGNORECASE)),
+    ("EUR", re.compile(r"(?:€|\bEUR\b)", re.IGNORECASE)),
+    # Lookbehind: the A/C/S must not be part of a larger token, else the "S$" in
+    # "US$" trips SGD before USD is reached.
+    ("AUD", re.compile(r"(?:(?<![A-Za-z])A\$|\bAUD\b)", re.IGNORECASE)),
+    ("CAD", re.compile(r"(?:(?<![A-Za-z])C\$|\bCAD\b)", re.IGNORECASE)),
+    ("SGD", re.compile(r"(?:(?<![A-Za-z])S\$|\bSGD\b)", re.IGNORECASE)),
+    ("JPY", re.compile(r"(?:¥|\bJPY\b)", re.IGNORECASE)),
+    ("CHF", re.compile(r"\bCHF\b", re.IGNORECASE)),
+    ("USD", re.compile(r"(?:US\$|\$|\bUSD\b)", re.IGNORECASE)),
+)
 
 # Period detection. Order matters only for readability — each alternative is
 # anchored so "/yr" and "/year" both resolve to "year", etc. LPA / "p.a." imply
@@ -96,10 +112,15 @@ class ParsedStipend:
 
 
 def _detect_currency(text: str) -> str:
-    """₹/Rs/INR → INR, $/USD → USD. Default INR (Internshala is INR-native)."""
-    if _USD_RE.search(text):
-        return "USD"
-    # ₹ / Rs / INR or no symbol at all → INR.
+    """Map the stipend string to a currency code, most-specific symbol first.
+
+    A$/C$/S$ resolve before the bare ``$`` → USD rule; ₹ / Rs / INR / a bare
+    number fall through to INR (Internshala is INR-native). Every returned code
+    has a rate in :mod:`src.common.currency`.
+    """
+    for code, pattern in _CURRENCY_PATTERNS:
+        if pattern.search(text):
+            return code
     return "INR"
 
 
@@ -195,9 +216,10 @@ def parse_stipend(raw: str) -> ParsedStipend | None:
     comp_max_inr = to_inr_per_month(comp_max_native, currency, period)
 
     if comp_min_inr is None or comp_max_inr is None:
-        # currency.to_inr_per_month only returns None on unknown currency, which
-        # can't happen here (we only ever pass INR/USD), but guard anyway so a
-        # future currency widening can't silently emit a half-populated record.
+        # to_inr_per_month only returns None on an unknown currency. Every code
+        # _detect_currency can emit has a rate in src.common.currency, so this
+        # shouldn't fire — but guard so a future symbol added to the detector
+        # without a matching rate can't silently emit a half-populated record.
         _log.warning("stipend_inr_conversion_failed", raw=raw, currency=currency, period=period)
         return None
 

@@ -862,5 +862,75 @@
   {
     "raw": "TBD",
     "expected": null
+  },
+  {
+    "raw": "£2,000 /month",
+    "expected_min_inr_per_month": 210000.0,
+    "expected_max_inr_per_month": 210000.0,
+    "expected_currency": "GBP",
+    "expected_period": "month"
+  },
+  {
+    "raw": "GBP 2,500 /month",
+    "expected_min_inr_per_month": 262500.0,
+    "expected_max_inr_per_month": 262500.0,
+    "expected_currency": "GBP",
+    "expected_period": "month"
+  },
+  {
+    "raw": "£40,000 /year",
+    "expected_min_inr_per_month": 350000.0,
+    "expected_max_inr_per_month": 350000.0,
+    "expected_currency": "GBP",
+    "expected_period": "year"
+  },
+  {
+    "raw": "€1,500 /month",
+    "expected_min_inr_per_month": 135000.0,
+    "expected_max_inr_per_month": 135000.0,
+    "expected_currency": "EUR",
+    "expected_period": "month"
+  },
+  {
+    "raw": "AED 3,000 /month",
+    "expected_min_inr_per_month": 67800.0,
+    "expected_max_inr_per_month": 67800.0,
+    "expected_currency": "AED",
+    "expected_period": "month"
+  },
+  {
+    "raw": "Dhs 4,000 /month",
+    "expected_min_inr_per_month": 90400.0,
+    "expected_max_inr_per_month": 90400.0,
+    "expected_currency": "AED",
+    "expected_period": "month"
+  },
+  {
+    "raw": "A$2,000 /month",
+    "expected_min_inr_per_month": 110000.0,
+    "expected_max_inr_per_month": 110000.0,
+    "expected_currency": "AUD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "C$2,500 /month",
+    "expected_min_inr_per_month": 152500.0,
+    "expected_max_inr_per_month": 152500.0,
+    "expected_currency": "CAD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "S$1,800 /month",
+    "expected_min_inr_per_month": 111600.0,
+    "expected_max_inr_per_month": 111600.0,
+    "expected_currency": "SGD",
+    "expected_period": "month"
+  },
+  {
+    "raw": "US$2,000 /month",
+    "expected_min_inr_per_month": 166000.0,
+    "expected_max_inr_per_month": 166000.0,
+    "expected_currency": "USD",
+    "expected_period": "month"
   }
 ]

@@ -180,6 +180,60 @@ def test_usd_converts_at_83() -> None:
 
 
 @pytest.mark.smoke
+@pytest.mark.parametrize(
+    ("raw", "currency", "rate"),
+    [
+        ("£2,000 /month", "GBP", 105.0),
+        ("GBP 2,000 /month", "GBP", 105.0),
+        ("€1,500 /month", "EUR", 90.0),
+        ("EUR 1,500 /month", "EUR", 90.0),
+        ("AED 3,000 /month", "AED", 22.6),
+        ("Dhs 3,000 /month", "AED", 22.6),
+        ("¥300,000 /month", "JPY", 0.55),
+    ],
+)
+def test_foreign_currency_detection_and_conversion(raw: str, currency: str, rate: float) -> None:
+    """£/€/AED/¥ stipends are tagged correctly and converted at the snapshot rate."""
+    result = parse_stipend(raw)
+    assert result is not None
+    assert result.native_currency == currency
+    assert result.native_period == "month"
+    assert result.comp_min_native is not None
+    assert result.comp_min_inr_per_month == pytest.approx(result.comp_min_native * rate, abs=_INR_TOLERANCE)
+
+
+@pytest.mark.smoke
+@pytest.mark.parametrize(
+    ("raw", "currency"),
+    [
+        ("A$2,000 /month", "AUD"),
+        ("C$2,000 /month", "CAD"),
+        ("S$2,000 /month", "SGD"),
+        ("US$2,000 /month", "USD"),
+        ("$2,000 /month", "USD"),
+    ],
+)
+def test_dollar_variants_disambiguated(raw: str, currency: str) -> None:
+    """A$/C$/S$ must resolve to AUD/CAD/SGD, not fall through to the bare-$ USD rule."""
+    result = parse_stipend(raw)
+    assert result is not None
+    assert result.native_currency == currency
+
+
+@pytest.mark.smoke
+def test_gbp_clears_floor_after_conversion() -> None:
+    """The regression this fix targets: a £2,000/mo stipend is 2000*105 = ₹210k,
+    NOT ₹2,000. Previously every non-$ foreign symbol defaulted to INR and sank
+    below the ₹30k discovery floor."""
+    result = parse_stipend("£2,000 /month")
+    assert result is not None
+    assert result.native_currency == "GBP"
+    assert result.comp_min_inr_per_month is not None
+    assert result.comp_min_inr_per_month == pytest.approx(2000.0 * 105.0, abs=_INR_TOLERANCE)
+    assert result.comp_min_inr_per_month >= 30000.0  # clears the discovery floor
+
+
+@pytest.mark.smoke
 def test_per_hour_scales_by_160() -> None:
     """Rs 500/hr maps to 500 * 160 = Rs 80,000/month."""
     result = parse_stipend("₹500 /hour")
